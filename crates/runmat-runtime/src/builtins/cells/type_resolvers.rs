@@ -35,6 +35,17 @@ pub fn mat2cell_type(args: &[Type], _context: &ResolveContext) -> Type {
     }
 }
 
+pub fn num2cell_type(args: &[Type], _context: &ResolveContext) -> Type {
+    let Some(input) = args.first() else {
+        return Type::cell();
+    };
+
+    match mat2cell_element_type(input) {
+        Some(element_type) => Type::cell_of(element_type),
+        None => Type::cell(),
+    }
+}
+
 fn cell2mat_element_type(element_type: &Type) -> Type {
     match element_type {
         Type::Union(options) => {
@@ -178,6 +189,14 @@ mod tests {
     fn mat2cell_type_is_cell() {
         assert_eq!(
             mat2cell_type(&[Type::tensor()], &ResolveContext::new(Vec::new())),
+            Type::cell_of(Type::Union(vec![Type::Num, Type::tensor()]))
+        );
+    }
+
+    #[test]
+    fn num2cell_type_is_cell() {
+        assert_eq!(
+            num2cell_type(&[Type::tensor()], &ResolveContext::new(Vec::new())),
             Type::cell_of(Type::Union(vec![Type::Num, Type::tensor()]))
         );
     }

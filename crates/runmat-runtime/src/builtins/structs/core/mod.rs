@@ -1,6 +1,7 @@
 //! Core struct builtins.
 
 pub mod fieldnames;
+pub mod fields;
 pub mod getfield;
 pub mod isfield;
 pub mod orderfields;
