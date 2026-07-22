@@ -100,6 +100,8 @@ pub(crate) mod polarplot;
 pub(crate) mod print;
 #[path = "ops/quiver.rs"]
 pub(crate) mod quiver;
+#[path = "ops/saveas.rs"]
+pub(crate) mod saveas;
 #[path = "ops/scatter.rs"]
 pub(crate) mod scatter;
 #[path = "ops/scatter3.rs"]

@@ -425,7 +425,11 @@ fn string_arg(value: &Value) -> BuiltinResult<String> {
 }
 
 #[cfg(feature = "plot-core")]
-async fn render_png(handle: FigureHandle, width: u32, height: u32) -> BuiltinResult<Vec<u8>> {
+pub(crate) async fn render_png(
+    handle: FigureHandle,
+    width: u32,
+    height: u32,
+) -> BuiltinResult<Vec<u8>> {
     super::render_figure_snapshot(handle, width, height, None)
         .await
         .map_err(|err| {
@@ -438,14 +442,18 @@ async fn render_png(handle: FigureHandle, width: u32, height: u32) -> BuiltinRes
 }
 
 #[cfg(not(feature = "plot-core"))]
-async fn render_png(_handle: FigureHandle, _width: u32, _height: u32) -> BuiltinResult<Vec<u8>> {
+pub(crate) async fn render_png(
+    _handle: FigureHandle,
+    _width: u32,
+    _height: u32,
+) -> BuiltinResult<Vec<u8>> {
     Err(print_error_with_detail(
         &PRINT_ERROR_RENDER,
         "plot-core support is not enabled in this build",
     ))
 }
 
-async fn write_bytes(path: &Path, payload: &[u8]) -> BuiltinResult<()> {
+pub(crate) async fn write_bytes(path: &Path, payload: &[u8]) -> BuiltinResult<()> {
     let temp_path = temporary_output_path(path);
     let mut created_temp = false;
 
