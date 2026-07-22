@@ -29,6 +29,7 @@ pub mod tempdir;
 pub mod tempname;
 pub mod uigetfile;
 pub mod uiputfile;
+pub mod what;
 use once_cell::sync::Lazy;
 use std::path::Path;
 use std::sync::Mutex;
