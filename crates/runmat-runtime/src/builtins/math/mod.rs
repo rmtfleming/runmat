@@ -8,6 +8,7 @@ pub mod poly;
 pub mod reduction;
 pub mod rounding;
 pub mod signal;
+pub mod sparse;
 pub mod symbolic;
 pub mod trigonometry;
 pub mod type_resolvers;
