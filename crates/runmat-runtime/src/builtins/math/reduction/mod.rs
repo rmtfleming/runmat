@@ -15,6 +15,7 @@ pub(crate) mod mean;
 pub(crate) mod median;
 pub(crate) mod min;
 pub(crate) mod nnz;
+pub(crate) mod normalize;
 pub(crate) mod prod;
 pub(crate) mod std;
 pub(crate) mod sum;
