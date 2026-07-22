@@ -1,0 +1,91 @@
+# Interface specification for fileparts (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: fileparts
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Split a file path into its directory, file name, and extension parts.
+
+  '
+invocation_forms:
+- signature: '[filepath, name, ext] = fileparts(filename)'
+  description: Directory, name, and extension of filename.
+  status: confirmed
+inputs:
+- name: filename
+  required: true
+  description: Path or file name text.
+  status: pending
+outputs:
+- name: filepath
+  description: Directory part.
+  status: pending
+  type_rule:
+    id: fileparts.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: fileparts.output-class
+    observations:
+    - file: observations/fileparts_observations.json
+      case_id: full-path
+    - file: observations/fileparts_observations.json
+      case_id: name-only
+    - file: observations/fileparts_observations.json
+      case_id: trailing-sep
+    - file: observations/fileparts_observations.json
+      case_id: no-ext
+- name: name
+  description: File name without extension (second output).
+  status: pending
+- name: ext
+  description: Extension including the dot (third output).
+  status: pending
+output_type_rules:
+- id: fileparts.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: fileparts.output-class
+  observations:
+  - file: observations/fileparts_observations.json
+    case_id: full-path
+  - file: observations/fileparts_observations.json
+    case_id: name-only
+  - file: observations/fileparts_observations.json
+    case_id: trailing-sep
+  - file: observations/fileparts_observations.json
+    case_id: no-ext
+output_shape_rules:
+- id: fileparts.first-output-dir-rule
+  statement: 'The first output is the directory part: it is empty for a bare file name, and a trailing
+    separator is removed.'
+  status: confirmed
+  normative: true
+  provenance: fileparts.first-output-dir
+  observations:
+  - file: observations/fileparts_observations.json
+    case_id: full-path
+  - file: observations/fileparts_observations.json
+    case_id: name-only
+  - file: observations/fileparts_observations.json
+    case_id: trailing-sep
+  - file: observations/fileparts_observations.json
+    case_id: no-ext
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/fileparts_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: fileparts.q-outputs
+  question: Specify the second and third outputs (name, ext); the harness records only the first output
+    (filepath).
+- id: fileparts.q-platform
+  question: Record separator handling and platform dependence.

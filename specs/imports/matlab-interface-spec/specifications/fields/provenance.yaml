@@ -1,0 +1,44 @@
+# Provenance for fields (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: fields
+claims:
+- claim_id: fields.signature-primary
+  statement: The primary invocation form `c = fields(s)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fields_observations.json
+    case_id: two-fields
+- claim_id: fields.output-class
+  statement: The output class is cell for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fields_observations.json
+    case_id: two-fields
+  - file: observations/fields_observations.json
+    case_id: empty-struct
+- claim_id: fields.cell-fieldnames
+  statement: Returns an N-by-1 cell array of field-name char vectors (0-by-1 for a struct with no fields).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fields_observations.json
+    case_id: two-fields
+  - file: observations/fields_observations.json
+    case_id: empty-struct

@@ -1,0 +1,45 @@
+# Provenance for spdiags (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: spdiags
+claims:
+- claim_id: spdiags.signature-primary
+  statement: The primary invocation form `B = spdiags(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spdiags_observations.json
+    case_id: extract
+- claim_id: spdiags.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spdiags_observations.json
+    case_id: extract
+  - file: observations/spdiags_observations.json
+    case_id: construct
+- claim_id: spdiags.extract-vs-construct
+  statement: The extraction form spdiags(A) returns the nonzero diagonals as the columns of a full matrix;
+    the construction form spdiags(B,d,m,n) returns a sparse matrix of the requested size.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spdiags_observations.json
+    case_id: extract
+  - file: observations/spdiags_observations.json
+    case_id: construct

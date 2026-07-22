@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "fileparts",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/fileparts/test_fileparts_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "full-path",
+      "description": "path with directory and extension",
+      "call": "fileparts('/a/b/c.txt')",
+      "errored": false,
+      "result": {
+        "value": "'/a/b'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "name-only",
+      "description": "bare file name",
+      "call": "fileparts('file.m')",
+      "errored": false,
+      "result": {
+        "value": "''",
+        "class": "char",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "trailing-sep",
+      "description": "path ending in a separator",
+      "call": "fileparts('/x/y/')",
+      "errored": false,
+      "result": {
+        "value": "'/x/y'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-ext",
+      "description": "name without extension",
+      "call": "fileparts('noext')",
+      "errored": false,
+      "result": {
+        "value": "''",
+        "class": "char",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

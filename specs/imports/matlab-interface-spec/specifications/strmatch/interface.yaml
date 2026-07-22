@@ -1,0 +1,86 @@
+# Interface specification for strmatch (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: strmatch
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the indices of the strings in an array that begin with a given prefix (or match exactly
+  with the ''exact'' option). (Documented as not recommended / legacy; verify by observation.)
+
+  '
+invocation_forms:
+- signature: idx = strmatch(str, arr)
+  description: Indices whose entries start with str.
+  status: confirmed
+- signature: idx = strmatch(str, arr, 'exact')
+  description: Indices whose entries equal str exactly.
+  status: pending
+inputs:
+- name: str
+  required: true
+  description: Prefix (or exact) string to look for.
+  status: pending
+- name: arr
+  required: true
+  description: Array of strings to search (char matrix or cellstr).
+  status: pending
+outputs:
+- name: idx
+  description: Column vector of matching indices.
+  status: pending
+  type_rule:
+    id: strmatch.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: strmatch.output-class
+    observations:
+    - file: observations/strmatch_observations.json
+      case_id: prefix
+    - file: observations/strmatch_observations.json
+      case_id: exact
+    - file: observations/strmatch_observations.json
+      case_id: no-match
+output_type_rules:
+- id: strmatch.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: strmatch.output-class
+  observations:
+  - file: observations/strmatch_observations.json
+    case_id: prefix
+  - file: observations/strmatch_observations.json
+    case_id: exact
+  - file: observations/strmatch_observations.json
+    case_id: no-match
+output_shape_rules:
+- id: strmatch.index-vector-rule
+  statement: Returns a column vector of matching indices; the default matches by prefix, the 'exact' option
+    requires full equality, and no match yields a 0-by-1 empty.
+  status: confirmed
+  normative: true
+  provenance: strmatch.index-vector
+  observations:
+  - file: observations/strmatch_observations.json
+    case_id: prefix
+  - file: observations/strmatch_observations.json
+    case_id: exact
+  - file: observations/strmatch_observations.json
+    case_id: no-match
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/strmatch_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: strmatch.q-deprecated
+  question: strmatch is documented as not recommended; record whether it warns and the suggested replacements.
+- id: strmatch.q-shape
+  question: Confirm output shape/orientation of the index vector.

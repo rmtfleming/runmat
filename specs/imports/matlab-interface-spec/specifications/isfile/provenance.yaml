@@ -1,0 +1,40 @@
+# Provenance for isfile (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: isfile
+claims:
+- claim_id: isfile.signature-primary
+  statement: The primary invocation form `tf = isfile(path)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfile_observations.json
+    case_id: missing
+- claim_id: isfile.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfile_observations.json
+    case_id: missing
+- claim_id: isfile.missing-false
+  statement: Returns a 1-by-1 logical; a path that does not exist yields false.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfile_observations.json
+    case_id: missing

@@ -1,0 +1,49 @@
+# Provenance for strmatch (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: strmatch
+claims:
+- claim_id: strmatch.signature-primary
+  statement: The primary invocation form `idx = strmatch(str, arr)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strmatch_observations.json
+    case_id: prefix
+- claim_id: strmatch.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strmatch_observations.json
+    case_id: prefix
+  - file: observations/strmatch_observations.json
+    case_id: exact
+  - file: observations/strmatch_observations.json
+    case_id: no-match
+- claim_id: strmatch.index-vector
+  statement: Returns a column vector of matching indices; the default matches by prefix, the 'exact' option
+    requires full equality, and no match yields a 0-by-1 empty.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strmatch_observations.json
+    case_id: prefix
+  - file: observations/strmatch_observations.json
+    case_id: exact
+  - file: observations/strmatch_observations.json
+    case_id: no-match

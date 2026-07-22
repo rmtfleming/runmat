@@ -1,0 +1,53 @@
+# Provenance for speye (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: speye
+claims:
+- claim_id: speye.signature-primary
+  statement: The primary invocation form `S = speye(n)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/speye_observations.json
+    case_id: square
+- claim_id: speye.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/speye_observations.json
+    case_id: square
+  - file: observations/speye_observations.json
+    case_id: rectangular
+  - file: observations/speye_observations.json
+    case_id: size-vector
+  - file: observations/speye_observations.json
+    case_id: zero
+- claim_id: speye.sparse-identity
+  statement: Returns a sparse double matrix (issparse = true) with ones on the main diagonal; the n, (m,n),
+    and size-vector forms were all accepted.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/speye_observations.json
+    case_id: square
+  - file: observations/speye_observations.json
+    case_id: rectangular
+  - file: observations/speye_observations.json
+    case_id: size-vector
+  - file: observations/speye_observations.json
+    case_id: zero

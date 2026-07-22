@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/matlab-interface-spec/schemas/provenance.schema.json",
+  "title": "Provenance record",
+  "description": "Provenance for every factual claim in a function specification. Each claim must state its source category, date, author/agent, and the MATLAB release(s) it applies to (constitution.md §4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "function_name", "claims"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of THIS provenance document's format.",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "function_name": {
+      "type": "string",
+      "description": "The function these provenance claims describe.",
+      "minLength": 1
+    },
+    "claims": {
+      "type": "array",
+      "description": "One entry per factual claim referenced from the interface specification.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/claim" }
+    }
+  },
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Provenance for a single claim. source_category, date and applicable_releases are mandatory (constitution §4.2); the validator rejects entries missing any of them.",
+      "required": [
+        "claim_id",
+        "statement",
+        "source_category",
+        "date",
+        "author",
+        "applicable_releases"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "description": "Stable identifier referenced by interface.yaml (e.g. 'median.output-class.double').",
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "statement": {
+          "type": "string",
+          "description": "The factual claim, in original wording. No copied documentation prose.",
+          "minLength": 1
+        },
+        "source_category": {
+          "type": "string",
+          "description": "Exactly one classification (constitution §4.1).",
+          "enum": [
+            "public-interface-fact",
+            "black-box-observation",
+            "independently-derived-inference",
+            "external-permissively-licensed-fact"
+          ]
+        },
+        "normative": {
+          "type": "boolean",
+          "description": "Whether this claim imposes a normative requirement. Inferences must be non-normative (false) unless independently confirmed by observation.",
+          "default": true
+        },
+        "date": {
+          "type": "string",
+          "description": "ISO 8601 date the claim was recorded or last verified (YYYY-MM-DD).",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "author": {
+          "type": "string",
+          "description": "Human author or agent responsible for the claim.",
+          "minLength": 1
+        },
+        "applicable_releases": {
+          "type": "array",
+          "description": "MATLAB release(s) the claim pertains to, e.g. ['R2026a']. Required (constitution §4.2).",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "status": {
+          "type": "string",
+          "description": "confirmed = directly observed/verified; pending = asserted but not yet verified; unresolved = flagged for review.",
+          "enum": ["confirmed", "pending", "unresolved"],
+          "default": "pending"
+        },
+        "observation_refs": {
+          "type": "array",
+          "description": "For black-box observations: references into specifications/<fn>/observations/ (file and case id).",
+          "items": { "$ref": "#/$defs/observation_ref" }
+        },
+        "source_citation": {
+          "type": "string",
+          "description": "For external-permissively-licensed-fact: a citation to the permissively licensed source. Do not paste proprietary text here."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional non-normative commentary."
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "External facts must cite their source.",
+          "if": {
+            "properties": {
+              "source_category": { "const": "external-permissively-licensed-fact" }
+            }
+          },
+          "then": { "required": ["source_citation"] }
+        }
+      ]
+    },
+    "observation_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "case_id"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path (relative to the function's spec dir) to an observations JSON file."
+        },
+        "case_id": {
+          "type": "string",
+          "description": "The case_id within that observations file."
+        }
+      }
+    }
+  }
+}

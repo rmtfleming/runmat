@@ -1,0 +1,53 @@
+# Provenance for full (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: full
+claims:
+- claim_id: full.signature-primary
+  statement: The primary invocation form `B = full(S)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/full_observations.json
+    case_id: from-sparse-matrix
+- claim_id: full.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/full_observations.json
+    case_id: from-sparse-matrix
+  - file: observations/full_observations.json
+    case_id: from-sparse-vector
+  - file: observations/full_observations.json
+    case_id: already-full
+  - file: observations/full_observations.json
+    case_id: empty-sparse
+- claim_id: full.full-preserves-values
+  statement: The output is full (issparse = false) and preserves the values of the input; an empty sparse
+    input yields a 0-by-0 full array.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/full_observations.json
+    case_id: from-sparse-matrix
+  - file: observations/full_observations.json
+    case_id: from-sparse-vector
+  - file: observations/full_observations.json
+    case_id: already-full
+  - file: observations/full_observations.json
+    case_id: empty-sparse

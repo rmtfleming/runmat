@@ -1,0 +1,63 @@
+# Interface specification for table2cell (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: table2cell
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a table to a cell array, preserving the row-by-variable layout.
+
+  '
+invocation_forms:
+- signature: C = table2cell(T)
+  description: Cell array from table T.
+  status: confirmed
+inputs:
+- name: T
+  required: true
+  description: Table to convert.
+  status: pending
+outputs:
+- name: C
+  description: Cell array.
+  status: pending
+  type_rule:
+    id: table2cell.out-type
+    statement: The first output has class cell (observed).
+    status: confirmed
+    normative: true
+    provenance: table2cell.output-class
+    observations:
+    - file: observations/table2cell_observations.json
+      case_id: basic
+output_type_rules:
+- id: table2cell.output-class-rule
+  statement: The output class is cell across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: table2cell.output-class
+  observations:
+  - file: observations/table2cell_observations.json
+    case_id: basic
+output_shape_rules:
+- id: table2cell.cell-layout-rule
+  statement: Returns a cell array with the table's row-by-variable layout.
+  status: confirmed
+  normative: true
+  provenance: table2cell.cell-layout
+  observations:
+  - file: observations/table2cell_observations.json
+    case_id: basic
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/table2cell_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: table2cell.q-table-support
+  question: Requires table type support; specify cell layout and element types.

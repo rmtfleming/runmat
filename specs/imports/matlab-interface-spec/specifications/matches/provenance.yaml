@@ -1,0 +1,49 @@
+# Provenance for matches (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: matches
+claims:
+- claim_id: matches.signature-primary
+  statement: The primary invocation form `tf = matches(str, pat)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/matches_observations.json
+    case_id: in-set
+- claim_id: matches.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/matches_observations.json
+    case_id: in-set
+  - file: observations/matches_observations.json
+    case_id: scalar
+  - file: observations/matches_observations.json
+    case_id: ignore-case
+- claim_id: matches.scalar-membership
+  statement: Returns a logical; a scalar first argument yields a scalar result that is true when it equals
+    any of the given patterns, and the 'IgnoreCase' option enables case-insensitive matching.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/matches_observations.json
+    case_id: in-set
+  - file: observations/matches_observations.json
+    case_id: scalar
+  - file: observations/matches_observations.json
+    case_id: ignore-case

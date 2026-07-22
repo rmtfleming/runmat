@@ -1,0 +1,53 @@
+# Provenance for isstruct (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: isstruct
+claims:
+- claim_id: isstruct.signature-primary
+  statement: The primary invocation form `tf = isstruct(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isstruct_observations.json
+    case_id: struct
+- claim_id: isstruct.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isstruct_observations.json
+    case_id: struct
+  - file: observations/isstruct_observations.json
+    case_id: struct-array
+  - file: observations/isstruct_observations.json
+    case_id: numeric
+  - file: observations/isstruct_observations.json
+    case_id: cell
+- claim_id: isstruct.logical-struct-test
+  statement: 'Returns a 1-by-1 logical: true for scalar structs and struct arrays, false for numeric and
+    cell inputs.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isstruct_observations.json
+    case_id: struct
+  - file: observations/isstruct_observations.json
+    case_id: struct-array
+  - file: observations/isstruct_observations.json
+    case_id: numeric
+  - file: observations/isstruct_observations.json
+    case_id: cell

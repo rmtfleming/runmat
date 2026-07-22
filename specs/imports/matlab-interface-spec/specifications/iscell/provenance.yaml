@@ -1,0 +1,57 @@
+# Provenance for iscell (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: iscell
+claims:
+- claim_id: iscell.signature-primary
+  statement: The primary invocation form `tf = iscell(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscell_observations.json
+    case_id: cell-array
+- claim_id: iscell.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscell_observations.json
+    case_id: cell-array
+  - file: observations/iscell_observations.json
+    case_id: numeric-scalar
+  - file: observations/iscell_observations.json
+    case_id: char-row
+  - file: observations/iscell_observations.json
+    case_id: empty-cell
+  - file: observations/iscell_observations.json
+    case_id: struct
+- claim_id: iscell.logical-cell-test
+  statement: 'Returns a 1-by-1 logical: true for cell arrays including the empty cell {}, and false for
+    numeric, char, and struct inputs.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscell_observations.json
+    case_id: cell-array
+  - file: observations/iscell_observations.json
+    case_id: empty-cell
+  - file: observations/iscell_observations.json
+    case_id: numeric-scalar
+  - file: observations/iscell_observations.json
+    case_id: char-row
+  - file: observations/iscell_observations.json
+    case_id: struct

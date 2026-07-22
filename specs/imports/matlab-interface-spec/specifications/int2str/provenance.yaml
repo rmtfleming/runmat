@@ -1,0 +1,53 @@
+# Provenance for int2str (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: int2str
+claims:
+- claim_id: int2str.signature-primary
+  statement: The primary invocation form `str = int2str(X)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/int2str_observations.json
+    case_id: scalar
+- claim_id: int2str.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/int2str_observations.json
+    case_id: scalar
+  - file: observations/int2str_observations.json
+    case_id: negative
+  - file: observations/int2str_observations.json
+    case_id: vector
+  - file: observations/int2str_observations.json
+    case_id: matrix
+- claim_id: int2str.rounding-and-char
+  statement: Rounds to the nearest integer with ties away from zero (observed -2.5 -> -3, 5.5 -> 6) and
+    returns a char array; multi-element inputs are space-separated.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/int2str_observations.json
+    case_id: scalar
+  - file: observations/int2str_observations.json
+    case_id: negative
+  - file: observations/int2str_observations.json
+    case_id: vector
+  - file: observations/int2str_observations.json
+    case_id: matrix

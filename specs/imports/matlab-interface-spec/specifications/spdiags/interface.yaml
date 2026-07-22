@@ -1,0 +1,80 @@
+# Interface specification for spdiags (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: spdiags
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Extract or construct the diagonals of a sparse matrix; the several call forms either read diagonals
+  from a matrix or build a matrix from supplied diagonals.
+
+  '
+invocation_forms:
+- signature: B = spdiags(A)
+  description: Extract all nonzero diagonals of A.
+  status: confirmed
+- signature: A = spdiags(B, d, m, n)
+  description: Build an m-by-n sparse matrix from columns of B placed on diagonals d.
+  status: pending
+inputs:
+- name: A / B
+  required: true
+  description: Matrix to read from, or diagonal data to place.
+  status: pending
+- name: d, m, n
+  required: false
+  description: Diagonal indices and target size for the construction forms.
+  status: pending
+outputs:
+- name: B / A
+  description: Extracted diagonals, or the constructed sparse matrix.
+  status: pending
+  type_rule:
+    id: spdiags.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: spdiags.output-class
+    observations:
+    - file: observations/spdiags_observations.json
+      case_id: extract
+    - file: observations/spdiags_observations.json
+      case_id: construct
+output_type_rules:
+- id: spdiags.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: spdiags.output-class
+  observations:
+  - file: observations/spdiags_observations.json
+    case_id: extract
+  - file: observations/spdiags_observations.json
+    case_id: construct
+output_shape_rules:
+- id: spdiags.extract-vs-construct-rule
+  statement: The extraction form spdiags(A) returns the nonzero diagonals as the columns of a full matrix;
+    the construction form spdiags(B,d,m,n) returns a sparse matrix of the requested size.
+  status: confirmed
+  normative: true
+  provenance: spdiags.extract-vs-construct
+  observations:
+  - file: observations/spdiags_observations.json
+    case_id: extract
+  - file: observations/spdiags_observations.json
+    case_id: construct
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/spdiags_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: spdiags.q-forms
+  question: spdiags has multiple call forms with different output meanings; specify each form separately.
+- id: spdiags.q-outputs
+  question: Specify the multi-output extraction form [B, d] = spdiags(A).

@@ -1,0 +1,80 @@
+# Interface specification for datestr (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: datestr
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a date/time value (serial date number or text) to a character representation, optionally
+  using a specified format. (Documented as not recommended / legacy; verify by observation.)
+
+  '
+invocation_forms:
+- signature: s = datestr(t)
+  description: Default character representation of t.
+  status: confirmed
+- signature: s = datestr(t, formatOut)
+  description: Representation using a format specifier.
+  status: pending
+inputs:
+- name: t
+  required: true
+  description: Serial date number, date vector, or date text.
+  status: pending
+- name: formatOut
+  required: false
+  description: Optional output format.
+  status: pending
+outputs:
+- name: s
+  description: Character representation.
+  status: pending
+  type_rule:
+    id: datestr.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: datestr.output-class
+    observations:
+    - file: observations/datestr_observations.json
+      case_id: serial-default
+    - file: observations/datestr_observations.json
+      case_id: serial-format
+output_type_rules:
+- id: datestr.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: datestr.output-class
+  observations:
+  - file: observations/datestr_observations.json
+    case_id: serial-default
+  - file: observations/datestr_observations.json
+    case_id: serial-format
+output_shape_rules:
+- id: datestr.char-format-rule
+  statement: Returns a char row vector; the default format is day-month-year (for example 30-Dec-2022)
+    and a format string overrides it (yyyy-mm-dd).
+  status: confirmed
+  normative: true
+  provenance: datestr.char-format
+  observations:
+  - file: observations/datestr_observations.json
+    case_id: serial-default
+  - file: observations/datestr_observations.json
+    case_id: serial-format
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/datestr_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: datestr.q-deprecated
+  question: datestr is documented as not recommended (string(datetime) is suggested); record any notice.
+- id: datestr.q-locale
+  question: Record locale/format dependence of the default output.

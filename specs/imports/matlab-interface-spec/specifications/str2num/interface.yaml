@@ -1,0 +1,86 @@
+# Interface specification for str2num (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: str2num
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a character representation of a numeric array to numeric values by evaluating it; returns
+  empty when the input cannot be parsed.
+
+  '
+invocation_forms:
+- signature: X = str2num(chr)
+  description: Numeric value parsed from chr.
+  status: confirmed
+inputs:
+- name: chr
+  required: true
+  description: Character array containing a numeric literal or expression.
+  status: pending
+outputs:
+- name: X
+  description: Numeric result, or empty on failure.
+  status: pending
+  type_rule:
+    id: str2num.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: str2num.output-class
+    observations:
+    - file: observations/str2num_observations.json
+      case_id: scalar
+    - file: observations/str2num_observations.json
+      case_id: row-vector
+    - file: observations/str2num_observations.json
+      case_id: matrix
+    - file: observations/str2num_observations.json
+      case_id: expression
+output_type_rules:
+- id: str2num.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: str2num.output-class
+  observations:
+  - file: observations/str2num_observations.json
+    case_id: scalar
+  - file: observations/str2num_observations.json
+    case_id: row-vector
+  - file: observations/str2num_observations.json
+    case_id: matrix
+  - file: observations/str2num_observations.json
+    case_id: expression
+output_shape_rules: []
+numerical_edge_cases:
+- id: str2num.parse-eval-rule
+  statement: Parses the text to a numeric array and evaluates arithmetic expressions (the text '2+3' produced
+    5); bracketed text produced row vectors and matrices.
+  status: confirmed
+  normative: true
+  provenance: str2num.parse-eval
+  observations:
+  - file: observations/str2num_observations.json
+    case_id: scalar
+  - file: observations/str2num_observations.json
+    case_id: row-vector
+  - file: observations/str2num_observations.json
+    case_id: matrix
+  - file: observations/str2num_observations.json
+    case_id: expression
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/str2num_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: str2num.q-eval
+  question: str2num evaluates its input; record the observable failure mode (empty output) for unparsable
+    input and any security-relevant notes.
+- id: str2num.q-second-output
+  question: Specify the two-output form [X, ok] if present.

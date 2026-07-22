@@ -1,0 +1,53 @@
+# Provenance for str2num (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: str2num
+claims:
+- claim_id: str2num.signature-primary
+  statement: The primary invocation form `X = str2num(chr)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/str2num_observations.json
+    case_id: scalar
+- claim_id: str2num.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/str2num_observations.json
+    case_id: scalar
+  - file: observations/str2num_observations.json
+    case_id: row-vector
+  - file: observations/str2num_observations.json
+    case_id: matrix
+  - file: observations/str2num_observations.json
+    case_id: expression
+- claim_id: str2num.parse-eval
+  statement: Parses the text to a numeric array and evaluates arithmetic expressions (the text '2+3' produced
+    5); bracketed text produced row vectors and matrices.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/str2num_observations.json
+    case_id: scalar
+  - file: observations/str2num_observations.json
+    case_id: row-vector
+  - file: observations/str2num_observations.json
+    case_id: matrix
+  - file: observations/str2num_observations.json
+    case_id: expression

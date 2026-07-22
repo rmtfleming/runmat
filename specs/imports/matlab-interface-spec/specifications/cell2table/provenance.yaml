@@ -1,0 +1,44 @@
+# Provenance for cell2table (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: cell2table
+claims:
+- claim_id: cell2table.signature-primary
+  statement: The primary invocation form `T = cell2table(C)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/cell2table_observations.json
+    case_id: basic
+- claim_id: cell2table.output-class
+  statement: The output class is table for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/cell2table_observations.json
+    case_id: basic
+  - file: observations/cell2table_observations.json
+    case_id: varnames
+- claim_id: cell2table.one-var-per-column
+  statement: The output is a table with one variable per column of the cell array; the row count is preserved.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/cell2table_observations.json
+    case_id: basic
+  - file: observations/cell2table_observations.json
+    case_id: varnames

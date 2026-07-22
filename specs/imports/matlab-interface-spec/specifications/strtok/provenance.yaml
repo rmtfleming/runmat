@@ -1,0 +1,49 @@
+# Provenance for strtok (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: strtok
+claims:
+- claim_id: strtok.signature-primary
+  statement: The primary invocation form `token = strtok(str)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strtok_observations.json
+    case_id: default
+- claim_id: strtok.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strtok_observations.json
+    case_id: default
+  - file: observations/strtok_observations.json
+    case_id: custom-delim
+  - file: observations/strtok_observations.json
+    case_id: leading-space
+- claim_id: strtok.leading-token
+  statement: The first output is the leading token; the default delimiter set is whitespace, a delimiter
+    set may be supplied, and leading delimiters are skipped.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strtok_observations.json
+    case_id: default
+  - file: observations/strtok_observations.json
+    case_id: custom-delim
+  - file: observations/strtok_observations.json
+    case_id: leading-space

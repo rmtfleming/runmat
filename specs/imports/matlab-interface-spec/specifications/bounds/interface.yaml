@@ -1,0 +1,88 @@
+# Interface specification for bounds (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: bounds
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the smallest and largest elements of an array, optionally along a specified dimension.
+
+  '
+invocation_forms:
+- signature: '[lo, hi] = bounds(A)'
+  description: Minimum and maximum of A.
+  status: confirmed
+- signature: '[lo, hi] = bounds(A, dim)'
+  description: Minimum and maximum along dimension dim.
+  status: pending
+inputs:
+- name: A
+  required: true
+  description: Numeric array.
+  status: pending
+- name: dim
+  required: false
+  description: Optional operating dimension.
+  status: pending
+outputs:
+- name: lo
+  description: Minimum value(s).
+  status: pending
+  type_rule:
+    id: bounds.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: bounds.output-class
+    observations:
+    - file: observations/bounds_observations.json
+      case_id: vector
+    - file: observations/bounds_observations.json
+      case_id: matrix-default
+    - file: observations/bounds_observations.json
+      case_id: matrix-dim2
+- name: hi
+  description: Maximum value(s) (second output).
+  status: pending
+output_type_rules:
+- id: bounds.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: bounds.output-class
+  observations:
+  - file: observations/bounds_observations.json
+    case_id: vector
+  - file: observations/bounds_observations.json
+    case_id: matrix-default
+  - file: observations/bounds_observations.json
+    case_id: matrix-dim2
+output_shape_rules:
+- id: bounds.first-output-min-rule
+  statement: 'The first output is the minimum: a vector yields a scalar; for a matrix the default is the
+    column-wise minimum (1-by-n) and dim = 2 gives the row-wise minimum (m-by-1).'
+  status: confirmed
+  normative: true
+  provenance: bounds.first-output-min
+  observations:
+  - file: observations/bounds_observations.json
+    case_id: vector
+  - file: observations/bounds_observations.json
+    case_id: matrix-default
+  - file: observations/bounds_observations.json
+    case_id: matrix-dim2
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/bounds_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: bounds.q-second-output
+  question: Specify the second output (hi); the harness records only the first output (lo).
+- id: bounds.q-nan
+  question: NaN handling and the 'omitnan'/'includenan' options.

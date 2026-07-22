@@ -1,0 +1,49 @@
+# Provenance for bounds (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: bounds
+claims:
+- claim_id: bounds.signature-primary
+  statement: The primary invocation form `[lo, hi] = bounds(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/bounds_observations.json
+    case_id: vector
+- claim_id: bounds.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/bounds_observations.json
+    case_id: vector
+  - file: observations/bounds_observations.json
+    case_id: matrix-default
+  - file: observations/bounds_observations.json
+    case_id: matrix-dim2
+- claim_id: bounds.first-output-min
+  statement: 'The first output is the minimum: a vector yields a scalar; for a matrix the default is the
+    column-wise minimum (1-by-n) and dim = 2 gives the row-wise minimum (m-by-1).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/bounds_observations.json
+    case_id: vector
+  - file: observations/bounds_observations.json
+    case_id: matrix-default
+  - file: observations/bounds_observations.json
+    case_id: matrix-dim2

@@ -1,0 +1,90 @@
+# Interface specification for num2cell (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: num2cell
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert an array to a cell array whose elements are the elements of the input; an optional dimension
+  argument groups elements along the specified dimensions.
+
+  '
+invocation_forms:
+- signature: C = num2cell(A)
+  description: One cell per element of A.
+  status: confirmed
+- signature: C = num2cell(A, dim)
+  description: Group along dimension(s) dim.
+  status: pending
+inputs:
+- name: A
+  required: true
+  description: Array to convert.
+  status: pending
+- name: dim
+  required: false
+  description: Optional dimension(s) to group along.
+  status: pending
+outputs:
+- name: C
+  description: Cell array.
+  status: pending
+  type_rule:
+    id: num2cell.out-type
+    statement: The first output has class cell (observed).
+    status: confirmed
+    normative: true
+    provenance: num2cell.output-class
+    observations:
+    - file: observations/num2cell_observations.json
+      case_id: vector
+    - file: observations/num2cell_observations.json
+      case_id: matrix
+    - file: observations/num2cell_observations.json
+      case_id: dim1
+    - file: observations/num2cell_observations.json
+      case_id: scalar
+output_type_rules:
+- id: num2cell.output-class-rule
+  statement: The output class is cell across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: num2cell.output-class
+  observations:
+  - file: observations/num2cell_observations.json
+    case_id: vector
+  - file: observations/num2cell_observations.json
+    case_id: matrix
+  - file: observations/num2cell_observations.json
+    case_id: dim1
+  - file: observations/num2cell_observations.json
+    case_id: scalar
+output_shape_rules:
+- id: num2cell.cell-grouping-rule
+  statement: Returns a cell array; by default one cell per element preserving the input shape, and a dimension
+    argument groups elements along that dimension (dim = 1 on a 2-by-2 matrix produced a 1-by-2 cell).
+  status: confirmed
+  normative: true
+  provenance: num2cell.cell-grouping
+  observations:
+  - file: observations/num2cell_observations.json
+    case_id: vector
+  - file: observations/num2cell_observations.json
+    case_id: matrix
+  - file: observations/num2cell_observations.json
+    case_id: dim1
+  - file: observations/num2cell_observations.json
+    case_id: scalar
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/num2cell_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: num2cell.q-shape
+  question: Confirm cell array shape for each form, especially with dim.

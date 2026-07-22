@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "num2cell",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/num2cell/test_num2cell_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "vector",
+      "description": "row vector",
+      "call": "num2cell([10 20 30])",
+      "errored": false,
+      "result": {
+        "value": "<cell [1 3]>",
+        "class": "cell",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "2-D matrix",
+      "call": "num2cell([1 2; 3 4])",
+      "errored": false,
+      "result": {
+        "value": "<cell [2 2]>",
+        "class": "cell",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dim1",
+      "description": "grouping along dimension 1",
+      "call": "num2cell([1 2; 3 4], 1)",
+      "errored": false,
+      "result": {
+        "value": "<cell [1 2]>",
+        "class": "cell",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "scalar",
+      "description": "scalar",
+      "call": "num2cell(7)",
+      "errored": false,
+      "result": {
+        "value": "<cell [1 1]>",
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

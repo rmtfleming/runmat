@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "str2num",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/str2num/test_str2num_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "scalar",
+      "description": "scalar literal",
+      "call": "str2num('42')",
+      "errored": false,
+      "result": {
+        "value": "42",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "row-vector",
+      "description": "bracketed row vector",
+      "call": "str2num('[1 2 3]')",
+      "errored": false,
+      "result": {
+        "value": "[1 2 3]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "bracketed matrix",
+      "call": "str2num('[1 2; 3 4]')",
+      "errored": false,
+      "result": {
+        "value": "[1 2;3 4]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "expression",
+      "description": "arithmetic expression",
+      "call": "str2num('2+3')",
+      "errored": false,
+      "result": {
+        "value": "5",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

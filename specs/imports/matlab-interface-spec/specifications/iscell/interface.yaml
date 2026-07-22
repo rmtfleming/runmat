@@ -1,0 +1,88 @@
+# Interface specification for iscell (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: iscell
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input is a cell array and false otherwise.
+
+  '
+invocation_forms:
+- signature: tf = iscell(A)
+  description: Test whether A is a cell array.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: iscell.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: iscell.output-class
+    observations:
+    - file: observations/iscell_observations.json
+      case_id: cell-array
+    - file: observations/iscell_observations.json
+      case_id: numeric-scalar
+    - file: observations/iscell_observations.json
+      case_id: char-row
+    - file: observations/iscell_observations.json
+      case_id: empty-cell
+    - file: observations/iscell_observations.json
+      case_id: struct
+output_type_rules:
+- id: iscell.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: iscell.output-class
+  observations:
+  - file: observations/iscell_observations.json
+    case_id: cell-array
+  - file: observations/iscell_observations.json
+    case_id: numeric-scalar
+  - file: observations/iscell_observations.json
+    case_id: char-row
+  - file: observations/iscell_observations.json
+    case_id: empty-cell
+  - file: observations/iscell_observations.json
+    case_id: struct
+- id: iscell.logical-cell-test-rule
+  statement: 'Returns a 1-by-1 logical: true for cell arrays including the empty cell {}, and false for
+    numeric, char, and struct inputs.'
+  status: confirmed
+  normative: true
+  provenance: iscell.logical-cell-test
+  observations:
+  - file: observations/iscell_observations.json
+    case_id: cell-array
+  - file: observations/iscell_observations.json
+    case_id: empty-cell
+  - file: observations/iscell_observations.json
+    case_id: numeric-scalar
+  - file: observations/iscell_observations.json
+    case_id: char-row
+  - file: observations/iscell_observations.json
+    case_id: struct
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/iscell_observations.json
+  description: 5 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: iscell.q-output
+  question: Confirm output class (logical) and size (1x1) across inputs.

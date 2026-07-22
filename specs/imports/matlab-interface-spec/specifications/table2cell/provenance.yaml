@@ -1,0 +1,40 @@
+# Provenance for table2cell (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: table2cell
+claims:
+- claim_id: table2cell.signature-primary
+  statement: The primary invocation form `C = table2cell(T)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/table2cell_observations.json
+    case_id: basic
+- claim_id: table2cell.output-class
+  statement: The output class is cell for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/table2cell_observations.json
+    case_id: basic
+- claim_id: table2cell.cell-layout
+  statement: Returns a cell array with the table's row-by-variable layout.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/table2cell_observations.json
+    case_id: basic

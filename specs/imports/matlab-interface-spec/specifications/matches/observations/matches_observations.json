@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "matches",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/matches/test_matches_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "in-set",
+      "description": "membership in a set of strings",
+      "call": "matches(\"hello\", [\"hello\",\"world\"])",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "scalar",
+      "description": "single scalar comparison",
+      "call": "matches('abc', 'abc')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "ignore-case",
+      "description": "case-insensitive option",
+      "call": "matches(\"Cat\", \"cat\", 'IgnoreCase', true)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

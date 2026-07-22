@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "function_name": "iscell",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/iscell/test_iscell_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "cell-array",
+      "description": "cell array",
+      "call": "iscell({1, 'a', [1 2]})",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-scalar",
+      "description": "numeric scalar",
+      "call": "iscell(5)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char-row",
+      "description": "character vector",
+      "call": "iscell('abc')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-cell",
+      "description": "empty cell array",
+      "call": "iscell({})",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "struct",
+      "description": "struct",
+      "call": "iscell(struct('a',1))",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

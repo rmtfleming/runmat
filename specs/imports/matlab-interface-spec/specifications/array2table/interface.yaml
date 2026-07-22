@@ -1,0 +1,79 @@
+# Interface specification for array2table (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: array2table
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a matrix to a table, with one table variable per column of the matrix.
+
+  '
+invocation_forms:
+- signature: T = array2table(A)
+  description: Table from matrix A.
+  status: confirmed
+- signature: T = array2table(A, 'VariableNames', names)
+  description: Table with explicit variable names.
+  status: pending
+inputs:
+- name: A
+  required: true
+  description: 2-D matrix.
+  status: pending
+- name: VariableNames
+  required: false
+  description: 'Optional name-value: variable names.'
+  status: pending
+outputs:
+- name: T
+  description: Table.
+  status: pending
+  type_rule:
+    id: array2table.out-type
+    statement: The first output has class table (observed).
+    status: confirmed
+    normative: true
+    provenance: array2table.output-class
+    observations:
+    - file: observations/array2table_observations.json
+      case_id: basic
+    - file: observations/array2table_observations.json
+      case_id: varnames
+output_type_rules:
+- id: array2table.output-class-rule
+  statement: The output class is table across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: array2table.output-class
+  observations:
+  - file: observations/array2table_observations.json
+    case_id: basic
+  - file: observations/array2table_observations.json
+    case_id: varnames
+output_shape_rules:
+- id: array2table.one-var-per-column-rule
+  statement: The output is a table with one variable per column of the input matrix; the row count is
+    preserved.
+  status: confirmed
+  normative: true
+  provenance: array2table.one-var-per-column
+  observations:
+  - file: observations/array2table_observations.json
+    case_id: basic
+  - file: observations/array2table_observations.json
+    case_id: varnames
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/array2table_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: array2table.q-table-support
+  question: Requires table type support; specify default variable names and column types.
+- id: array2table.q-rownames
+  question: Specify the 'RowNames' name-value option.

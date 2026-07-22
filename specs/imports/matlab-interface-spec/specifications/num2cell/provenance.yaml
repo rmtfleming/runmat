@@ -1,0 +1,53 @@
+# Provenance for num2cell (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: num2cell
+claims:
+- claim_id: num2cell.signature-primary
+  statement: The primary invocation form `C = num2cell(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/num2cell_observations.json
+    case_id: vector
+- claim_id: num2cell.output-class
+  statement: The output class is cell for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/num2cell_observations.json
+    case_id: vector
+  - file: observations/num2cell_observations.json
+    case_id: matrix
+  - file: observations/num2cell_observations.json
+    case_id: dim1
+  - file: observations/num2cell_observations.json
+    case_id: scalar
+- claim_id: num2cell.cell-grouping
+  statement: Returns a cell array; by default one cell per element preserving the input shape, and a dimension
+    argument groups elements along that dimension (dim = 1 on a 2-by-2 matrix produced a 1-by-2 cell).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/num2cell_observations.json
+    case_id: vector
+  - file: observations/num2cell_observations.json
+    case_id: matrix
+  - file: observations/num2cell_observations.json
+    case_id: dim1
+  - file: observations/num2cell_observations.json
+    case_id: scalar

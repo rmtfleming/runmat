@@ -1,0 +1,78 @@
+# Interface specification for cell2table (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: cell2table
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a cell array to a table, with one table variable per column of the cell array.
+
+  '
+invocation_forms:
+- signature: T = cell2table(C)
+  description: Table from cell array C.
+  status: confirmed
+- signature: T = cell2table(C, 'VariableNames', names)
+  description: Table with explicit variable names.
+  status: pending
+inputs:
+- name: C
+  required: true
+  description: 2-D cell array.
+  status: pending
+- name: VariableNames
+  required: false
+  description: 'Optional name-value: variable names.'
+  status: pending
+outputs:
+- name: T
+  description: Table.
+  status: pending
+  type_rule:
+    id: cell2table.out-type
+    statement: The first output has class table (observed).
+    status: confirmed
+    normative: true
+    provenance: cell2table.output-class
+    observations:
+    - file: observations/cell2table_observations.json
+      case_id: basic
+    - file: observations/cell2table_observations.json
+      case_id: varnames
+output_type_rules:
+- id: cell2table.output-class-rule
+  statement: The output class is table across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: cell2table.output-class
+  observations:
+  - file: observations/cell2table_observations.json
+    case_id: basic
+  - file: observations/cell2table_observations.json
+    case_id: varnames
+output_shape_rules:
+- id: cell2table.one-var-per-column-rule
+  statement: The output is a table with one variable per column of the cell array; the row count is preserved.
+  status: confirmed
+  normative: true
+  provenance: cell2table.one-var-per-column
+  observations:
+  - file: observations/cell2table_observations.json
+    case_id: basic
+  - file: observations/cell2table_observations.json
+    case_id: varnames
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/cell2table_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: cell2table.q-table-support
+  question: Requires table type support; specify default variable names and per-column types.
+- id: cell2table.q-nested
+  question: Behaviour with nested cells / non-scalar cell contents.

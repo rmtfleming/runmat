@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isfile",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isfile/test_isfile_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "missing",
+      "description": "a path that does not exist",
+      "call": "isfile([tempname '.nope'])",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

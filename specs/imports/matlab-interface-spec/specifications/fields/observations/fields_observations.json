@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "fields",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/fields/test_fields_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "two-fields",
+      "description": "struct with two fields",
+      "call": "fields(struct('a',1,'b',2))",
+      "errored": false,
+      "result": {
+        "value": "<cell [2 1]>",
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-struct",
+      "description": "struct with no fields",
+      "call": "fields(struct())",
+      "errored": false,
+      "result": {
+        "value": "<cell [0 1]>",
+        "class": "cell",
+        "size": [
+          0,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

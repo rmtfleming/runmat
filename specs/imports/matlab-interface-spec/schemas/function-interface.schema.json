@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/matlab-interface-spec/schemas/function-interface.schema.json",
+  "title": "MATLAB-compatible function interface specification",
+  "description": "Machine-readable, implementation-neutral specification of an observable function interface. Authored in YAML, validated against this schema. Records only facts and observations; every behavioural claim carries a status and, where applicable, provenance and observation references (constitution.md §2, §4, §7).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "function_name",
+    "spec_version",
+    "status",
+    "applicable_releases",
+    "invocation_forms",
+    "inputs",
+    "outputs"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of this interface-schema format that the file targets.",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "function_name": {
+      "type": "string",
+      "description": "The public function name, e.g. 'median'.",
+      "minLength": 1
+    },
+    "spec_version": {
+      "type": "string",
+      "description": "Version of this specification's content. Bump on normative changes.",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "status": {
+      "type": "string",
+      "description": "Review status of the whole specification. Only 'approved' specs may be exported (constitution §8).",
+      "enum": ["draft", "in-review", "approved"]
+    },
+    "applicable_releases": {
+      "type": "array",
+      "description": "MATLAB release(s) this specification is written against, e.g. ['R2026a'].",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "summary": {
+      "type": "string",
+      "description": "One or two sentences of original, factual wording describing what the function computes. No copied documentation prose."
+    },
+    "invocation_forms": {
+      "type": "array",
+      "description": "The supported public call signatures.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/invocation_form" }
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Positional and varargin input arguments, in order.",
+      "items": { "$ref": "#/$defs/input_argument" }
+    },
+    "name_value_arguments": {
+      "type": "array",
+      "description": "Name-value arguments accepted by the function, if any.",
+      "items": { "$ref": "#/$defs/name_value_argument" }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Output arguments, in order.",
+      "items": { "$ref": "#/$defs/output_argument" }
+    },
+    "dimension_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Rules for how the operating dimension is chosen (default and explicit).",
+      "properties": {
+        "default_rule": { "$ref": "#/$defs/claim" },
+        "explicit_rule": { "$ref": "#/$defs/claim" },
+        "vecdim_supported": {
+          "$ref": "#/$defs/claim",
+          "description": "Whether a vector of dimensions is accepted (release-dependent for some functions)."
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "output_shape_rules": {
+      "type": "array",
+      "description": "Statements about the shape of outputs as a function of inputs.",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "output_type_rules": {
+      "type": "array",
+      "description": "Statements about the class/type of outputs as a function of inputs.",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "supported_input_domains": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cross-cutting facts about which input forms are accepted.",
+      "properties": {
+        "shapes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" },
+          "description": "Scalar, vector, matrix, N-D, empty acceptance."
+        },
+        "data_types": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" },
+          "description": "Accepted classes (double, single, integer types, logical, ...)."
+        },
+        "complex": {
+          "$ref": "#/$defs/claim",
+          "description": "Whether complex input is accepted and how it is treated."
+        },
+        "sparse": {
+          "$ref": "#/$defs/claim",
+          "description": "Whether sparse input is accepted and how it is treated."
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Conditions under which the function warns.",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Conditions under which the function errors.",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "numerical_edge_cases": {
+      "type": "array",
+      "description": "Observable numerical edge cases (e.g. even-count averaging, ties, empty).",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "nan_infinity_behaviour": {
+      "type": "array",
+      "description": "Behaviour in the presence of NaN, +Inf and -Inf.",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "release_dependent_behaviour": {
+      "type": "array",
+      "description": "Behaviours that differ across releases.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["releases", "claim"],
+        "properties": {
+          "releases": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "claim": { "$ref": "#/$defs/claim" }
+        }
+      }
+    },
+    "linked_observations": {
+      "type": "array",
+      "description": "Observation files that back this specification.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file"],
+        "properties": {
+          "file": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "provenance_ref": {
+      "type": "string",
+      "description": "Path to the provenance document for this function (e.g. 'provenance.yaml')."
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "description": "Open questions flagged for human review (constitution §8.2).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "question"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+          "question": { "type": "string", "minLength": 1 },
+          "context": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "claim_status": {
+      "type": "string",
+      "description": "confirmed = backed by a black-box observation or a public-interface fact; pending = asserted but not yet observed; unresolved = flagged for review.",
+      "enum": ["confirmed", "pending", "unresolved"]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A single factual/behavioural statement with its verification status and provenance links.",
+      "required": ["statement", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Optional stable id, matching a claim_id in provenance.yaml.",
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "statement": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/claim_status" },
+        "normative": {
+          "type": "boolean",
+          "description": "True if this is a required behaviour a conforming implementation must satisfy; false for non-normative notes/inferences.",
+          "default": true
+        },
+        "provenance": {
+          "type": "string",
+          "description": "claim_id in provenance.yaml that justifies this statement."
+        },
+        "observations": {
+          "type": "array",
+          "description": "References into observations/*.json backing this statement.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "case_id"],
+            "properties": {
+              "file": { "type": "string" },
+              "case_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "invocation_form": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature"],
+      "properties": {
+        "signature": {
+          "type": "string",
+          "description": "A public call form, e.g. 'M = median(A)' or 'M = median(A, dim)'."
+        },
+        "description": {
+          "type": "string",
+          "description": "Original, factual description of this form."
+        },
+        "status": { "$ref": "#/$defs/claim_status" }
+      }
+    },
+    "input_argument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "position": { "type": "integer", "minimum": 1 },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" },
+        "accepted_shapes": {
+          "type": "array",
+          "description": "Which array shapes are accepted for this argument.",
+          "items": {
+            "type": "string",
+            "enum": ["scalar", "row-vector", "column-vector", "vector", "matrix", "nd-array", "empty"]
+          }
+        },
+        "accepted_types": {
+          "type": "array",
+          "description": "Accepted classes (e.g. 'double', 'single', 'int8'...'uint64', 'logical').",
+          "items": { "type": "string" }
+        },
+        "accepts_complex": {
+          "type": "string",
+          "enum": ["yes", "no", "unknown"],
+          "description": "Whether complex values are accepted for this argument."
+        },
+        "accepts_sparse": {
+          "type": "string",
+          "enum": ["yes", "no", "unknown"],
+          "description": "Whether sparse arrays are accepted for this argument."
+        },
+        "default": {
+          "description": "Default value/behaviour when omitted; use null with a note if there is no simple default.",
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "status": { "$ref": "#/$defs/claim_status" }
+      }
+    },
+    "name_value_argument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "accepted_values": {
+          "type": "array",
+          "items": { "type": ["string", "number", "boolean"] }
+        },
+        "default": { "type": ["string", "number", "boolean", "null"] },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/$defs/claim_status" }
+      }
+    },
+    "output_argument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "position": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string" },
+        "type_rule": { "$ref": "#/$defs/claim" },
+        "shape_rule": { "$ref": "#/$defs/claim" },
+        "status": { "$ref": "#/$defs/claim_status" }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A warning or error condition. Record the identifier and a factual paraphrase of the condition — not full proprietary message text.",
+      "required": ["condition"],
+      "properties": {
+        "condition": {
+          "type": "string",
+          "description": "Original, factual description of when the diagnostic occurs."
+        },
+        "identifier": {
+          "type": "string",
+          "description": "MATLAB message identifier, if observed (e.g. 'MATLAB:median:...')."
+        },
+        "message_summary": {
+          "type": "string",
+          "description": "Short factual paraphrase, not the verbatim proprietary message."
+        },
+        "status": { "$ref": "#/$defs/claim_status" },
+        "provenance": { "type": "string" },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "case_id"],
+            "properties": {
+              "file": { "type": "string" },
+              "case_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

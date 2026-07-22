@@ -1,0 +1,84 @@
+# Interface specification for int2str (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: int2str
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Round the input to the nearest integers and convert the result to a character array.
+
+  '
+invocation_forms:
+- signature: str = int2str(X)
+  description: Rounded-integer character representation of X.
+  status: confirmed
+inputs:
+- name: X
+  required: true
+  description: Numeric array.
+  status: pending
+outputs:
+- name: str
+  description: Character array.
+  status: pending
+  type_rule:
+    id: int2str.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: int2str.output-class
+    observations:
+    - file: observations/int2str_observations.json
+      case_id: scalar
+    - file: observations/int2str_observations.json
+      case_id: negative
+    - file: observations/int2str_observations.json
+      case_id: vector
+    - file: observations/int2str_observations.json
+      case_id: matrix
+output_type_rules:
+- id: int2str.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: int2str.output-class
+  observations:
+  - file: observations/int2str_observations.json
+    case_id: scalar
+  - file: observations/int2str_observations.json
+    case_id: negative
+  - file: observations/int2str_observations.json
+    case_id: vector
+  - file: observations/int2str_observations.json
+    case_id: matrix
+output_shape_rules: []
+numerical_edge_cases:
+- id: int2str.rounding-and-char-rule
+  statement: Rounds to the nearest integer with ties away from zero (observed -2.5 -> -3, 5.5 -> 6) and
+    returns a char array; multi-element inputs are space-separated.
+  status: confirmed
+  normative: true
+  provenance: int2str.rounding-and-char
+  observations:
+  - file: observations/int2str_observations.json
+    case_id: scalar
+  - file: observations/int2str_observations.json
+    case_id: negative
+  - file: observations/int2str_observations.json
+    case_id: vector
+  - file: observations/int2str_observations.json
+    case_id: matrix
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/int2str_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: int2str.q-rounding
+  question: Confirm the rounding rule (e.g. round half away from zero) used before conversion.
+- id: int2str.q-spacing
+  question: Confirm column spacing/alignment of the character output.

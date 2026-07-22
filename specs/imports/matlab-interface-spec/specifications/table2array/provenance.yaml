@@ -1,0 +1,41 @@
+# Provenance for table2array (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: table2array
+claims:
+- claim_id: table2array.signature-primary
+  statement: The primary invocation form `A = table2array(T)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/table2array_observations.json
+    case_id: numeric
+- claim_id: table2array.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/table2array_observations.json
+    case_id: numeric
+- claim_id: table2array.homogeneous-array
+  statement: Concatenates the table variables into a homogeneous array (a numeric table produced a double
+    matrix).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/table2array_observations.json
+    case_id: numeric

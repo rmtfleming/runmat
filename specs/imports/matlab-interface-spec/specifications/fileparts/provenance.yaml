@@ -1,0 +1,53 @@
+# Provenance for fileparts (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: fileparts
+claims:
+- claim_id: fileparts.signature-primary
+  statement: The primary invocation form `[filepath, name, ext] = fileparts(filename)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fileparts_observations.json
+    case_id: full-path
+- claim_id: fileparts.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fileparts_observations.json
+    case_id: full-path
+  - file: observations/fileparts_observations.json
+    case_id: name-only
+  - file: observations/fileparts_observations.json
+    case_id: trailing-sep
+  - file: observations/fileparts_observations.json
+    case_id: no-ext
+- claim_id: fileparts.first-output-dir
+  statement: 'The first output is the directory part: it is empty for a bare file name, and a trailing
+    separator is removed.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fileparts_observations.json
+    case_id: full-path
+  - file: observations/fileparts_observations.json
+    case_id: name-only
+  - file: observations/fileparts_observations.json
+    case_id: trailing-sep
+  - file: observations/fileparts_observations.json
+    case_id: no-ext

@@ -1,0 +1,66 @@
+# Interface specification for isfile (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isfile
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the given path refers to an existing file and false
+  otherwise.
+
+  '
+invocation_forms:
+- signature: tf = isfile(path)
+  description: Test whether path is an existing file.
+  status: confirmed
+inputs:
+- name: path
+  required: true
+  description: File path text.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: isfile.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: isfile.output-class
+    observations:
+    - file: observations/isfile_observations.json
+      case_id: missing
+output_type_rules:
+- id: isfile.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: isfile.output-class
+  observations:
+  - file: observations/isfile_observations.json
+    case_id: missing
+output_shape_rules: []
+numerical_edge_cases:
+- id: isfile.missing-false-rule
+  statement: Returns a 1-by-1 logical; a path that does not exist yields false.
+  status: confirmed
+  normative: true
+  provenance: isfile.missing-false
+  observations:
+  - file: observations/isfile_observations.json
+    case_id: missing
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isfile_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isfile.q-existing
+  question: Add a case that creates a temporary file, tests isfile=true, then deletes it (self-cleaning).
+- id: isfile.q-folder
+  question: Behaviour when the path is a folder rather than a file.

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "datestr",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/datestr/test_datestr_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "serial-default",
+      "description": "fixed serial date number",
+      "call": "datestr(738885)",
+      "errored": false,
+      "result": {
+        "value": "'30-Dec-2022'",
+        "class": "char",
+        "size": [
+          1,
+          11
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "serial-format",
+      "description": "fixed serial date with an explicit format",
+      "call": "datestr(738885, 'yyyy-mm-dd')",
+      "errored": false,
+      "result": {
+        "value": "'2022-12-30'",
+        "class": "char",
+        "size": [
+          1,
+          10
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

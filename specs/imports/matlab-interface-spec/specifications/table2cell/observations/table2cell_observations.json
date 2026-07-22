@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "table2cell",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/table2cell/test_table2cell_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "table built from a cell array",
+      "call": "table2cell(cell2table({1,'a'; 2,'b'}))",
+      "errored": false,
+      "result": {
+        "value": "<cell [2 2]>",
+        "class": "cell",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "cell2table",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/cell2table/test_cell2table_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "2x2 cell array",
+      "call": "cell2table({1,'a'; 2,'b'})",
+      "errored": false,
+      "result": {
+        "value": "<table [2 2]>",
+        "class": "table",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "varnames",
+      "description": "explicit variable names",
+      "call": "cell2table({1,'a'}, 'VariableNames', {'num','letter'})",
+      "errored": false,
+      "result": {
+        "value": "<table [1 2]>",
+        "class": "table",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

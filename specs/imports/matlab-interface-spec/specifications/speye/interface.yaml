@@ -1,0 +1,88 @@
+# Interface specification for speye (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: speye
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Create a sparse matrix with ones on the main diagonal and zeros elsewhere.
+
+  '
+invocation_forms:
+- signature: S = speye(n)
+  description: n-by-n sparse identity.
+  status: confirmed
+- signature: S = speye(m, n)
+  description: m-by-n sparse identity.
+  status: pending
+- signature: S = speye(sz)
+  description: Size given by a two-element vector sz.
+  status: pending
+inputs:
+- name: m/n/sz
+  required: true
+  description: Dimension size(s).
+  status: pending
+outputs:
+- name: S
+  description: Sparse matrix with unit diagonal.
+  status: pending
+  type_rule:
+    id: speye.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: speye.output-class
+    observations:
+    - file: observations/speye_observations.json
+      case_id: square
+    - file: observations/speye_observations.json
+      case_id: rectangular
+    - file: observations/speye_observations.json
+      case_id: size-vector
+    - file: observations/speye_observations.json
+      case_id: zero
+output_type_rules:
+- id: speye.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: speye.output-class
+  observations:
+  - file: observations/speye_observations.json
+    case_id: square
+  - file: observations/speye_observations.json
+    case_id: rectangular
+  - file: observations/speye_observations.json
+    case_id: size-vector
+  - file: observations/speye_observations.json
+    case_id: zero
+- id: speye.sparse-identity-rule
+  statement: Returns a sparse double matrix (issparse = true) with ones on the main diagonal; the n, (m,n),
+    and size-vector forms were all accepted.
+  status: confirmed
+  normative: true
+  provenance: speye.sparse-identity
+  observations:
+  - file: observations/speye_observations.json
+    case_id: square
+  - file: observations/speye_observations.json
+    case_id: rectangular
+  - file: observations/speye_observations.json
+    case_id: size-vector
+  - file: observations/speye_observations.json
+    case_id: zero
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/speye_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: speye.q-class
+  question: Confirm class (double), issparse=true, and diagonal values.

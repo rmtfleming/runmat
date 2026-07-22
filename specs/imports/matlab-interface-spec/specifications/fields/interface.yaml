@@ -1,0 +1,70 @@
+# Interface specification for fields (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: fields
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the field names of a structure as a cell array of character vectors (a legacy equivalent
+  of fieldnames). (Documented as not recommended / legacy; verify by observation.)
+
+  '
+invocation_forms:
+- signature: c = fields(s)
+  description: Field names of struct s.
+  status: confirmed
+inputs:
+- name: s
+  required: true
+  description: Structure array.
+  status: pending
+outputs:
+- name: c
+  description: Cell array of field-name character vectors.
+  status: pending
+  type_rule:
+    id: fields.out-type
+    statement: The first output has class cell (observed).
+    status: confirmed
+    normative: true
+    provenance: fields.output-class
+    observations:
+    - file: observations/fields_observations.json
+      case_id: two-fields
+    - file: observations/fields_observations.json
+      case_id: empty-struct
+output_type_rules:
+- id: fields.output-class-rule
+  statement: The output class is cell across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: fields.output-class
+  observations:
+  - file: observations/fields_observations.json
+    case_id: two-fields
+  - file: observations/fields_observations.json
+    case_id: empty-struct
+output_shape_rules:
+- id: fields.cell-fieldnames-rule
+  statement: Returns an N-by-1 cell array of field-name char vectors (0-by-1 for a struct with no fields).
+  status: confirmed
+  normative: true
+  provenance: fields.cell-fieldnames
+  observations:
+  - file: observations/fields_observations.json
+    case_id: two-fields
+  - file: observations/fields_observations.json
+    case_id: empty-struct
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/fields_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: fields.q-alias
+  question: Confirm whether fields is exactly equivalent to fieldnames and whether it is deprecated.

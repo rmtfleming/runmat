@@ -1,0 +1,89 @@
+# Interface specification for strtok (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: strtok
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the first token of a string, using whitespace by default or a supplied set of delimiters;
+  a second output returns the remainder.
+
+  '
+invocation_forms:
+- signature: token = strtok(str)
+  description: First whitespace-delimited token.
+  status: confirmed
+- signature: '[token, remain] = strtok(str, delimiters)'
+  description: Token and remainder using given delimiters.
+  status: pending
+inputs:
+- name: str
+  required: true
+  description: Input text.
+  status: pending
+- name: delimiters
+  required: false
+  description: Optional set of delimiter characters.
+  status: pending
+outputs:
+- name: token
+  description: First token.
+  status: pending
+  type_rule:
+    id: strtok.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: strtok.output-class
+    observations:
+    - file: observations/strtok_observations.json
+      case_id: default
+    - file: observations/strtok_observations.json
+      case_id: custom-delim
+    - file: observations/strtok_observations.json
+      case_id: leading-space
+- name: remain
+  description: Remainder of the string (second output).
+  status: pending
+output_type_rules:
+- id: strtok.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: strtok.output-class
+  observations:
+  - file: observations/strtok_observations.json
+    case_id: default
+  - file: observations/strtok_observations.json
+    case_id: custom-delim
+  - file: observations/strtok_observations.json
+    case_id: leading-space
+output_shape_rules:
+- id: strtok.leading-token-rule
+  statement: The first output is the leading token; the default delimiter set is whitespace, a delimiter
+    set may be supplied, and leading delimiters are skipped.
+  status: confirmed
+  normative: true
+  provenance: strtok.leading-token
+  observations:
+  - file: observations/strtok_observations.json
+    case_id: default
+  - file: observations/strtok_observations.json
+    case_id: custom-delim
+  - file: observations/strtok_observations.json
+    case_id: leading-space
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/strtok_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: strtok.q-remainder
+  question: Specify the second output (remain), including leading delimiter handling.
+- id: strtok.q-empty
+  question: Behaviour on empty input or input consisting only of delimiters.

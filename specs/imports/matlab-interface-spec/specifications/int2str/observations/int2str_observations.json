@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "int2str",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/int2str/test_int2str_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "scalar",
+      "description": "non-integer scalar",
+      "call": "int2str(3.7)",
+      "errored": false,
+      "result": {
+        "value": "'4'",
+        "class": "char",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "negative",
+      "description": "negative half value",
+      "call": "int2str(-2.5)",
+      "errored": false,
+      "result": {
+        "value": "'-3'",
+        "class": "char",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vector",
+      "description": "row vector",
+      "call": "int2str([1.2 3.8 5.5])",
+      "errored": false,
+      "result": {
+        "value": "'1  4  6'",
+        "class": "char",
+        "size": [
+          1,
+          7
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "2-D matrix",
+      "call": "int2str([1.1 2.9; 3.5 4.4])",
+      "errored": false,
+      "result": {
+        "value": "['1  3';'4  4']",
+        "class": "char",
+        "size": [
+          2,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

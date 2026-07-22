@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "speye",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/speye/test_speye_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "square",
+      "description": "square identity",
+      "call": "speye(3)",
+      "errored": false,
+      "result": {
+        "value": "sparse([1;2;3], [1;2;3], [1;1;1], 3, 3)",
+        "class": "double",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "rectangular",
+      "description": "rectangular identity",
+      "call": "speye(2, 4)",
+      "errored": false,
+      "result": {
+        "value": "sparse([1;2], [1;2], [1;1], 2, 4)",
+        "class": "double",
+        "size": [
+          2,
+          4
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "size-vector",
+      "description": "size vector form",
+      "call": "speye([3 3])",
+      "errored": false,
+      "result": {
+        "value": "sparse([1;2;3], [1;2;3], [1;1;1], 3, 3)",
+        "class": "double",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "zero size",
+      "call": "speye(0)",
+      "errored": false,
+      "result": {
+        "value": "sparse([], [], [], 0, 0)",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    }
+  ]
+}

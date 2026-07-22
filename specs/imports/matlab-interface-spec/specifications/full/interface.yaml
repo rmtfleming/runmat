@@ -1,0 +1,84 @@
+# Interface specification for full (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: full
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a sparse matrix to full (dense) storage; a full input is returned in full storage.
+
+  '
+invocation_forms:
+- signature: B = full(S)
+  description: Return a full-storage version of S.
+  status: confirmed
+inputs:
+- name: S
+  required: true
+  description: Sparse or full array.
+  status: pending
+outputs:
+- name: B
+  description: Full-storage array with the same values as S.
+  status: pending
+  type_rule:
+    id: full.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: full.output-class
+    observations:
+    - file: observations/full_observations.json
+      case_id: from-sparse-matrix
+    - file: observations/full_observations.json
+      case_id: from-sparse-vector
+    - file: observations/full_observations.json
+      case_id: already-full
+    - file: observations/full_observations.json
+      case_id: empty-sparse
+output_type_rules:
+- id: full.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: full.output-class
+  observations:
+  - file: observations/full_observations.json
+    case_id: from-sparse-matrix
+  - file: observations/full_observations.json
+    case_id: from-sparse-vector
+  - file: observations/full_observations.json
+    case_id: already-full
+  - file: observations/full_observations.json
+    case_id: empty-sparse
+- id: full.full-preserves-values-rule
+  statement: The output is full (issparse = false) and preserves the values of the input; an empty sparse
+    input yields a 0-by-0 full array.
+  status: confirmed
+  normative: true
+  provenance: full.full-preserves-values
+  observations:
+  - file: observations/full_observations.json
+    case_id: from-sparse-matrix
+  - file: observations/full_observations.json
+    case_id: from-sparse-vector
+  - file: observations/full_observations.json
+    case_id: already-full
+  - file: observations/full_observations.json
+    case_id: empty-sparse
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/full_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: full.q-class
+  question: Confirm output class and issparse=false for all inputs.
+- id: full.q-complex
+  question: Behaviour for complex sparse input (not tested).

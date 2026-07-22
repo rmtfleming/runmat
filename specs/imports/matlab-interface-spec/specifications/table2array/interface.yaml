@@ -1,0 +1,66 @@
+# Interface specification for table2array (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: table2array
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a table to a homogeneous array by horizontally concatenating its variables.
+
+  '
+invocation_forms:
+- signature: A = table2array(T)
+  description: Array from table T.
+  status: confirmed
+inputs:
+- name: T
+  required: true
+  description: Table whose variables can be concatenated.
+  status: pending
+outputs:
+- name: A
+  description: Array.
+  status: pending
+  type_rule:
+    id: table2array.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: table2array.output-class
+    observations:
+    - file: observations/table2array_observations.json
+      case_id: numeric
+output_type_rules:
+- id: table2array.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: table2array.output-class
+  observations:
+  - file: observations/table2array_observations.json
+    case_id: numeric
+- id: table2array.homogeneous-array-rule
+  statement: Concatenates the table variables into a homogeneous array (a numeric table produced a double
+    matrix).
+  status: confirmed
+  normative: true
+  provenance: table2array.homogeneous-array
+  observations:
+  - file: observations/table2array_observations.json
+    case_id: numeric
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/table2array_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: table2array.q-heterogeneous
+  question: Behaviour when table variables have differing types or widths.
+- id: table2array.q-output-class
+  question: Specify the resulting array class.

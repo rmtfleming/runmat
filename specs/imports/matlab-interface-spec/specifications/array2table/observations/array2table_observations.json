@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "array2table",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/array2table/test_array2table_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "2x3 matrix",
+      "call": "array2table([1 2 3; 4 5 6])",
+      "errored": false,
+      "result": {
+        "value": "<table [2 3]>",
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "varnames",
+      "description": "explicit variable names",
+      "call": "array2table([1 2; 3 4], 'VariableNames', {'x','y'})",
+      "errored": false,
+      "result": {
+        "value": "<table [2 2]>",
+        "class": "table",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

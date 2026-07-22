@@ -1,0 +1,45 @@
+# Provenance for datestr (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: datestr
+claims:
+- claim_id: datestr.signature-primary
+  statement: The primary invocation form `s = datestr(t)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/datestr_observations.json
+    case_id: serial-default
+- claim_id: datestr.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/datestr_observations.json
+    case_id: serial-default
+  - file: observations/datestr_observations.json
+    case_id: serial-format
+- claim_id: datestr.char-format
+  statement: Returns a char row vector; the default format is day-month-year (for example 30-Dec-2022)
+    and a format string overrides it (yyyy-mm-dd).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-21'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/datestr_observations.json
+    case_id: serial-default
+  - file: observations/datestr_observations.json
+    case_id: serial-format

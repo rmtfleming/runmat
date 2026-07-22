@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "strtok",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/strtok/test_strtok_interface.m",
+  "date": "2026-07-21",
+  "notes": "SKELETON run: values recorded via describe_value (mat2str for numeric/char/logical, else a class/size tag). Multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "default",
+      "description": "default whitespace delimiter",
+      "call": "strtok('hello world')",
+      "errored": false,
+      "result": {
+        "value": "'hello'",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "custom-delim",
+      "description": "comma delimiter",
+      "call": "strtok('a,b,c', ',')",
+      "errored": false,
+      "result": {
+        "value": "'a'",
+        "class": "char",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "leading-space",
+      "description": "leading whitespace",
+      "call": "strtok('   lead trail')",
+      "errored": false,
+      "result": {
+        "value": "'lead'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

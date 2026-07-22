@@ -1,0 +1,86 @@
+# Interface specification for matches (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: matches
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical array indicating which elements of the input equal a given pattern or set of
+  patterns.
+
+  '
+invocation_forms:
+- signature: tf = matches(str, pat)
+  description: Element-wise exact match of str against pat.
+  status: confirmed
+- signature: tf = matches(str, pat, 'IgnoreCase', true)
+  description: Case-insensitive match.
+  status: pending
+inputs:
+- name: str
+  required: true
+  description: Text (string array or char).
+  status: pending
+- name: pat
+  required: true
+  description: Pattern or array of patterns to match.
+  status: pending
+outputs:
+- name: tf
+  description: Logical array of matches.
+  status: pending
+  type_rule:
+    id: matches.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: matches.output-class
+    observations:
+    - file: observations/matches_observations.json
+      case_id: in-set
+    - file: observations/matches_observations.json
+      case_id: scalar
+    - file: observations/matches_observations.json
+      case_id: ignore-case
+output_type_rules:
+- id: matches.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: matches.output-class
+  observations:
+  - file: observations/matches_observations.json
+    case_id: in-set
+  - file: observations/matches_observations.json
+    case_id: scalar
+  - file: observations/matches_observations.json
+    case_id: ignore-case
+output_shape_rules:
+- id: matches.scalar-membership-rule
+  statement: Returns a logical; a scalar first argument yields a scalar result that is true when it equals
+    any of the given patterns, and the 'IgnoreCase' option enables case-insensitive matching.
+  status: confirmed
+  normative: true
+  provenance: matches.scalar-membership
+  observations:
+  - file: observations/matches_observations.json
+    case_id: in-set
+  - file: observations/matches_observations.json
+    case_id: scalar
+  - file: observations/matches_observations.json
+    case_id: ignore-case
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/matches_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: matches.q-release
+  question: matches was introduced in a specific release; record applicable releases.
+- id: matches.q-string-vs-char
+  question: Confirm behaviour differences between string and char inputs.
