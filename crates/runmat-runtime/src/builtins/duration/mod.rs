@@ -1,3 +1,5 @@
+pub mod seconds;
+
 use std::cell::Cell;
 use std::collections::HashMap;
 
