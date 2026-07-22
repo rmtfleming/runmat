@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "license",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/license/test_license_interface.m",
+  "date": "2026-07-22",
+  "notes": "Values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "test-matlab",
+      "description": "test whether MATLAB is licensed",
+      "call": "license('test', 'MATLAB')",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

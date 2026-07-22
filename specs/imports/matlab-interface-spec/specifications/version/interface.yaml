@@ -1,0 +1,74 @@
+# Interface specification for version (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: version
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return text identifying the MATLAB version; options request substrings such as the release or
+  build date.
+
+  '
+invocation_forms:
+- signature: v = version
+  description: Full version string.
+  status: confirmed
+- signature: v = version(option)
+  description: A substring such as '-release' or '-date'.
+  status: confirmed
+inputs:
+- name: option
+  required: false
+  description: Optional substring selector.
+  status: pending
+outputs:
+- name: v
+  description: Version text.
+  status: pending
+  type_rule:
+    id: version.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: version.output-class
+    observations:
+    - file: observations/version_observations.json
+      case_id: default
+    - file: observations/version_observations.json
+      case_id: release
+output_type_rules:
+- id: version.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: version.output-class
+  observations:
+  - file: observations/version_observations.json
+    case_id: default
+  - file: observations/version_observations.json
+    case_id: release
+output_shape_rules:
+- id: version.version-strings-rule
+  statement: Returns a char row vector; version('-release') returns the release substring (observed '26.1.0.3276743
+    (R2026a) Update 3' and '2026a' on this installation). The specific strings are release-dependent.
+  status: confirmed
+  normative: true
+  provenance: version.version-strings
+  observations:
+  - file: observations/version_observations.json
+    case_id: default
+  - file: observations/version_observations.json
+    case_id: release
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/version_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: version.q-values
+  question: The specific strings are release-dependent; record only that char text is returned.

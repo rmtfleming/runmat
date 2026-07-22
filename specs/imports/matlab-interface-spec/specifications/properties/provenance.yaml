@@ -1,0 +1,31 @@
+# Provenance for properties (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: properties
+claims:
+- claim_id: properties.signature-primary
+  statement: The primary invocation form `c = properties(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/properties_observations.json
+    case_id: object
+- claim_id: properties.cellstr-names
+  statement: Returns an N-by-1 cell array whose elements are char vectors (verified with iscellstr); inputParser
+    gave 9 names. The count and names are class-dependent.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/properties_observations.json
+    case_id: object
+  - file: observations/properties_observations.json
+    case_id: elem-type

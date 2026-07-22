@@ -1,5 +1,23 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 5 — Tier B batch 3 — 2026-07-22
+
+- Twelve newly approved specifications (environment / introspection / time)
+  imported: `accumarray`, `eps`, `etime`, `getReport`, `license`, `methods`,
+  `properties`, `seconds`, `ver`, `verLessThan`, `version`, `what`.
+  (`median` remains draft — still excluded.)
+- Approval record: source `docs/review/2026-07-22-tier-b-batch3-human-loop.md`
+  (all 12 approved, 6 minor pre-promotion corrections).
+- Revision: approved at commit **`67eaf83`**; imported at source HEAD
+  **`1b019121bb747e63d69a3eb005534cb60669e5f4`** ("Clean up stale SKELETON
+  labels"). The only post-approval change to these specs is a cosmetic
+  `"notes"` field edit in the observation JSON (SKELETON label removed — no
+  case data, values, classes, or claims changed; verified by diff). Still
+  `status: approved` at HEAD. Pinned to `1b01912`.
+- Byte-verified; `SHA256SUMS` regenerated over all 62 specifications.
+
+---
+
 ## Batch 4 — Tier B batch 2 — 2026-07-22
 
 - Twelve newly approved specifications imported, pinned to the batch-2

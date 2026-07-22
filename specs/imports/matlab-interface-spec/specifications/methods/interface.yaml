@@ -1,0 +1,51 @@
+# Interface specification for methods (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: methods
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the method names of an object or class as a cell array of character vectors.
+
+  '
+invocation_forms:
+- signature: c = methods(A)
+  description: Method names of the object or class A.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Object or class name.
+  status: pending
+outputs:
+- name: c
+  description: Cell array of method-name character vectors.
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: methods.cellstr-names-rule
+  statement: Returns an N-by-1 cell array whose elements are char vectors (verified with iscellstr); inputParser
+    gave 19 names. The count and names are class-dependent.
+  status: confirmed
+  normative: true
+  provenance: methods.cellstr-names
+  observations:
+  - file: observations/methods_observations.json
+    case_id: object
+  - file: observations/methods_observations.json
+    case_id: elem-type
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/methods_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: methods.q-class-dependent
+  question: The specific names depend on the class.
+- id: methods.q-full
+  question: The '-full' option is not exercised.

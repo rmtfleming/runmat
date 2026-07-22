@@ -1,0 +1,66 @@
+# Interface specification for what (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: what
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a structure listing the MATLAB-related files in a folder.
+
+  '
+invocation_forms:
+- signature: s = what(folder)
+  description: Structure describing files in the given folder.
+  status: confirmed
+inputs:
+- name: folder
+  required: true
+  description: Folder path.
+  status: pending
+outputs:
+- name: s
+  description: A structure describing the folder's files; its field names are not asserted here.
+  status: pending
+  type_rule:
+    id: what.out-type
+    statement: The first output has class struct (observed).
+    status: confirmed
+    normative: true
+    provenance: what.output-class
+    observations:
+    - file: observations/what_observations.json
+      case_id: tempdir
+output_type_rules:
+- id: what.output-class-rule
+  statement: The output class is struct across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: what.output-class
+  observations:
+  - file: observations/what_observations.json
+    case_id: tempdir
+- id: what.folder-struct-rule
+  statement: Returns a struct describing the MATLAB-related files in the folder; the field names and contents
+    are folder-dependent.
+  status: confirmed
+  normative: true
+  provenance: what.folder-struct
+  observations:
+  - file: observations/what_observations.json
+    case_id: tempdir
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/what_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: what.q-fields
+  question: Confirm the field names of the returned structure.
+- id: what.q-content
+  question: The listed files depend on the folder; record only the structure/type.

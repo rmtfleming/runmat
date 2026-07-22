@@ -1,0 +1,70 @@
+# Interface specification for license (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: license
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Query licensing: with ''test'' and a feature name, return whether that feature is licensed.
+
+  '
+invocation_forms:
+- signature: result = license('test', feature)
+  description: Returns 1 (a double) if the named feature is licensed.
+  status: confirmed
+inputs:
+- name: action
+  required: true
+  description: The action, e.g. 'test'.
+  status: pending
+- name: feature
+  required: true
+  description: Feature/product name.
+  status: pending
+outputs:
+- name: result
+  description: 'Numeric (double) result for the ''test'' action: 1 when the feature is licensed.'
+  status: pending
+  type_rule:
+    id: license.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: license.output-class
+    observations:
+    - file: observations/license_observations.json
+      case_id: test-matlab
+output_type_rules:
+- id: license.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: license.output-class
+  observations:
+  - file: observations/license_observations.json
+    case_id: test-matlab
+- id: license.test-numeric-rule
+  statement: 'license(''test'', feature) returns a numeric (double) result: 1 when the feature is licensed
+    (observed for MATLAB).'
+  status: confirmed
+  normative: true
+  provenance: license.test-numeric
+  observations:
+  - file: observations/license_observations.json
+    case_id: test-matlab
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/license_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: license.q-other-actions
+  question: The no-argument and 'inuse'/'checkout' forms are not exercised.
+- id: license.q-value
+  question: The license-number form returns installation-specific text; not exercised.

@@ -1,0 +1,45 @@
+# Provenance for verLessThan (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: verLessThan
+claims:
+- claim_id: verLessThan.signature-primary
+  statement: The primary invocation form `tf = verLessThan(toolbox, version)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/verLessThan_observations.json
+    case_id: older
+- claim_id: verLessThan.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/verLessThan_observations.json
+    case_id: older
+  - file: observations/verLessThan_observations.json
+    case_id: newer
+- claim_id: verLessThan.logical-compare
+  statement: 'Returns a 1-by-1 logical: comparing MATLAB against a very high version gave true and against
+    a very low version gave false.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/verLessThan_observations.json
+    case_id: older
+  - file: observations/verLessThan_observations.json
+    case_id: newer

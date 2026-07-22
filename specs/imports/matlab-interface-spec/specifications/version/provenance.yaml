@@ -1,0 +1,45 @@
+# Provenance for version (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: version
+claims:
+- claim_id: version.signature-primary
+  statement: The primary invocation form `v = version` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/version_observations.json
+    case_id: default
+- claim_id: version.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/version_observations.json
+    case_id: default
+  - file: observations/version_observations.json
+    case_id: release
+- claim_id: version.version-strings
+  statement: Returns a char row vector; version('-release') returns the release substring (observed '26.1.0.3276743
+    (R2026a) Update 3' and '2026a' on this installation). The specific strings are release-dependent.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/version_observations.json
+    case_id: default
+  - file: observations/version_observations.json
+    case_id: release

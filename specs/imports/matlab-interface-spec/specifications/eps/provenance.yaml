@@ -1,0 +1,31 @@
+# Provenance for eps (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: eps
+claims:
+- claim_id: eps.signature-primary
+  statement: The primary invocation form `d = eps` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/eps_observations.json
+    case_id: default
+- claim_id: eps.spacing-constants
+  statement: eps returns the double spacing near 1.0, 2.2204460492503131e-16; eps('single') returns the
+    single spacing 1.1920928955078125e-07.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/eps_observations.json
+    case_id: default
+  - file: observations/eps_observations.json
+    case_id: single-class

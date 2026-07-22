@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "eps",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/eps/test_eps_interface.m",
+  "date": "2026-07-22",
+  "notes": "Values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "default",
+      "description": "spacing near 1.0",
+      "call": "eps",
+      "errored": false,
+      "result": {
+        "value": "2.2204460492503131e-16",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single-class",
+      "description": "spacing for the single class",
+      "call": "eps('single')",
+      "errored": false,
+      "result": {
+        "value": "1.1920928955078125e-07",
+        "class": "single",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

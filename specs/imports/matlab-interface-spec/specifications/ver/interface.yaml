@@ -1,0 +1,70 @@
+# Interface specification for ver (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: ver
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return information about installed MathWorks products as a structure array; a product name returns
+  the entry for that product.
+
+  '
+invocation_forms:
+- signature: s = ver
+  description: Structure array describing installed products.
+  status: pending
+- signature: s = ver(product)
+  description: Structure for a named product.
+  status: confirmed
+inputs:
+- name: product
+  required: false
+  description: Optional product name.
+  status: pending
+outputs:
+- name: s
+  description: A structure describing the product; its field names are not asserted here.
+  status: pending
+  type_rule:
+    id: ver.out-type
+    statement: The first output has class struct (observed).
+    status: confirmed
+    normative: true
+    provenance: ver.output-class
+    observations:
+    - file: observations/ver_observations.json
+      case_id: matlab
+output_type_rules:
+- id: ver.output-class-rule
+  statement: The output class is struct across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: ver.output-class
+  observations:
+  - file: observations/ver_observations.json
+    case_id: matlab
+- id: ver.product-struct-rule
+  statement: Returns a struct; ver('MATLAB') returned a 1-by-1 struct describing the product. The field
+    names and contents are installation-dependent.
+  status: confirmed
+  normative: true
+  provenance: ver.product-struct
+  observations:
+  - file: observations/ver_observations.json
+    case_id: matlab
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/ver_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: ver.q-install-dependent
+  question: Contents depend on the installation; record only the structure/type.
+- id: ver.q-fields
+  question: Confirm the field names of the returned structure.

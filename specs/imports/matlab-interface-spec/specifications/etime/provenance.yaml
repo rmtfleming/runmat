@@ -1,0 +1,41 @@
+# Provenance for etime (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: etime
+claims:
+- claim_id: etime.signature-primary
+  statement: The primary invocation form `s = etime(t2, t1)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/etime_observations.json
+    case_id: one-second
+- claim_id: etime.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/etime_observations.json
+    case_id: one-second
+- claim_id: etime.elapsed-seconds
+  statement: Returns the number of seconds between two date vectors as a double (1 for vectors one second
+    apart).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/etime_observations.json
+    case_id: one-second

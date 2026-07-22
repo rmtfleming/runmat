@@ -1,0 +1,41 @@
+# Provenance for license (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: license
+claims:
+- claim_id: license.signature-primary
+  statement: The primary invocation form `tf = license('test', feature)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/license_observations.json
+    case_id: test-matlab
+- claim_id: license.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/license_observations.json
+    case_id: test-matlab
+- claim_id: license.test-numeric
+  statement: 'license(''test'', feature) returns a numeric (double) result: 1 when the feature is licensed
+    (observed for MATLAB).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/license_observations.json
+    case_id: test-matlab

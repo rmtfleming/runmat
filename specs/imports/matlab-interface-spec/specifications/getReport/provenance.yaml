@@ -1,0 +1,41 @@
+# Provenance for getReport (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: getReport
+claims:
+- claim_id: getReport.signature-primary
+  statement: The primary invocation form `report = getReport(ME)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/getReport_observations.json
+    case_id: basic
+- claim_id: getReport.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/getReport_observations.json
+    case_id: basic
+- claim_id: getReport.char-report
+  statement: Returns char report text describing the exception; for a plain MException the observed report
+    was the message text 'oops'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/getReport_observations.json
+    case_id: basic

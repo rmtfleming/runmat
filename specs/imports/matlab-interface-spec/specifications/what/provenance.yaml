@@ -1,0 +1,41 @@
+# Provenance for what (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: what
+claims:
+- claim_id: what.signature-primary
+  statement: The primary invocation form `s = what(folder)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/what_observations.json
+    case_id: tempdir
+- claim_id: what.output-class
+  statement: The output class is struct for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/what_observations.json
+    case_id: tempdir
+- claim_id: what.folder-struct
+  statement: Returns a struct describing the MATLAB-related files in the folder; the field names and contents
+    are folder-dependent.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/what_observations.json
+    case_id: tempdir

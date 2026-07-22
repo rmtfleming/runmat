@@ -1,0 +1,66 @@
+# Interface specification for seconds (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: seconds
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert a number to a duration in seconds, or convert a duration to a number of seconds.
+
+  '
+invocation_forms:
+- signature: d = seconds(x)
+  description: Duration of x seconds.
+  status: confirmed
+- signature: n = seconds(d)
+  description: Number of seconds in duration d.
+  status: pending
+inputs:
+- name: x
+  required: true
+  description: A number (or a duration).
+  status: pending
+outputs:
+- name: d
+  description: A duration, or a number of seconds.
+  status: pending
+  type_rule:
+    id: seconds.out-type
+    statement: The first output has class duration (observed).
+    status: confirmed
+    normative: true
+    provenance: seconds.output-class
+    observations:
+    - file: observations/seconds_observations.json
+      case_id: to-duration
+output_type_rules:
+- id: seconds.output-class-rule
+  statement: The output class is duration across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: seconds.output-class
+  observations:
+  - file: observations/seconds_observations.json
+    case_id: to-duration
+- id: seconds.to-duration-rule
+  statement: seconds(5) returns a duration object (class duration).
+  status: confirmed
+  normative: true
+  provenance: seconds.to-duration
+  observations:
+  - file: observations/seconds_observations.json
+    case_id: to-duration
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/seconds_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: seconds.q-from-duration
+  question: The duration-to-number form is not exercised.

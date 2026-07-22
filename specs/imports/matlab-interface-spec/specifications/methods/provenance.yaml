@@ -1,0 +1,31 @@
+# Provenance for methods (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: methods
+claims:
+- claim_id: methods.signature-primary
+  statement: The primary invocation form `c = methods(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/methods_observations.json
+    case_id: object
+- claim_id: methods.cellstr-names
+  statement: Returns an N-by-1 cell array whose elements are char vectors (verified with iscellstr); inputParser
+    gave 19 names. The count and names are class-dependent.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/methods_observations.json
+    case_id: object
+  - file: observations/methods_observations.json
+    case_id: elem-type

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "methods",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/methods/test_methods_interface.m",
+  "date": "2026-07-22",
+  "notes": "Values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "object",
+      "description": "methods of an object",
+      "call": "methods(inputParser)",
+      "errored": false,
+      "result": {
+        "value": "<cell [19 1]>",
+        "class": "cell",
+        "size": [
+          19,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "elem-type",
+      "description": "elements are char vectors (via iscellstr)",
+      "call": "iscellstr(methods(inputParser))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+# Interface specification for eps (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: eps
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the floating-point relative accuracy: the distance from 1.0 to the next larger double,
+  or the spacing for a given value or class.
+
+  '
+invocation_forms:
+- signature: d = eps
+  description: Spacing near 1.0 for double.
+  status: confirmed
+- signature: d = eps(x)
+  description: Spacing near the value x.
+  status: pending
+- signature: d = eps(classname)
+  description: Spacing for the named floating-point class.
+  status: confirmed
+inputs:
+- name: x
+  required: false
+  description: Optional value or class name.
+  status: pending
+outputs:
+- name: d
+  description: Floating-point spacing.
+  status: pending
+output_type_rules: []
+output_shape_rules: []
+numerical_edge_cases:
+- id: eps.spacing-constants-rule
+  statement: eps returns the double spacing near 1.0, 2.2204460492503131e-16; eps('single') returns the
+    single spacing 1.1920928955078125e-07.
+  status: confirmed
+  normative: true
+  provenance: eps.spacing-constants
+  observations:
+  - file: observations/eps_observations.json
+    case_id: default
+  - file: observations/eps_observations.json
+    case_id: single-class
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/eps_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: eps.q-value-form
+  question: The eps(x) value-dependent form is not exercised.

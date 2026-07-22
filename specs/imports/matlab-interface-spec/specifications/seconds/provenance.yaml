@@ -1,0 +1,40 @@
+# Provenance for seconds (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: seconds
+claims:
+- claim_id: seconds.signature-primary
+  statement: The primary invocation form `d = seconds(x)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/seconds_observations.json
+    case_id: to-duration
+- claim_id: seconds.output-class
+  statement: The output class is duration for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/seconds_observations.json
+    case_id: to-duration
+- claim_id: seconds.to-duration
+  statement: seconds(5) returns a duration object (class duration).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/seconds_observations.json
+    case_id: to-duration

@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "getReport",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/getReport/test_getReport_interface.m",
+  "date": "2026-07-22",
+  "notes": "Values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "report of a constructed exception",
+      "call": "getReport(MException('x:y', 'oops'))",
+      "errored": false,
+      "result": {
+        "value": "'oops'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

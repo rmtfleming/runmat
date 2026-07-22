@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "version",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/version/test_version_interface.m",
+  "date": "2026-07-22",
+  "notes": "Values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "default",
+      "description": "full version string",
+      "call": "version",
+      "errored": false,
+      "result": {
+        "value": "'26.1.0.3276743 (R2026a) Update 3'",
+        "class": "char",
+        "size": [
+          1,
+          32
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "release",
+      "description": "the release substring",
+      "call": "version('-release')",
+      "errored": false,
+      "result": {
+        "value": "'2026a'",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

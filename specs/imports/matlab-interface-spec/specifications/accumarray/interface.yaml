@@ -1,0 +1,71 @@
+# Interface specification for accumarray (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: accumarray
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Accumulate values into an output array at positions given by subscripts; by default it sums
+  values that map to the same position.
+
+  '
+invocation_forms:
+- signature: A = accumarray(subs, vals)
+  description: Sum vals into A at the rows given by subs.
+  status: confirmed
+inputs:
+- name: subs
+  required: true
+  description: Subscript positions.
+  status: pending
+- name: vals
+  required: true
+  description: Values to accumulate.
+  status: pending
+outputs:
+- name: A
+  description: Accumulated array.
+  status: pending
+  type_rule:
+    id: accumarray.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: accumarray.output-class
+    observations:
+    - file: observations/accumarray_observations.json
+      case_id: sum
+output_type_rules:
+- id: accumarray.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: accumarray.output-class
+  observations:
+  - file: observations/accumarray_observations.json
+    case_id: sum
+output_shape_rules:
+- id: accumarray.sum-by-subscript-rule
+  statement: Accumulates values into a column vector indexed by subscripts, summing values that share
+    a subscript by default (subs [1;2;1], vals [10;20;30] gave [40;20]).
+  status: confirmed
+  normative: true
+  provenance: accumarray.sum-by-subscript
+  observations:
+  - file: observations/accumarray_observations.json
+    case_id: sum
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/accumarray_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: accumarray.q-func
+  question: The custom accumulation-function form.
+- id: accumarray.q-size
+  question: The size and fill-value options.

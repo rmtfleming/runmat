@@ -1,0 +1,41 @@
+# Provenance for accumarray (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: accumarray
+claims:
+- claim_id: accumarray.signature-primary
+  statement: The primary invocation form `A = accumarray(subs, vals)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/accumarray_observations.json
+    case_id: sum
+- claim_id: accumarray.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/accumarray_observations.json
+    case_id: sum
+- claim_id: accumarray.sum-by-subscript
+  statement: Accumulates values into a column vector indexed by subscripts, summing values that share
+    a subscript by default (subs [1;2;1], vals [10;20;30] gave [40;20]).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/accumarray_observations.json
+    case_id: sum

@@ -1,0 +1,41 @@
+# Provenance for ver (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: ver
+claims:
+- claim_id: ver.signature-primary
+  statement: The primary invocation form `s = ver(product)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/ver_observations.json
+    case_id: matlab
+- claim_id: ver.output-class
+  statement: The output class is struct for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/ver_observations.json
+    case_id: matlab
+- claim_id: ver.product-struct
+  statement: Returns a struct; ver('MATLAB') returned a 1-by-1 struct describing the product. The field
+    names and contents are installation-dependent.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/ver_observations.json
+    case_id: matlab

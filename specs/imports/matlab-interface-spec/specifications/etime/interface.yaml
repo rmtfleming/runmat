@@ -1,0 +1,70 @@
+# Interface specification for etime (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: etime
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the number of seconds between two date vectors (a legacy function).
+
+  '
+invocation_forms:
+- signature: s = etime(t2, t1)
+  description: Seconds elapsed from t1 to t2.
+  status: confirmed
+inputs:
+- name: t2
+  required: true
+  description: Later date vector [Y M D H MI S].
+  status: pending
+- name: t1
+  required: true
+  description: Earlier date vector.
+  status: pending
+outputs:
+- name: s
+  description: Elapsed seconds.
+  status: pending
+  type_rule:
+    id: etime.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: etime.output-class
+    observations:
+    - file: observations/etime_observations.json
+      case_id: one-second
+output_type_rules:
+- id: etime.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: etime.output-class
+  observations:
+  - file: observations/etime_observations.json
+    case_id: one-second
+output_shape_rules: []
+numerical_edge_cases:
+- id: etime.elapsed-seconds-rule
+  statement: Returns the number of seconds between two date vectors as a double (1 for vectors one second
+    apart).
+  status: confirmed
+  normative: true
+  provenance: etime.elapsed-seconds
+  observations:
+  - file: observations/etime_observations.json
+    case_id: one-second
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/etime_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: etime.q-deprecated
+  question: Confirm any deprecation notice.
+- id: etime.q-negative
+  question: Behaviour when t2 is earlier than t1.

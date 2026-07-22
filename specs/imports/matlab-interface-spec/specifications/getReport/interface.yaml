@@ -1,0 +1,64 @@
+# Interface specification for getReport (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: getReport
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a formatted text report describing an exception object.
+
+  '
+invocation_forms:
+- signature: report = getReport(ME)
+  description: Text report describing the exception ME.
+  status: confirmed
+inputs:
+- name: ME
+  required: true
+  description: An MException object.
+  status: pending
+outputs:
+- name: report
+  description: Character report text.
+  status: pending
+  type_rule:
+    id: getReport.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: getReport.output-class
+    observations:
+    - file: observations/getReport_observations.json
+      case_id: basic
+output_type_rules:
+- id: getReport.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: getReport.output-class
+  observations:
+  - file: observations/getReport_observations.json
+    case_id: basic
+output_shape_rules:
+- id: getReport.char-report-rule
+  statement: Returns char report text describing the exception; for a plain MException the observed report
+    was the message text 'oops'.
+  status: confirmed
+  normative: true
+  provenance: getReport.char-report
+  observations:
+  - file: observations/getReport_observations.json
+    case_id: basic
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/getReport_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: getReport.q-options
+  question: The 'extended'/'basic' and hyperlink options are not exercised.
