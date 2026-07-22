@@ -22,6 +22,7 @@ pub mod rmpath;
 pub mod run;
 pub mod savepath;
 pub mod setenv;
+pub mod system;
 pub mod tempdir;
 pub mod tempname;
 pub mod uigetfile;
