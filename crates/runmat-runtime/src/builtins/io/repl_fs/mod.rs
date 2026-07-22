@@ -10,6 +10,7 @@ pub(crate) mod file_dialog;
 pub mod fullfile;
 pub mod genpath;
 pub mod getenv;
+pub mod isfile;
 pub mod ls;
 pub mod mkdir;
 pub mod movefile;
