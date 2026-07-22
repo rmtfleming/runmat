@@ -2,6 +2,7 @@
 
 pub mod char;
 pub mod compose;
+pub mod dec2bin;
 pub mod int2str;
 pub mod num2str;
 pub mod sprintf;
@@ -15,3 +16,4 @@ pub mod string_empty;
 pub mod strings;
 pub mod strlength;
 pub mod strncmp;
+pub mod strncmpi;
