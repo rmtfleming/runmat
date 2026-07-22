@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "iscellstr",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/iscellstr/test_iscellstr_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "all-char",
+      "description": "cell of char vectors",
+      "call": "iscellstr({'a', 'bc'})",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mixed",
+      "description": "cell with a non-char element",
+      "call": "iscellstr({'a', 1})",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char",
+      "description": "a plain char vector",
+      "call": "iscellstr('abc')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-cell",
+      "description": "empty cell array",
+      "call": "iscellstr({})",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

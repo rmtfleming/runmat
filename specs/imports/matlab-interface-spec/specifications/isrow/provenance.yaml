@@ -1,0 +1,53 @@
+# Provenance for isrow (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: isrow
+claims:
+- claim_id: isrow.signature-primary
+  statement: The primary invocation form `tf = isrow(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isrow_observations.json
+    case_id: row
+- claim_id: isrow.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isrow_observations.json
+    case_id: row
+  - file: observations/isrow_observations.json
+    case_id: column
+  - file: observations/isrow_observations.json
+    case_id: scalar
+  - file: observations/isrow_observations.json
+    case_id: matrix
+- claim_id: isrow.logical-row-test
+  statement: 'Returns a 1-by-1 logical: true for a 1-by-N row (a scalar counts as a row), false for a
+    column or a 2-D matrix.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isrow_observations.json
+    case_id: row
+  - file: observations/isrow_observations.json
+    case_id: scalar
+  - file: observations/isrow_observations.json
+    case_id: column
+  - file: observations/isrow_observations.json
+    case_id: matrix

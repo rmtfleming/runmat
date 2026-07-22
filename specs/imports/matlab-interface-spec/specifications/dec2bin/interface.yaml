@@ -1,0 +1,93 @@
+# Interface specification for dec2bin (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: dec2bin
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Convert nonnegative integers to their binary representation as a character array, optionally
+  zero-padded to a minimum length.
+
+  '
+invocation_forms:
+- signature: str = dec2bin(D)
+  description: Binary text of D.
+  status: confirmed
+- signature: str = dec2bin(D, n)
+  description: Binary text padded to at least n digits.
+  status: confirmed
+inputs:
+- name: D
+  required: true
+  description: Nonnegative integer value(s).
+  status: pending
+- name: n
+  required: false
+  description: Optional minimum number of digits.
+  status: pending
+outputs:
+- name: str
+  description: Character array of binary digits.
+  status: pending
+  type_rule:
+    id: dec2bin.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: dec2bin.output-class
+    observations:
+    - file: observations/dec2bin_observations.json
+      case_id: scalar
+    - file: observations/dec2bin_observations.json
+      case_id: padded
+    - file: observations/dec2bin_observations.json
+      case_id: zero
+    - file: observations/dec2bin_observations.json
+      case_id: width-below-natural
+output_type_rules:
+- id: dec2bin.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: dec2bin.output-class
+  observations:
+  - file: observations/dec2bin_observations.json
+    case_id: scalar
+  - file: observations/dec2bin_observations.json
+    case_id: padded
+  - file: observations/dec2bin_observations.json
+    case_id: zero
+  - file: observations/dec2bin_observations.json
+    case_id: width-below-natural
+output_shape_rules: []
+numerical_edge_cases:
+- id: dec2bin.binary-char-rule
+  statement: Returns a char array of binary digits (5 -> '101'); a width argument zero-pads up to at least
+    that many digits and does not truncate when the requested width is below the natural width (5, 2 ->
+    '101'); zero gives '0'.
+  status: confirmed
+  normative: true
+  provenance: dec2bin.binary-char
+  observations:
+  - file: observations/dec2bin_observations.json
+    case_id: scalar
+  - file: observations/dec2bin_observations.json
+    case_id: padded
+  - file: observations/dec2bin_observations.json
+    case_id: zero
+  - file: observations/dec2bin_observations.json
+    case_id: width-below-natural
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/dec2bin_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: dec2bin.q-vector
+  question: Output layout for a vector of inputs (char matrix).
+- id: dec2bin.q-negative
+  question: Behaviour for negative or non-integer inputs.

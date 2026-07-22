@@ -1,3 +1,29 @@
+# Import Manifest — matlab-interface-spec exports
+
+## Batch 3 — Tier B batch 1 — 2026-07-22
+
+- Twelve newly approved specifications imported directly from the source
+  repository at **commit `e46587ae1b78237e0f43cd55f678de01a28495a4`**
+  ("Assemble Tier B batch 2 skeletons"), verified clean at HEAD for all
+  twelve (the source working tree also holds *draft* Tier B batch-2 files,
+  which were NOT imported).
+- Functions (all `status: approved`, verified in each `interface.yaml`;
+  approval record: source `docs/review/2026-07-22-tier-b-batch1-human-loop.md`,
+  "all 12 approved" 2026-07-22, with two spec-side observation fixes to
+  `nonzeros` and `dec2bin` before promotion): `addvars`, `computer`,
+  `dec2bin`, `iscellstr`, `iscolumn`, `isrow`, `issparse`, `istable`,
+  `nonzeros`, `psi`, `removevars`, `strncmpi`.
+- No packaged `dist/` export exists for Tier B; import is directly from the
+  committed `specifications/` tree at the pinned commit (export boundary
+  honoured: interface.yaml, behaviour.md, provenance.yaml, observations/*.json).
+- Copies verified byte-identical to source (`diff -r`). `SHA256SUMS`
+  regenerated over all 38 specifications.
+- Note: source `provenance.yaml` author for this batch is "clean-room agent
+  (Claude Opus 4.8)" (Tier A batch was Claude Fable 5) — recorded for
+  traceability; approval is by the same repository maintainer.
+
+---
+
 # Import Manifest — matlab-interface-spec Tier A exports
 
 ## Batch 2 — 2026-07-22 (supersedes the interim pin below)

@@ -1,0 +1,48 @@
+# Provenance for istable (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: istable
+claims:
+- claim_id: istable.signature-primary
+  statement: The primary invocation form `tf = istable(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/istable_observations.json
+    case_id: table
+- claim_id: istable.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/istable_observations.json
+    case_id: table
+  - file: observations/istable_observations.json
+    case_id: numeric
+  - file: observations/istable_observations.json
+    case_id: cell
+- claim_id: istable.logical-table-test
+  statement: 'Returns a 1-by-1 logical: true for a table, false for numeric and cell inputs.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/istable_observations.json
+    case_id: table
+  - file: observations/istable_observations.json
+    case_id: numeric
+  - file: observations/istable_observations.json
+    case_id: cell

@@ -1,0 +1,49 @@
+# Provenance for strncmpi (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: strncmpi
+claims:
+- claim_id: strncmpi.signature-primary
+  statement: The primary invocation form `tf = strncmpi(s1, s2, n)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strncmpi_observations.json
+    case_id: match
+- claim_id: strncmpi.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strncmpi_observations.json
+    case_id: match
+  - file: observations/strncmpi_observations.json
+    case_id: prefix-equal
+  - file: observations/strncmpi_observations.json
+    case_id: no-match
+- claim_id: strncmpi.case-insensitive-prefix
+  statement: Returns a 1-by-1 logical that is true when the first n characters match ignoring case, and
+    false when a character within the first n differs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strncmpi_observations.json
+    case_id: match
+  - file: observations/strncmpi_observations.json
+    case_id: prefix-equal
+  - file: observations/strncmpi_observations.json
+    case_id: no-match

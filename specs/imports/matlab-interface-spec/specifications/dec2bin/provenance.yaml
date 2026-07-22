@@ -1,0 +1,54 @@
+# Provenance for dec2bin (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: dec2bin
+claims:
+- claim_id: dec2bin.signature-primary
+  statement: The primary invocation form `str = dec2bin(D)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2bin_observations.json
+    case_id: scalar
+- claim_id: dec2bin.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2bin_observations.json
+    case_id: scalar
+  - file: observations/dec2bin_observations.json
+    case_id: padded
+  - file: observations/dec2bin_observations.json
+    case_id: zero
+  - file: observations/dec2bin_observations.json
+    case_id: width-below-natural
+- claim_id: dec2bin.binary-char
+  statement: Returns a char array of binary digits (5 -> '101'); a width argument zero-pads up to at least
+    that many digits and does not truncate when the requested width is below the natural width (5, 2 ->
+    '101'); zero gives '0'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2bin_observations.json
+    case_id: scalar
+  - file: observations/dec2bin_observations.json
+    case_id: padded
+  - file: observations/dec2bin_observations.json
+    case_id: zero
+  - file: observations/dec2bin_observations.json
+    case_id: width-below-natural

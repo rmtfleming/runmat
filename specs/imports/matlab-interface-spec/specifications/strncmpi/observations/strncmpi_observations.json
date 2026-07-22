@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "strncmpi",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/strncmpi/test_strncmpi_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "match",
+      "description": "first 3 characters match ignoring case",
+      "call": "strncmpi('Hello', 'help', 3)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "prefix-equal",
+      "description": "equal 2-character prefix",
+      "call": "strncmpi('abc', 'abd', 2)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-match",
+      "description": "different first character",
+      "call": "strncmpi('abc', 'xyz', 1)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

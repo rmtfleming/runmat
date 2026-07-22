@@ -1,0 +1,76 @@
+# Interface specification for issparse (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: issparse
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input uses sparse storage and false otherwise.
+
+  '
+invocation_forms:
+- signature: tf = issparse(A)
+  description: Test whether A is stored as a sparse matrix.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: issparse.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: issparse.output-class
+    observations:
+    - file: observations/issparse_observations.json
+      case_id: sparse
+    - file: observations/issparse_observations.json
+      case_id: full
+    - file: observations/issparse_observations.json
+      case_id: empty-sparse
+output_type_rules:
+- id: issparse.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: issparse.output-class
+  observations:
+  - file: observations/issparse_observations.json
+    case_id: sparse
+  - file: observations/issparse_observations.json
+    case_id: full
+  - file: observations/issparse_observations.json
+    case_id: empty-sparse
+- id: issparse.logical-sparse-test-rule
+  statement: 'Returns a 1-by-1 logical: true for sparse-storage inputs including an empty sparse array,
+    false for full inputs.'
+  status: confirmed
+  normative: true
+  provenance: issparse.logical-sparse-test
+  observations:
+  - file: observations/issparse_observations.json
+    case_id: sparse
+  - file: observations/issparse_observations.json
+    case_id: empty-sparse
+  - file: observations/issparse_observations.json
+    case_id: full
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/issparse_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: issparse.q-output
+  question: Confirm output class (logical) and size (1x1).

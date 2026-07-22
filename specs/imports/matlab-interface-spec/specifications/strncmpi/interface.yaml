@@ -1,0 +1,85 @@
+# Interface specification for strncmpi (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: strncmpi
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Compare the first n characters of two character arrays, ignoring case, and return whether they
+  match.
+
+  '
+invocation_forms:
+- signature: tf = strncmpi(s1, s2, n)
+  description: Case-insensitive comparison of the first n characters.
+  status: confirmed
+inputs:
+- name: s1
+  required: true
+  description: First text.
+  status: pending
+- name: s2
+  required: true
+  description: Second text.
+  status: pending
+- name: n
+  required: true
+  description: Number of leading characters to compare.
+  status: pending
+outputs:
+- name: tf
+  description: Logical result.
+  status: pending
+  type_rule:
+    id: strncmpi.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: strncmpi.output-class
+    observations:
+    - file: observations/strncmpi_observations.json
+      case_id: match
+    - file: observations/strncmpi_observations.json
+      case_id: prefix-equal
+    - file: observations/strncmpi_observations.json
+      case_id: no-match
+output_type_rules:
+- id: strncmpi.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: strncmpi.output-class
+  observations:
+  - file: observations/strncmpi_observations.json
+    case_id: match
+  - file: observations/strncmpi_observations.json
+    case_id: prefix-equal
+  - file: observations/strncmpi_observations.json
+    case_id: no-match
+- id: strncmpi.case-insensitive-prefix-rule
+  statement: Returns a 1-by-1 logical that is true when the first n characters match ignoring case, and
+    false when a character within the first n differs.
+  status: confirmed
+  normative: true
+  provenance: strncmpi.case-insensitive-prefix
+  observations:
+  - file: observations/strncmpi_observations.json
+    case_id: match
+  - file: observations/strncmpi_observations.json
+    case_id: prefix-equal
+  - file: observations/strncmpi_observations.json
+    case_id: no-match
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/strncmpi_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: strncmpi.q-arrays
+  question: Behaviour with cell-array inputs (element-wise).

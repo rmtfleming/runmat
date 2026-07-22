@@ -1,0 +1,83 @@
+# Interface specification for iscellstr (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: iscellstr
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input is a cell array whose every element is a
+  character vector.
+
+  '
+invocation_forms:
+- signature: tf = iscellstr(A)
+  description: Test whether A is a cell array of character vectors.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: iscellstr.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: iscellstr.output-class
+    observations:
+    - file: observations/iscellstr_observations.json
+      case_id: all-char
+    - file: observations/iscellstr_observations.json
+      case_id: mixed
+    - file: observations/iscellstr_observations.json
+      case_id: char
+    - file: observations/iscellstr_observations.json
+      case_id: empty-cell
+output_type_rules:
+- id: iscellstr.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: iscellstr.output-class
+  observations:
+  - file: observations/iscellstr_observations.json
+    case_id: all-char
+  - file: observations/iscellstr_observations.json
+    case_id: mixed
+  - file: observations/iscellstr_observations.json
+    case_id: char
+  - file: observations/iscellstr_observations.json
+    case_id: empty-cell
+- id: iscellstr.logical-cellstr-test-rule
+  statement: 'Returns a 1-by-1 logical: true when every element is a character vector (including the empty
+    cell {}), false when any element is non-char or the input is a plain char array.'
+  status: confirmed
+  normative: true
+  provenance: iscellstr.logical-cellstr-test
+  observations:
+  - file: observations/iscellstr_observations.json
+    case_id: all-char
+  - file: observations/iscellstr_observations.json
+    case_id: empty-cell
+  - file: observations/iscellstr_observations.json
+    case_id: mixed
+  - file: observations/iscellstr_observations.json
+    case_id: char
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/iscellstr_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: iscellstr.q-strings
+  question: Behaviour for a cell array of string (not char) elements.

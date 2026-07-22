@@ -1,0 +1,82 @@
+# Interface specification for isrow (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isrow
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input is a row vector (size 1-by-N).
+
+  '
+invocation_forms:
+- signature: tf = isrow(A)
+  description: Test whether A is a row vector.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: isrow.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: isrow.output-class
+    observations:
+    - file: observations/isrow_observations.json
+      case_id: row
+    - file: observations/isrow_observations.json
+      case_id: column
+    - file: observations/isrow_observations.json
+      case_id: scalar
+    - file: observations/isrow_observations.json
+      case_id: matrix
+output_type_rules:
+- id: isrow.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: isrow.output-class
+  observations:
+  - file: observations/isrow_observations.json
+    case_id: row
+  - file: observations/isrow_observations.json
+    case_id: column
+  - file: observations/isrow_observations.json
+    case_id: scalar
+  - file: observations/isrow_observations.json
+    case_id: matrix
+- id: isrow.logical-row-test-rule
+  statement: 'Returns a 1-by-1 logical: true for a 1-by-N row (a scalar counts as a row), false for a
+    column or a 2-D matrix.'
+  status: confirmed
+  normative: true
+  provenance: isrow.logical-row-test
+  observations:
+  - file: observations/isrow_observations.json
+    case_id: row
+  - file: observations/isrow_observations.json
+    case_id: scalar
+  - file: observations/isrow_observations.json
+    case_id: column
+  - file: observations/isrow_observations.json
+    case_id: matrix
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isrow_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isrow.q-empty
+  question: Behaviour for empty inputs of various shapes.

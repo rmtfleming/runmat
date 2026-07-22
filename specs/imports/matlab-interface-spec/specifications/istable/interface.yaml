@@ -1,0 +1,75 @@
+# Interface specification for istable (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: istable
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input is a table.
+
+  '
+invocation_forms:
+- signature: tf = istable(A)
+  description: Test whether A is a table.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: istable.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: istable.output-class
+    observations:
+    - file: observations/istable_observations.json
+      case_id: table
+    - file: observations/istable_observations.json
+      case_id: numeric
+    - file: observations/istable_observations.json
+      case_id: cell
+output_type_rules:
+- id: istable.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: istable.output-class
+  observations:
+  - file: observations/istable_observations.json
+    case_id: table
+  - file: observations/istable_observations.json
+    case_id: numeric
+  - file: observations/istable_observations.json
+    case_id: cell
+- id: istable.logical-table-test-rule
+  statement: 'Returns a 1-by-1 logical: true for a table, false for numeric and cell inputs.'
+  status: confirmed
+  normative: true
+  provenance: istable.logical-table-test
+  observations:
+  - file: observations/istable_observations.json
+    case_id: table
+  - file: observations/istable_observations.json
+    case_id: numeric
+  - file: observations/istable_observations.json
+    case_id: cell
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/istable_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: istable.q-timetable
+  question: Behaviour for a timetable input.

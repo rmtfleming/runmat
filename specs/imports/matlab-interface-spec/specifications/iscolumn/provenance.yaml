@@ -1,0 +1,53 @@
+# Provenance for iscolumn (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: iscolumn
+claims:
+- claim_id: iscolumn.signature-primary
+  statement: The primary invocation form `tf = iscolumn(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscolumn_observations.json
+    case_id: column
+- claim_id: iscolumn.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscolumn_observations.json
+    case_id: column
+  - file: observations/iscolumn_observations.json
+    case_id: row
+  - file: observations/iscolumn_observations.json
+    case_id: scalar
+  - file: observations/iscolumn_observations.json
+    case_id: matrix
+- claim_id: iscolumn.logical-column-test
+  statement: 'Returns a 1-by-1 logical: true for an N-by-1 column (a scalar counts as a column), false
+    for a row or a 2-D matrix.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscolumn_observations.json
+    case_id: column
+  - file: observations/iscolumn_observations.json
+    case_id: scalar
+  - file: observations/iscolumn_observations.json
+    case_id: row
+  - file: observations/iscolumn_observations.json
+    case_id: matrix

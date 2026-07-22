@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "function_name": "dec2bin",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/dec2bin/test_dec2bin_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "scalar",
+      "description": "binary of a scalar",
+      "call": "dec2bin(5)",
+      "errored": false,
+      "result": {
+        "value": "'101'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "padded",
+      "description": "zero-padded to width",
+      "call": "dec2bin(5, 8)",
+      "errored": false,
+      "result": {
+        "value": "'00000101'",
+        "class": "char",
+        "size": [
+          1,
+          8
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "binary of zero",
+      "call": "dec2bin(0)",
+      "errored": false,
+      "result": {
+        "value": "'0'",
+        "class": "char",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "width-below-natural",
+      "description": "width smaller than the natural width (does it truncate?)",
+      "call": "dec2bin(5, 2)",
+      "errored": false,
+      "result": {
+        "value": "'101'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

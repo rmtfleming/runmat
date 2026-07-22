@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "istable",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/istable/test_istable_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "table",
+      "description": "a table",
+      "call": "istable(array2table([1 2; 3 4]))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric",
+      "description": "a numeric array",
+      "call": "istable([1 2; 3 4])",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell",
+      "description": "a cell array",
+      "call": "istable({1, 2})",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

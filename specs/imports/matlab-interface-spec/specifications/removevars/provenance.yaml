@@ -1,0 +1,41 @@
+# Provenance for removevars (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: removevars
+claims:
+- claim_id: removevars.signature-primary
+  statement: The primary invocation form `T2 = removevars(T, vars)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/removevars_observations.json
+    case_id: by-name
+- claim_id: removevars.output-class
+  statement: The output class is table for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/removevars_observations.json
+    case_id: by-name
+- claim_id: removevars.removes-variable
+  statement: Returns a table with the named variable removed (removing one of three variables left a two-variable
+    table); the row count is preserved.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/removevars_observations.json
+    case_id: by-name

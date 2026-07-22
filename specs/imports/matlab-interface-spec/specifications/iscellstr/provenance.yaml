@@ -1,0 +1,53 @@
+# Provenance for iscellstr (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: iscellstr
+claims:
+- claim_id: iscellstr.signature-primary
+  statement: The primary invocation form `tf = iscellstr(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscellstr_observations.json
+    case_id: all-char
+- claim_id: iscellstr.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscellstr_observations.json
+    case_id: all-char
+  - file: observations/iscellstr_observations.json
+    case_id: mixed
+  - file: observations/iscellstr_observations.json
+    case_id: char
+  - file: observations/iscellstr_observations.json
+    case_id: empty-cell
+- claim_id: iscellstr.logical-cellstr-test
+  statement: 'Returns a 1-by-1 logical: true when every element is a character vector (including the empty
+    cell {}), false when any element is non-char or the input is a plain char array.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/iscellstr_observations.json
+    case_id: all-char
+  - file: observations/iscellstr_observations.json
+    case_id: empty-cell
+  - file: observations/iscellstr_observations.json
+    case_id: mixed
+  - file: observations/iscellstr_observations.json
+    case_id: char

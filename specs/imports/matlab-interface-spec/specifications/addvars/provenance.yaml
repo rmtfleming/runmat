@@ -1,0 +1,41 @@
+# Provenance for addvars (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: addvars
+claims:
+- claim_id: addvars.signature-primary
+  statement: The primary invocation form `T2 = addvars(T, var)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: append
+- claim_id: addvars.output-class
+  statement: The output class is table for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: append
+- claim_id: addvars.appends-variable
+  statement: Returns a table with the new variable appended (appending to a one-variable table gave a
+    two-variable table); the row count is preserved.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: append

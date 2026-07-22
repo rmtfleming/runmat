@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "psi",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/psi/test_psi_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "scalar",
+      "description": "digamma at 1",
+      "call": "psi(1)",
+      "errored": false,
+      "result": {
+        "value": "-0.57721566490153231",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vector",
+      "description": "digamma of a vector",
+      "call": "psi([1 2 3])",
+      "errored": false,
+      "result": {
+        "value": "[-0.57721566490153231 0.42278433509846747 0.92278433509846747]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

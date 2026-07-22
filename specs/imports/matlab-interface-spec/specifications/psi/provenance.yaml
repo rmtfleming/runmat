@@ -1,0 +1,45 @@
+# Provenance for psi (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: psi
+claims:
+- claim_id: psi.signature-primary
+  statement: The primary invocation form `Y = psi(X)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/psi_observations.json
+    case_id: scalar
+- claim_id: psi.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/psi_observations.json
+    case_id: scalar
+  - file: observations/psi_observations.json
+    case_id: vector
+- claim_id: psi.digamma-values
+  statement: Returns double values element-wise; psi(1) equals the negative of the Euler-Mascheroni constant
+    (about -0.5772).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/psi_observations.json
+    case_id: scalar
+  - file: observations/psi_observations.json
+    case_id: vector

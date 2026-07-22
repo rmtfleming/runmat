@@ -1,0 +1,70 @@
+# Interface specification for addvars (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: addvars
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a table with one or more new variables appended.
+
+  '
+invocation_forms:
+- signature: T2 = addvars(T, var)
+  description: Append a new variable to table T.
+  status: confirmed
+inputs:
+- name: T
+  required: true
+  description: Table.
+  status: pending
+- name: var
+  required: true
+  description: Data for the new variable.
+  status: pending
+outputs:
+- name: T2
+  description: Table with the appended variable.
+  status: pending
+  type_rule:
+    id: addvars.out-type
+    statement: The first output has class table (observed).
+    status: confirmed
+    normative: true
+    provenance: addvars.output-class
+    observations:
+    - file: observations/addvars_observations.json
+      case_id: append
+output_type_rules:
+- id: addvars.output-class-rule
+  statement: The output class is table across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: addvars.output-class
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: append
+output_shape_rules:
+- id: addvars.appends-variable-rule
+  statement: Returns a table with the new variable appended (appending to a one-variable table gave a
+    two-variable table); the row count is preserved.
+  status: confirmed
+  normative: true
+  provenance: addvars.appends-variable
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: append
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/addvars_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: addvars.q-position
+  question: The 'Before'/'After' name-value options for placement.
+- id: addvars.q-names
+  question: Specifying NewVariableNames.

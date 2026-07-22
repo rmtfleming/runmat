@@ -1,0 +1,74 @@
+# Interface specification for computer (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: computer
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return text identifying the computer type MATLAB is running on; an option requests the short
+  architecture string.
+
+  '
+invocation_forms:
+- signature: str = computer
+  description: Identifier of the current platform.
+  status: confirmed
+- signature: str = computer('arch')
+  description: Short architecture string.
+  status: confirmed
+inputs:
+- name: opt
+  required: false
+  description: Optional 'arch' selector.
+  status: pending
+outputs:
+- name: str
+  description: Platform identifier text.
+  status: pending
+  type_rule:
+    id: computer.out-type
+    statement: The first output has class char (observed).
+    status: confirmed
+    normative: true
+    provenance: computer.output-class
+    observations:
+    - file: observations/computer_observations.json
+      case_id: default
+    - file: observations/computer_observations.json
+      case_id: arch
+output_type_rules:
+- id: computer.output-class-rule
+  statement: The output class is char across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: computer.output-class
+  observations:
+  - file: observations/computer_observations.json
+    case_id: default
+  - file: observations/computer_observations.json
+    case_id: arch
+output_shape_rules:
+- id: computer.platform-strings-rule
+  statement: Returns a char row vector; the default form gives the platform identifier in upper case (GLNXA64
+    on this platform) and the 'arch' option gives the lower-case architecture string (glnxa64).
+  status: confirmed
+  normative: true
+  provenance: computer.platform-strings
+  observations:
+  - file: observations/computer_observations.json
+    case_id: default
+  - file: observations/computer_observations.json
+    case_id: arch
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/computer_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: computer.q-multi-output
+  question: Specify the [str, maxsize, endian] multi-output form (not exercised).

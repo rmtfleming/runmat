@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "computer",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/computer/test_computer_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "default",
+      "description": "default identifier",
+      "call": "computer",
+      "errored": false,
+      "result": {
+        "value": "'GLNXA64'",
+        "class": "char",
+        "size": [
+          1,
+          7
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "arch",
+      "description": "architecture string",
+      "call": "computer('arch')",
+      "errored": false,
+      "result": {
+        "value": "'glnxa64'",
+        "class": "char",
+        "size": [
+          1,
+          7
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

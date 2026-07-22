@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "removevars",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/removevars/test_removevars_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "by-name",
+      "description": "remove a variable by name",
+      "call": "removevars(array2table([1 2 3], 'VariableNames', {'a','b','c'}), 'b')",
+      "errored": false,
+      "result": {
+        "value": "<table [1 2]>",
+        "class": "table",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+# Provenance for computer (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: computer
+claims:
+- claim_id: computer.signature-primary
+  statement: The primary invocation form `str = computer` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/computer_observations.json
+    case_id: default
+- claim_id: computer.output-class
+  statement: The output class is char for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/computer_observations.json
+    case_id: default
+  - file: observations/computer_observations.json
+    case_id: arch
+- claim_id: computer.platform-strings
+  statement: Returns a char row vector; the default form gives the platform identifier in upper case (GLNXA64
+    on this platform) and the 'arch' option gives the lower-case architecture string (glnxa64).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/computer_observations.json
+    case_id: default
+  - file: observations/computer_observations.json
+    case_id: arch

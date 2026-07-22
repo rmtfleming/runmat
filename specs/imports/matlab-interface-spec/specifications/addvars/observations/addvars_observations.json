@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "addvars",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/addvars/test_addvars_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "append",
+      "description": "append a column",
+      "call": "addvars(array2table([1; 2], 'VariableNames', {'a'}), [3; 4])",
+      "errored": false,
+      "result": {
+        "value": "<table [2 2]>",
+        "class": "table",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

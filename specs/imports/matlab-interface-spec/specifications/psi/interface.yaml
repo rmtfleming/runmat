@@ -1,0 +1,80 @@
+# Interface specification for psi (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: psi
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Evaluate the psi (digamma) function of the input; a two-argument form evaluates the polygamma
+  function of a given order.
+
+  '
+invocation_forms:
+- signature: Y = psi(X)
+  description: Digamma function of X.
+  status: confirmed
+- signature: Y = psi(k, X)
+  description: Polygamma function of order k.
+  status: pending
+inputs:
+- name: X
+  required: true
+  description: Numeric input.
+  status: pending
+- name: k
+  required: false
+  description: Optional nonnegative integer order.
+  status: pending
+outputs:
+- name: Y
+  description: Result values.
+  status: pending
+  type_rule:
+    id: psi.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: psi.output-class
+    observations:
+    - file: observations/psi_observations.json
+      case_id: scalar
+    - file: observations/psi_observations.json
+      case_id: vector
+output_type_rules:
+- id: psi.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: psi.output-class
+  observations:
+  - file: observations/psi_observations.json
+    case_id: scalar
+  - file: observations/psi_observations.json
+    case_id: vector
+output_shape_rules:
+- id: psi.digamma-values-rule
+  statement: Returns double values element-wise; psi(1) equals the negative of the Euler-Mascheroni constant
+    (about -0.5772).
+  status: confirmed
+  normative: true
+  provenance: psi.digamma-values
+  observations:
+  - file: observations/psi_observations.json
+    case_id: scalar
+  - file: observations/psi_observations.json
+    case_id: vector
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/psi_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: psi.q-polygamma
+  question: Specify the two-argument polygamma form psi(k, X).
+- id: psi.q-poles
+  question: Behaviour at nonpositive integers (poles).

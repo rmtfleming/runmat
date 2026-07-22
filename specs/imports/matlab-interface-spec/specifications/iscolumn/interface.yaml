@@ -1,0 +1,82 @@
+# Interface specification for iscolumn (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: iscolumn
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input is a column vector (size N-by-1).
+
+  '
+invocation_forms:
+- signature: tf = iscolumn(A)
+  description: Test whether A is a column vector.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: iscolumn.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: iscolumn.output-class
+    observations:
+    - file: observations/iscolumn_observations.json
+      case_id: column
+    - file: observations/iscolumn_observations.json
+      case_id: row
+    - file: observations/iscolumn_observations.json
+      case_id: scalar
+    - file: observations/iscolumn_observations.json
+      case_id: matrix
+output_type_rules:
+- id: iscolumn.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: iscolumn.output-class
+  observations:
+  - file: observations/iscolumn_observations.json
+    case_id: column
+  - file: observations/iscolumn_observations.json
+    case_id: row
+  - file: observations/iscolumn_observations.json
+    case_id: scalar
+  - file: observations/iscolumn_observations.json
+    case_id: matrix
+- id: iscolumn.logical-column-test-rule
+  statement: 'Returns a 1-by-1 logical: true for an N-by-1 column (a scalar counts as a column), false
+    for a row or a 2-D matrix.'
+  status: confirmed
+  normative: true
+  provenance: iscolumn.logical-column-test
+  observations:
+  - file: observations/iscolumn_observations.json
+    case_id: column
+  - file: observations/iscolumn_observations.json
+    case_id: scalar
+  - file: observations/iscolumn_observations.json
+    case_id: row
+  - file: observations/iscolumn_observations.json
+    case_id: matrix
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/iscolumn_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: iscolumn.q-empty
+  question: Behaviour for empty inputs of various shapes.

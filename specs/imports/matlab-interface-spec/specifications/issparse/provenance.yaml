@@ -1,0 +1,49 @@
+# Provenance for issparse (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: issparse
+claims:
+- claim_id: issparse.signature-primary
+  statement: The primary invocation form `tf = issparse(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/issparse_observations.json
+    case_id: sparse
+- claim_id: issparse.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/issparse_observations.json
+    case_id: sparse
+  - file: observations/issparse_observations.json
+    case_id: full
+  - file: observations/issparse_observations.json
+    case_id: empty-sparse
+- claim_id: issparse.logical-sparse-test
+  statement: 'Returns a 1-by-1 logical: true for sparse-storage inputs including an empty sparse array,
+    false for full inputs.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/issparse_observations.json
+    case_id: sparse
+  - file: observations/issparse_observations.json
+    case_id: empty-sparse
+  - file: observations/issparse_observations.json
+    case_id: full
