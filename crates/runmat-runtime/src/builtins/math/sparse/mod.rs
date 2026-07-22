@@ -1,9 +1,11 @@
 //! Sparse construction and conversion builtins for RunMat.
 //!
 //! Clean-room provenance: specs/009-sparse-construction (approved Tier A
-//! exports `full` 0.2.0, `speye` 0.2.0, `spdiags` 0.2.0).
+//! exports `full` 0.2.0, `speye` 0.2.0, `spdiags` 0.2.0) and
+//! specs/017-nonzeros (approved Tier B export `nonzeros` 0.2.0).
 
 pub(crate) mod full;
+pub(crate) mod nonzeros;
 pub(crate) mod spdiags;
 pub(crate) mod speye;
 
