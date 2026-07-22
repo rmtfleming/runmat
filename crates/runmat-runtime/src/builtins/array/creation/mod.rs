@@ -1,3 +1,4 @@
+pub(crate) mod accumarray;
 pub(crate) mod colon;
 pub(crate) mod empty;
 pub(crate) mod eye;
