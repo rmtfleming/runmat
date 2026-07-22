@@ -22,6 +22,7 @@ pub(crate) mod nextpow2;
 pub(crate) mod plus;
 pub(crate) mod pow2;
 pub(crate) mod power;
+pub(crate) mod psi;
 pub(crate) mod rdivide;
 pub(crate) mod real;
 pub(crate) mod sign;
