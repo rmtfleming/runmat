@@ -22,6 +22,8 @@ pub mod input_parser;
 pub mod inputname;
 pub(crate) mod isa;
 pub(crate) mod ischar;
+pub(crate) mod isobject;
+pub(crate) mod isstr;
 pub(crate) mod isstring;
 pub mod isvalid;
 pub mod localfunctions;
