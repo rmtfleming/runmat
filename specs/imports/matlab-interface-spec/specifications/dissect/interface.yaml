@@ -1,0 +1,67 @@
+# Interface specification for dissect (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: dissect
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a permutation vector computed by nested dissection, intended to reduce fill-in for a
+  sparse matrix.
+
+  '
+invocation_forms:
+- signature: p = dissect(S)
+  description: Nested dissection permutation of S.
+  status: confirmed
+inputs:
+- name: S
+  required: true
+  description: Sparse matrix.
+  status: pending
+outputs:
+- name: p
+  description: Permutation row vector.
+  status: pending
+  type_rule:
+    id: dissect.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: dissect.output-class
+    observations:
+    - file: observations/dissect_observations.json
+      case_id: basic
+output_type_rules:
+- id: dissect.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: dissect.output-class
+  observations:
+  - file: observations/dissect_observations.json
+    case_id: basic
+output_shape_rules:
+- id: dissect.permutation-vector-rule
+  statement: Returns a length-n row vector that is a permutation of 1..n; the specific ordering is algorithm-dependent
+    and is not asserted.
+  status: confirmed
+  normative: true
+  provenance: dissect.permutation-vector
+  observations:
+  - file: observations/dissect_observations.json
+    case_id: basic
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/dissect_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: dissect.q-permutation
+  question: Confirm the output is a permutation of 1..n.
+- id: dissect.q-values
+  question: The specific permutation is algorithm-dependent; treat as non-normative.

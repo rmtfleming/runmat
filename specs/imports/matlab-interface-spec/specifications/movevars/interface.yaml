@@ -1,0 +1,64 @@
+# Interface specification for movevars (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: movevars
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a table with the specified variables moved to a new position, before or after another
+  variable.
+
+  '
+invocation_forms:
+- signature: T2 = movevars(T, vars, 'Before', location)
+  description: Move variable(s) to before another variable.
+  status: confirmed
+- signature: T2 = movevars(T, vars, 'After', location)
+  description: Move variable(s) to after another variable.
+  status: pending
+inputs:
+- name: T
+  required: true
+  description: Table.
+  status: pending
+- name: vars
+  required: true
+  description: Variable(s) to move.
+  status: pending
+- name: location
+  required: true
+  description: Reference variable for placement.
+  status: pending
+outputs:
+- name: T2
+  description: Table with variables reordered.
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: movevars.moves-variable-rule
+  statement: 'Returns a table with the variable moved to the requested position: moving ''c'' before ''a''
+    produced the variable order c,a,b (observed from the joined VariableNames); the variable and row counts
+    are preserved.'
+  status: confirmed
+  normative: true
+  provenance: movevars.moves-variable
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: before
+  - file: observations/movevars_observations.json
+    case_id: order
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/movevars_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: movevars.q-after
+  question: The 'After' placement form.
+- id: movevars.q-index
+  question: Numeric-index location.

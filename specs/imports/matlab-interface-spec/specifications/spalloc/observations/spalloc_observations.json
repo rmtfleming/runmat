@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "spalloc",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/spalloc/test_spalloc_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "allocate a 3x3 sparse with room for 4 nonzeros",
+      "call": "spalloc(3, 3, 4)",
+      "errored": false,
+      "result": {
+        "value": "sparse(zeros(0,1), zeros(0,1), zeros(0,1), 3, 3)",
+        "class": "double",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    }
+  ]
+}

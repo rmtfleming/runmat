@@ -1,0 +1,45 @@
+# Provenance for normalize (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: normalize
+claims:
+- claim_id: normalize.signature-primary
+  statement: The primary invocation form `N = normalize(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/normalize_observations.json
+    case_id: zscore
+- claim_id: normalize.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/normalize_observations.json
+    case_id: zscore
+  - file: observations/normalize_observations.json
+    case_id: range
+- claim_id: normalize.zscore-and-range
+  statement: 'Default normalization is a z-score (zero mean, unit standard deviation): [1 2 3] gave [-1
+    0 1]; the ''range'' method rescales to [0, 1]: [1 2 3] gave [0 0.5 1].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/normalize_observations.json
+    case_id: zscore
+  - file: observations/normalize_observations.json
+    case_id: range

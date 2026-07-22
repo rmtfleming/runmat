@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "outerjoin",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/outerjoin/test_outerjoin_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "outer join of two tables on a common variable",
+      "call": "outerjoin(table([1;2],[10;20],'VariableNames',{'k','a'}), table([1;3],[100;300],'VariableNames',{'k','b'}))",
+      "errored": false,
+      "result": {
+        "value": "<table [3 4]>",
+        "class": "table",
+        "size": [
+          3,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

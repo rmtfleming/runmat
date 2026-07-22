@@ -1,0 +1,69 @@
+# Interface specification for histc (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: histc
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Count the number of values that fall into each of a set of bins defined by edge boundaries (a
+  legacy function superseded by histcounts).
+
+  '
+invocation_forms:
+- signature: n = histc(data, edges)
+  description: Counts of data within the bins defined by edges.
+  status: confirmed
+inputs:
+- name: data
+  required: true
+  description: Data values.
+  status: pending
+- name: edges
+  required: true
+  description: Monotonic edge boundaries.
+  status: pending
+outputs:
+- name: n
+  description: Counts per bin.
+  status: pending
+  type_rule:
+    id: histc.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: histc.output-class
+    observations:
+    - file: observations/histc_observations.json
+      case_id: basic
+output_type_rules:
+- id: histc.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: histc.output-class
+  observations:
+  - file: observations/histc_observations.json
+    case_id: basic
+output_shape_rules: []
+numerical_edge_cases:
+- id: histc.bin-counts-rule
+  statement: Counts the values falling into each bin defined by the edges; [1 2 2 3] with edges [1 2 3]
+    gave [1 2 1], the final bin counting values equal to the last edge.
+  status: confirmed
+  normative: true
+  provenance: histc.bin-counts
+  observations:
+  - file: observations/histc_observations.json
+    case_id: basic
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/histc_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: histc.q-deprecated
+  question: Confirm any deprecation notice relative to histcounts.

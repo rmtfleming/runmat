@@ -1,0 +1,32 @@
+# Provenance for movevars (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: movevars
+claims:
+- claim_id: movevars.signature-primary
+  statement: The primary invocation form `T2 = movevars(T, vars, 'Before', location)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: before
+- claim_id: movevars.moves-variable
+  statement: 'Returns a table with the variable moved to the requested position: moving ''c'' before ''a''
+    produced the variable order c,a,b (observed from the joined VariableNames); the variable and row counts
+    are preserved.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: before
+  - file: observations/movevars_observations.json
+    case_id: order

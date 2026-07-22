@@ -1,0 +1,70 @@
+# Interface specification for isdir (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isdir
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the given path refers to an existing folder (a legacy
+  equivalent of isfolder).
+
+  '
+invocation_forms:
+- signature: tf = isdir(path)
+  description: Test whether path is an existing folder.
+  status: confirmed
+inputs:
+- name: path
+  required: true
+  description: Path text.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: isdir.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: isdir.output-class
+    observations:
+    - file: observations/isdir_observations.json
+      case_id: existing
+    - file: observations/isdir_observations.json
+      case_id: missing
+output_type_rules:
+- id: isdir.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: isdir.output-class
+  observations:
+  - file: observations/isdir_observations.json
+    case_id: existing
+  - file: observations/isdir_observations.json
+    case_id: missing
+- id: isdir.logical-folder-test-rule
+  statement: 'Returns a 1-by-1 logical: true for an existing folder path, false for a non-existent path.'
+  status: confirmed
+  normative: true
+  provenance: isdir.logical-folder-test
+  observations:
+  - file: observations/isdir_observations.json
+    case_id: existing
+  - file: observations/isdir_observations.json
+    case_id: missing
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isdir_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isdir.q-deprecated
+  question: Confirm equivalence to isfolder and any deprecation notice.

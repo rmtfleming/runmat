@@ -1,0 +1,80 @@
+# Interface specification for normalize (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: normalize
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a normalized version of the input; by default it centres and scales the data to zero
+  mean and unit standard deviation.
+
+  '
+invocation_forms:
+- signature: N = normalize(A)
+  description: Z-score normalization (default).
+  status: confirmed
+- signature: N = normalize(A, 'range')
+  description: Rescale to the interval [0, 1].
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Numeric data.
+  status: pending
+- name: method
+  required: false
+  description: Optional normalization method.
+  status: pending
+outputs:
+- name: N
+  description: Normalized values.
+  status: pending
+  type_rule:
+    id: normalize.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: normalize.output-class
+    observations:
+    - file: observations/normalize_observations.json
+      case_id: zscore
+    - file: observations/normalize_observations.json
+      case_id: range
+output_type_rules:
+- id: normalize.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: normalize.output-class
+  observations:
+  - file: observations/normalize_observations.json
+    case_id: zscore
+  - file: observations/normalize_observations.json
+    case_id: range
+output_shape_rules:
+- id: normalize.zscore-and-range-rule
+  statement: 'Default normalization is a z-score (zero mean, unit standard deviation): [1 2 3] gave [-1
+    0 1]; the ''range'' method rescales to [0, 1]: [1 2 3] gave [0 0.5 1].'
+  status: confirmed
+  normative: true
+  provenance: normalize.zscore-and-range
+  observations:
+  - file: observations/normalize_observations.json
+    case_id: zscore
+  - file: observations/normalize_observations.json
+    case_id: range
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/normalize_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: normalize.q-dim
+  question: Operating dimension for matrices.
+- id: normalize.q-methods
+  question: Other methods (norm, center, scale, medianiqr).

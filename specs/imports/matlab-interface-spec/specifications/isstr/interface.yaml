@@ -1,0 +1,83 @@
+# Interface specification for isstr (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isstr
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return a logical scalar that is true when the input is a character array (a legacy equivalent
+  of ischar).
+
+  '
+invocation_forms:
+- signature: tf = isstr(A)
+  description: Test whether A is a character array.
+  status: confirmed
+inputs:
+- name: A
+  required: true
+  description: Value to test.
+  status: pending
+outputs:
+- name: tf
+  description: Logical scalar result.
+  status: pending
+  type_rule:
+    id: isstr.out-type
+    statement: The first output has class logical (observed).
+    status: confirmed
+    normative: true
+    provenance: isstr.output-class
+    observations:
+    - file: observations/isstr_observations.json
+      case_id: char
+    - file: observations/isstr_observations.json
+      case_id: numeric
+    - file: observations/isstr_observations.json
+      case_id: string
+    - file: observations/isstr_observations.json
+      case_id: cell
+output_type_rules:
+- id: isstr.output-class-rule
+  statement: The output class is logical across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: isstr.output-class
+  observations:
+  - file: observations/isstr_observations.json
+    case_id: char
+  - file: observations/isstr_observations.json
+    case_id: numeric
+  - file: observations/isstr_observations.json
+    case_id: string
+  - file: observations/isstr_observations.json
+    case_id: cell
+- id: isstr.logical-char-test-rule
+  statement: 'Returns a 1-by-1 logical: true for a character array, false for numeric, a string scalar,
+    and a cell input (a double-quoted string is not treated as char).'
+  status: confirmed
+  normative: true
+  provenance: isstr.logical-char-test
+  observations:
+  - file: observations/isstr_observations.json
+    case_id: char
+  - file: observations/isstr_observations.json
+    case_id: numeric
+  - file: observations/isstr_observations.json
+    case_id: string
+  - file: observations/isstr_observations.json
+    case_id: cell
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isstr_observations.json
+  description: 4 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isstr.q-deprecated
+  question: Confirm equivalence to ischar and any deprecation notice.

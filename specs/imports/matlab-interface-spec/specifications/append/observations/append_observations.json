@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "append",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/append/test_append_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "strings",
+      "description": "append two strings",
+      "call": "append(\"a\", \"b\")",
+      "errored": false,
+      "result": {
+        "value": "<string [1 1]>",
+        "class": "string",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multiple",
+      "description": "append several pieces",
+      "call": "append(\"x\", \"y\", \"z\")",
+      "errored": false,
+      "result": {
+        "value": "<string [1 1]>",
+        "class": "string",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char",
+      "description": "append char arrays",
+      "call": "append('a', 'b')",
+      "errored": false,
+      "result": {
+        "value": "'ab'",
+        "class": "char",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

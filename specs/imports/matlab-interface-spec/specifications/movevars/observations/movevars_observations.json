@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "movevars",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/movevars/test_movevars_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "before",
+      "description": "move a variable before another",
+      "call": "movevars(array2table([1 2 3], 'VariableNames', {'a','b','c'}), 'c', 'Before', 'a')",
+      "errored": false,
+      "result": {
+        "value": "<table [1 3]>",
+        "class": "table",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "order",
+      "description": "variable order after moving c before a (VariableNames joined)",
+      "call": "strjoin(movevars(...).Properties.VariableNames, comma)",
+      "errored": false,
+      "result": {
+        "value": "'c,a,b'",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+# Interface specification for append (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: append
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Append text pieces together, returning the combined text.
+
+  '
+invocation_forms:
+- signature: str = append(str1, str2, ...)
+  description: Concatenate the given text arguments.
+  status: confirmed
+inputs:
+- name: str1
+  required: true
+  description: First text.
+  status: pending
+- name: str2
+  required: true
+  description: Second text (further pieces may follow).
+  status: pending
+outputs:
+- name: str
+  description: Combined text.
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: append.concatenates-text-rule
+  statement: Concatenates the text arguments; string inputs yield a string scalar ("a", "b" gave "ab")
+    and char inputs yield a char array ('a', 'b' gave 'ab').
+  status: confirmed
+  normative: true
+  provenance: append.concatenates-text
+  observations:
+  - file: observations/append_observations.json
+    case_id: strings
+  - file: observations/append_observations.json
+    case_id: multiple
+  - file: observations/append_observations.json
+    case_id: char
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/append_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: append.q-release
+  question: append was introduced in a specific release; record applicable releases.
+- id: append.q-types
+  question: Output type for char vs string vs mixed inputs.

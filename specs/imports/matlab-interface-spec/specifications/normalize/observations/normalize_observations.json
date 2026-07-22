@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "normalize",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/normalize/test_normalize_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "zscore",
+      "description": "default z-score of a vector",
+      "call": "normalize([1 2 3])",
+      "errored": false,
+      "result": {
+        "value": "[-1 0 1]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "range",
+      "description": "rescale to [0, 1]",
+      "call": "normalize([1 2 3], 'range')",
+      "errored": false,
+      "result": {
+        "value": "[0 0.5 1]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

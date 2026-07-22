@@ -1,0 +1,53 @@
+# Provenance for isobject (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: isobject
+claims:
+- claim_id: isobject.signature-primary
+  statement: The primary invocation form `tf = isobject(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isobject_observations.json
+    case_id: object
+- claim_id: isobject.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isobject_observations.json
+    case_id: object
+  - file: observations/isobject_observations.json
+    case_id: numeric
+  - file: observations/isobject_observations.json
+    case_id: char
+  - file: observations/isobject_observations.json
+    case_id: cell
+- claim_id: isobject.logical-object-test
+  statement: 'Returns a 1-by-1 logical: true for an object instance (an inputParser), false for numeric,
+    char, and cell inputs.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isobject_observations.json
+    case_id: object
+  - file: observations/isobject_observations.json
+    case_id: numeric
+  - file: observations/isobject_observations.json
+    case_id: char
+  - file: observations/isobject_observations.json
+    case_id: cell

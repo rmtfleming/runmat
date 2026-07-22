@@ -1,0 +1,33 @@
+# Provenance for append (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: append
+claims:
+- claim_id: append.signature-primary
+  statement: The primary invocation form `str = append(str1, str2, ...)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/append_observations.json
+    case_id: strings
+- claim_id: append.concatenates-text
+  statement: Concatenates the text arguments; string inputs yield a string scalar ("a", "b" gave "ab")
+    and char inputs yield a char array ('a', 'b' gave 'ab').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/append_observations.json
+    case_id: strings
+  - file: observations/append_observations.json
+    case_id: multiple
+  - file: observations/append_observations.json
+    case_id: char

@@ -1,0 +1,45 @@
+# Provenance for isfolder (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: isfolder
+claims:
+- claim_id: isfolder.signature-primary
+  statement: The primary invocation form `tf = isfolder(path)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfolder_observations.json
+    case_id: existing
+- claim_id: isfolder.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfolder_observations.json
+    case_id: existing
+  - file: observations/isfolder_observations.json
+    case_id: missing
+- claim_id: isfolder.logical-folder-test
+  statement: 'Returns a 1-by-1 logical: true for an existing folder path (tempdir), false for a non-existent
+    path.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfolder_observations.json
+    case_id: existing
+  - file: observations/isfolder_observations.json
+    case_id: missing

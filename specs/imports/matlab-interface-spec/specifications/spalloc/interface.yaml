@@ -1,0 +1,71 @@
+# Interface specification for spalloc (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: spalloc
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Allocate space for a sparse matrix of a given size with room for a stated number of nonzero
+  elements; the result is initially all zeros.
+
+  '
+invocation_forms:
+- signature: S = spalloc(m, n, nz)
+  description: Allocate an m-by-n sparse matrix with room for nz nonzeros.
+  status: confirmed
+inputs:
+- name: m
+  required: true
+  description: Row count.
+  status: pending
+- name: n
+  required: true
+  description: Column count.
+  status: pending
+- name: nz
+  required: true
+  description: Reserved nonzero capacity.
+  status: pending
+outputs:
+- name: S
+  description: An all-zero sparse matrix.
+  status: pending
+  type_rule:
+    id: spalloc.out-type
+    statement: The first output has class double (observed).
+    status: confirmed
+    normative: true
+    provenance: spalloc.output-class
+    observations:
+    - file: observations/spalloc_observations.json
+      case_id: basic
+output_type_rules:
+- id: spalloc.output-class-rule
+  statement: The output class is double across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: spalloc.output-class
+  observations:
+  - file: observations/spalloc_observations.json
+    case_id: basic
+- id: spalloc.all-zero-sparse-rule
+  statement: Returns an all-zero sparse matrix of the requested size (issparse is true; the observed 3-by-3
+    result had no stored nonzeros).
+  status: confirmed
+  normative: true
+  provenance: spalloc.all-zero-sparse
+  observations:
+  - file: observations/spalloc_observations.json
+    case_id: basic
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/spalloc_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions: []

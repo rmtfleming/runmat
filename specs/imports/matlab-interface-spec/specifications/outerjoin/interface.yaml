@@ -1,0 +1,68 @@
+# Interface specification for outerjoin (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: outerjoin
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Combine two tables by matching a common key variable.
+invocation_forms:
+- signature: T = outerjoin(Tleft, Tright)
+  description: Outer join on the automatically detected common variable.
+  status: confirmed
+inputs:
+- name: Tleft
+  required: true
+  description: Left table.
+  status: pending
+- name: Tright
+  required: true
+  description: Right table.
+  status: pending
+outputs:
+- name: T
+  description: Joined table.
+  status: pending
+  type_rule:
+    id: outerjoin.out-type
+    statement: The first output has class table (observed).
+    status: confirmed
+    normative: true
+    provenance: outerjoin.output-class
+    observations:
+    - file: observations/outerjoin_observations.json
+      case_id: basic
+output_type_rules:
+- id: outerjoin.output-class-rule
+  statement: The output class is table across the observed inputs.
+  status: confirmed
+  normative: true
+  provenance: outerjoin.output-class
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: basic
+output_shape_rules:
+- id: outerjoin.table-shape-rule
+  statement: An outer join of two 2-row tables sharing a common key variable produced a 3-row, 4-variable
+    table. The specific join semantics (which rows are kept and any fill values) are not asserted here.
+  status: confirmed
+  normative: true
+  provenance: outerjoin.table-shape
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: basic
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/outerjoin_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: outerjoin.q-keys
+  question: The 'Keys'/'LeftKeys'/'RightKeys' options.
+- id: outerjoin.q-type
+  question: Left/right/full outer join variants and fill values.

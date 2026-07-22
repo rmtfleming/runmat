@@ -1,0 +1,53 @@
+# Provenance for isstr (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: isstr
+claims:
+- claim_id: isstr.signature-primary
+  statement: The primary invocation form `tf = isstr(A)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isstr_observations.json
+    case_id: char
+- claim_id: isstr.output-class
+  statement: The output class is logical for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isstr_observations.json
+    case_id: char
+  - file: observations/isstr_observations.json
+    case_id: numeric
+  - file: observations/isstr_observations.json
+    case_id: string
+  - file: observations/isstr_observations.json
+    case_id: cell
+- claim_id: isstr.logical-char-test
+  statement: 'Returns a 1-by-1 logical: true for a character array, false for numeric, a string scalar,
+    and a cell input (a double-quoted string is not treated as char).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isstr_observations.json
+    case_id: char
+  - file: observations/isstr_observations.json
+    case_id: numeric
+  - file: observations/isstr_observations.json
+    case_id: string
+  - file: observations/isstr_observations.json
+    case_id: cell

@@ -1,0 +1,41 @@
+# Provenance for spalloc (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: spalloc
+claims:
+- claim_id: spalloc.signature-primary
+  statement: The primary invocation form `S = spalloc(m, n, nz)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spalloc_observations.json
+    case_id: basic
+- claim_id: spalloc.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spalloc_observations.json
+    case_id: basic
+- claim_id: spalloc.all-zero-sparse
+  statement: Returns an all-zero sparse matrix of the requested size (issparse is true; the observed 3-by-3
+    result had no stored nonzeros).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spalloc_observations.json
+    case_id: basic

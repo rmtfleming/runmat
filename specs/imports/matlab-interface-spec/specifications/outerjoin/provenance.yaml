@@ -1,0 +1,41 @@
+# Provenance for outerjoin (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: outerjoin
+claims:
+- claim_id: outerjoin.signature-primary
+  statement: The primary invocation form `T = outerjoin(Tleft, Tright)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/outerjoin_observations.json
+    case_id: basic
+- claim_id: outerjoin.output-class
+  statement: The output class is table for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/outerjoin_observations.json
+    case_id: basic
+- claim_id: outerjoin.table-shape
+  statement: An outer join of two 2-row tables sharing a common key variable produced a 3-row, 4-variable
+    table. The specific join semantics (which rows are kept and any fill values) are not asserted here.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/outerjoin_observations.json
+    case_id: basic

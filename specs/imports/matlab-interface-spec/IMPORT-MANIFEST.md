@@ -1,5 +1,23 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 4 — Tier B batch 2 — 2026-07-22
+
+- Twelve newly approved specifications imported, pinned to the batch-2
+  approval commit **`4445294`** ("Approve Tier B batch 2 after human-loop
+  review"). Verified byte-identical between `4445294` and source HEAD
+  (`37087db`, which adds only unrelated draft batch-3 skeletons — not
+  imported); the source working tree is mid-assembly of batch 3.
+- Functions (all `status: approved` at the pinned commit; approval record:
+  source `docs/review/2026-07-22-tier-b-batch2-human-loop.md`, "all 12
+  approved" 2026-07-22, with four spec-side corrections — `movevars`,
+  `outerjoin`, `spalloc`, `histc` — before promotion): `append`, `colamd`,
+  `dissect`, `histc`, `isdir`, `isfolder`, `isobject`, `isstr`, `movevars`,
+  `normalize`, `outerjoin`, `spalloc`.
+- Export boundary honoured; copies verified byte-identical (`diff -r`).
+  `SHA256SUMS` regenerated over all 50 specifications.
+
+---
+
 ## Batch 3 — Tier B batch 1 — 2026-07-22
 
 - Twelve newly approved specifications imported directly from the source

@@ -1,0 +1,41 @@
+# Provenance for colamd (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: colamd
+claims:
+- claim_id: colamd.signature-primary
+  statement: The primary invocation form `p = colamd(S)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/colamd_observations.json
+    case_id: basic
+- claim_id: colamd.output-class
+  statement: The output class is double for the observed inputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/colamd_observations.json
+    case_id: basic
+- claim_id: colamd.permutation-vector
+  statement: Returns a length-n row vector that is a permutation of 1..n (n=3 gave a permutation of {1,2,3});
+    the specific ordering is algorithm-dependent and is not asserted.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/colamd_observations.json
+    case_id: basic

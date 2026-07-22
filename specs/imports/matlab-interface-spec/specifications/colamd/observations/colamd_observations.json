@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "colamd",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/colamd/test_colamd_interface.m",
+  "date": "2026-07-22",
+  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "permutation of a sparse matrix",
+      "call": "colamd(sparse([1 0 1; 0 1 0; 1 0 1]))",
+      "errored": false,
+      "result": {
+        "value": "[2 1 3]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}
