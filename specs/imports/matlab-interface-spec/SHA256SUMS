@@ -1,5 +1,4 @@
 4eb7532707e9d85dcc082dce91100409c1ba72a8f1a87a95dbd003ac0b82cb3f  ./EXPORT_MANIFEST.json
-fd3eb433d9be6a7c126f27252dd6b265a8faad91afd8a5a4200d0cd2f8bf5d55  ./IMPORT-MANIFEST.md
 8d5c5a3318e7b0b147541627b7a998be78dcc42f10e8b56d0c00a99644346c2c  ./schemas/function-interface.schema.json
 2608097a1bd48c87e3df065fba3b2fe9856fb3106754fbbad10677230361bfb9  ./schemas/observation.schema.json
 fd8dbfc7c498b69e5ebee2220befcd3099958932d25016e957efc00f23e5bc28  ./schemas/provenance.schema.json
