@@ -1,0 +1,66 @@
+# Interface specification for display (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: display
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Display a value in the command window (the method invoked automatically when a statement is
+  not terminated by a semicolon).
+
+  '
+invocation_forms:
+- signature: display(X)
+  description: Display X.
+  status: confirmed
+- signature: display(X, name)
+  description: Display X using a given variable name.
+  status: pending
+inputs:
+- name: X
+  required: true
+  description: Value to display.
+  status: pending
+- name: name
+  required: false
+  description: Optional variable name used in the display.
+  status: pending
+outputs:
+- name: (none)
+  description: No output argument; the effect is text written to the command window.
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: display.formatted-text-rule
+  statement: The text captured from the command window with evalc uses leading whitespace and trailing
+    newlines, and a char array is shown without surrounding quotes. (These cases observe evalc-captured
+    output, not display's own return value.)
+  status: confirmed
+  normative: true
+  provenance: display.formatted-text
+  observations:
+  - file: observations/display_observations.json
+    case_id: scalar-text
+  - file: observations/display_observations.json
+    case_id: vector-text
+  - file: observations/display_observations.json
+    case_id: char-text
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/display_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: display.q-side-effect
+  question: display's primary effect is command-window output, and capturing that text interacts with
+    formatting; scope how to specify it.
+- id: display.q-overload
+  question: display is overloadable per class; scope which classes to specify.
+- id: display.q-return
+  question: display's return value (if any) was not directly observed; the recorded char is evalc-captured
+    command-window text, not display's return.

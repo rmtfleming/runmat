@@ -1,0 +1,72 @@
+# Interface specification for inputParser (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: inputParser
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Construct an input-parsing object used to validate and assign function arguments (positional,
+  optional, and name-value).
+
+  '
+invocation_forms:
+- signature: p = inputParser
+  description: Construct an inputParser object.
+  status: confirmed
+inputs:
+- name: (none)
+  required: false
+  description: The constructor takes no positional inputs.
+  status: pending
+outputs:
+- name: p
+  description: An inputParser object (handle).
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: inputParser.results-fields-rule
+  statement: After parse, parsed arguments are exposed as fields of the Results struct (a required argument
+    appears as Results.x = 5; a name-value parameter as Results.tol = 0.2 when supplied and 0.1 when omitted);
+    a constructed parser has class inputParser.
+  status: confirmed
+  normative: true
+  provenance: inputParser.results-fields
+  observations:
+  - file: observations/inputParser_observations.json
+    case_id: construct-class
+  - file: observations/inputParser_observations.json
+    case_id: results-class
+  - file: observations/inputParser_observations.json
+    case_id: required-value
+  - file: observations/inputParser_observations.json
+    case_id: param-value
+  - file: observations/inputParser_observations.json
+    case_id: param-default
+- id: inputParser.using-defaults-rule
+  statement: Parameters left at their default value are listed in the UsingDefaults property, returned
+    as a cell array.
+  status: confirmed
+  normative: true
+  provenance: inputParser.using-defaults
+  observations:
+  - file: observations/inputParser_observations.json
+    case_id: using-defaults
+  - file: observations/inputParser_observations.json
+    case_id: param-default
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/inputParser_observations.json
+  description: 6 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: inputParser.q-class-semantics
+  question: inputParser is a handle class with methods (addRequired, addOptional, addParameter, parse)
+    and properties (Results, Unmatched, UsingDefaults). Its interface is not a simple function; scope
+    how to specify class members.
+- id: inputParser.q-methods
+  question: Enumerate and specify the observable behaviour of the parser methods separately.

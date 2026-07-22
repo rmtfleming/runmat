@@ -1,0 +1,34 @@
+# Provenance for writetable (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: writetable
+claims:
+- claim_id: writetable.signature-primary
+  statement: The primary invocation form `writetable(T, filename)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/writetable_observations.json
+    case_id: file-created
+- claim_id: writetable.roundtrip
+  statement: Writing a table to a file and reading it back reproduces the data and shape (a 2-by-2 numeric
+    table round-tripped to [1 2;3 4], size [2 2]); after the call the target file exists (isfile is true).
+    writetable returns no output; the effect is the written file.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/writetable_observations.json
+    case_id: file-created
+  - file: observations/writetable_observations.json
+    case_id: roundtrip-size
+  - file: observations/writetable_observations.json
+    case_id: roundtrip-values

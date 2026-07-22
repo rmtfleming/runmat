@@ -1,0 +1,49 @@
+# Interface specification for urlread (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: urlread
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Read the contents at a URL and return the result as text.
+invocation_forms:
+- signature: s = urlread(url)
+  description: Contents at url as text.
+  status: confirmed
+inputs:
+- name: url
+  required: true
+  description: URL text.
+  status: pending
+outputs:
+- name: s
+  description: Retrieved contents as text.
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: urlread.returns-char-rule
+  statement: Returns the resource contents as a char row vector (a local file:// URL returned 'hello urlread').
+    External http/https behaviour was not exercised.
+  status: confirmed
+  normative: true
+  provenance: urlread.returns-char
+  observations:
+  - file: observations/urlread_observations.json
+    case_id: file-url
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/urlread_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: urlread.q-network
+  question: urlread performs network I/O; experiments require explicit approval and a stable, permissible
+    endpoint. Not exercised here.
+- id: urlread.q-deprecated
+  question: Does urlread emit a runtime deprecation notice, and what replacement does it indicate? Not
+    exercised.

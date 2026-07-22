@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "display",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/display/test_display_interface.m",
+  "date": "2026-07-22",
+  "notes": "Void function; command-window text captured with evalc as the observable. Formatting-dependent.",
+  "cases": [
+    {
+      "case_id": "scalar-text",
+      "description": "command-window text produced for a scalar",
+      "call": "evalc(display(42))",
+      "errored": false,
+      "result": {
+        "value": "['    42' char(10) '' char(10) '']",
+        "class": "char",
+        "size": [
+          1,
+          8
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vector-text",
+      "description": "command-window text produced for a row vector",
+      "call": "evalc(display([1 2 3]))",
+      "errored": false,
+      "result": {
+        "value": "['     1     2     3' char(10) '' char(10) '']",
+        "class": "char",
+        "size": [
+          1,
+          20
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char-text",
+      "description": "command-window text produced for a char row",
+      "call": "evalc(display(hi))",
+      "errored": false,
+      "result": {
+        "value": "['hi' char(10) '']",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

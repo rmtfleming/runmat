@@ -1,0 +1,63 @@
+# Interface specification for system (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: system
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Run an operating-system command from within MATLAB and return its exit status and captured output.
+
+  '
+invocation_forms:
+- signature: status = system(command)
+  description: Run command; return exit status.
+  status: confirmed
+- signature: '[status, cmdout] = system(command)'
+  description: Also capture standard output as text.
+  status: confirmed
+inputs:
+- name: command
+  required: true
+  description: Command string to execute.
+  status: pending
+outputs:
+- name: status
+  description: Numeric exit status.
+  status: pending
+- name: cmdout
+  description: Captured output text (second output).
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: system.status-and-output-rule
+  statement: Returns the command exit status as a numeric scalar (0 for a successful command; the failing
+    command tested, false, returned 1; the full range of nonzero failure codes was not explored). The
+    second output captures standard output as a char row vector including the trailing newline (echo hello
+    yielded 'hello' followed by a newline).
+  status: confirmed
+  normative: true
+  provenance: system.status-and-output
+  observations:
+  - file: observations/system_observations.json
+    case_id: status-success
+  - file: observations/system_observations.json
+    case_id: status-failure
+  - file: observations/system_observations.json
+    case_id: captured-output
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/system_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: system.q-side-effect
+  question: system spawns an external process; experiments must use benign, platform-portable commands
+    and record platform dependence.
+- id: system.q-outputs
+  question: The text encoding of cmdout and the range of nonzero exit codes across platforms were not
+    explored.

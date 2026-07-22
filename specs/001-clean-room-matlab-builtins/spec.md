@@ -257,6 +257,13 @@ absent and MUST NOT be added here.)
 
 ## Dependencies and Blockers
 
+- **B-001 — RESOLVED 2026-07-22 (second revision)**: `matlab-interface-spec`
+  now has committed history; the packaged export
+  `dist/runmat-export-2026-07-22` pins commit
+  `b054f3ad809ceee28529a4dd7a6e28d2b6b434ef` (verified). FR-002(d) is fully
+  satisfied for all 26 imported specifications; the interim content pin is
+  superseded (see `specs/imports/matlab-interface-spec/IMPORT-MANIFEST.md`).
+  Historical record of the original blocker follows.
 - **BLOCKER B-001 (no citable approved export)** — REVISED 2026-07-22: the
   approval half is now resolved (20 Tier A specifications carry
   `status: approved` with a dated maintainer approval record; imported to

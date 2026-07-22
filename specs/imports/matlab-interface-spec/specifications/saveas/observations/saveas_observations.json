@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "function_name": "saveas",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/saveas/test_saveas_interface.m",
+  "date": "2026-07-22",
+  "notes": "Side-effect function: an off-screen figure saved to a temporary file, observed (existence, byte size), then deleted and closed.",
+  "cases": [
+    {
+      "case_id": "file-created",
+      "description": "saveas created the image file",
+      "call": "saveas(fig,f) -> isfile(f)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "file-nonempty",
+      "description": "the saved file has a nonzero byte size",
+      "call": "dir(f).bytes",
+      "errored": false,
+      "result": {
+        "value": "12312",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

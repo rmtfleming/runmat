@@ -1,0 +1,62 @@
+# Interface specification for writetable (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: writetable
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Write the contents of a table to a file (for example a delimited text or spreadsheet file).
+
+  '
+invocation_forms:
+- signature: writetable(T)
+  description: Write T to a default-named file.
+  status: pending
+- signature: writetable(T, filename)
+  description: Write T to the named file.
+  status: confirmed
+inputs:
+- name: T
+  required: true
+  description: Table to write.
+  status: pending
+- name: filename
+  required: false
+  description: Optional output file name.
+  status: pending
+outputs:
+- name: (none)
+  description: No output argument; the effect is a written file.
+  status: pending
+output_type_rules: []
+output_shape_rules:
+- id: writetable.roundtrip-rule
+  statement: Writing a table to a file and reading it back reproduces the data and shape (a 2-by-2 numeric
+    table round-tripped to [1 2;3 4], size [2 2]); after the call the target file exists (isfile is true).
+    writetable returns no output; the effect is the written file.
+  status: confirmed
+  normative: true
+  provenance: writetable.roundtrip
+  observations:
+  - file: observations/writetable_observations.json
+    case_id: file-created
+  - file: observations/writetable_observations.json
+    case_id: roundtrip-size
+  - file: observations/writetable_observations.json
+    case_id: roundtrip-values
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/writetable_observations.json
+  description: 3 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: writetable.q-side-effect
+  question: writetable writes a file; experiments must target a temporary path, verify by reading back,
+    then delete it.
+- id: writetable.q-formats
+  question: Enumerate supported file formats and default naming.

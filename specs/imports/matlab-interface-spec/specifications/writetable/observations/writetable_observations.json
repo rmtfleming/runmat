@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "function_name": "writetable",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/writetable/test_writetable_interface.m",
+  "date": "2026-07-22",
+  "notes": "Side-effect function: written to a temporary file, observed by reading back, then deleted. Values recorded via describe_value.",
+  "cases": [
+    {
+      "case_id": "file-created",
+      "description": "writetable created the target file",
+      "call": "writetable(T,f) -> isfile(f)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "roundtrip-size",
+      "description": "size of the table read back from the file",
+      "call": "size(readtable(f))",
+      "errored": false,
+      "result": {
+        "value": "[2 2]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "roundtrip-values",
+      "description": "numeric values read back from the file",
+      "call": "table2array(readtable(f))",
+      "errored": false,
+      "result": {
+        "value": "[1 2;3 4]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

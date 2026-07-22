@@ -1,0 +1,53 @@
+# Provenance for inputParser (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: inputParser
+claims:
+- claim_id: inputParser.signature-primary
+  statement: The primary invocation form `p = inputParser` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/inputParser_observations.json
+    case_id: construct-class
+- claim_id: inputParser.results-fields
+  statement: After parse, parsed arguments are exposed as fields of the Results struct (a required argument
+    appears as Results.x = 5; a name-value parameter as Results.tol = 0.2 when supplied and 0.1 when omitted);
+    a constructed parser has class inputParser.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/inputParser_observations.json
+    case_id: construct-class
+  - file: observations/inputParser_observations.json
+    case_id: results-class
+  - file: observations/inputParser_observations.json
+    case_id: required-value
+  - file: observations/inputParser_observations.json
+    case_id: param-value
+  - file: observations/inputParser_observations.json
+    case_id: param-default
+- claim_id: inputParser.using-defaults
+  statement: Parameters left at their default value are listed in the UsingDefaults property, returned
+    as a cell array.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/inputParser_observations.json
+    case_id: using-defaults
+  - file: observations/inputParser_observations.json
+    case_id: param-default

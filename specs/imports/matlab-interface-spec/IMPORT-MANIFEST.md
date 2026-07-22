@@ -1,4 +1,29 @@
-# Import Manifest — matlab-interface-spec Tier A export (batch 1)
+# Import Manifest — matlab-interface-spec Tier A exports
+
+## Batch 2 — 2026-07-22 (supersedes the interim pin below)
+
+- Source: `dist/runmat-export-2026-07-22/` in the source repository —
+  packaged export with `EXPORT_MANIFEST.json` (copied alongside this file).
+- **Revision pin (authoritative): commit
+  `b054f3ad809ceee28529a4dd7a6e28d2b6b434ef`** of `matlab-interface-spec`
+  ("Approve remaining six specs after human-loop review"), verified to exist
+  in the source repository. **Blocker B-001 is RESOLVED**; the interim
+  content pin of batch 1 is superseded. FR-002(d) is now fully satisfied
+  for all 26 imported specifications.
+- Added six newly approved specifications (all verified `status: approved`
+  in their `interface.yaml`): `display`, `inputParser`, `saveas`, `system`,
+  `urlread`, `writetable`. The original 20 were verified byte-identical
+  between batch 1 and the packaged export (no drift).
+- `SHA256SUMS` regenerated over all 26 (109 content files); drift detection
+  unchanged: `sha256sum -c SHA256SUMS`.
+- No features exist yet for the six new functions; they await selection
+  proposals under FR-010. Note: all six are side-effect functions (process
+  execution, network, file writing, display) — their features will need
+  explicit sandbox/isolation planning at the gate.
+
+---
+
+# Batch 1 — original import record (2026-07-22, interim pin — superseded)
 
 **Import date**: 2026-07-22
 **Imported by**: Claude Fable 5 (Claude Code), at maintainer instruction

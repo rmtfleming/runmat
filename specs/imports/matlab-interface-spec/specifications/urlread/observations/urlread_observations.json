@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "urlread",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/urlread/test_urlread_interface.m",
+  "date": "2026-07-22",
+  "notes": "Local file:// URL only; NO external network was contacted. External (http/https) behaviour is unresolved.",
+  "cases": [
+    {
+      "case_id": "file-url",
+      "description": "read a local file via a file:// URL (no external network)",
+      "call": "urlread(file://<tempfile>)",
+      "errored": false,
+      "result": {
+        "value": "'hello urlread'",
+        "class": "char",
+        "size": [
+          1,
+          13
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+# Provenance for system (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: system
+claims:
+- claim_id: system.signature-primary
+  statement: The primary invocation form `status = system(command)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/system_observations.json
+    case_id: status-success
+- claim_id: system.status-and-output
+  statement: Returns the command exit status as a numeric scalar (0 for a successful command; the failing
+    command tested, false, returned 1; the full range of nonzero failure codes was not explored). The
+    second output captures standard output as a char row vector including the trailing newline (echo hello
+    yielded 'hello' followed by a newline).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/system_observations.json
+    case_id: status-success
+  - file: observations/system_observations.json
+    case_id: status-failure
+  - file: observations/system_observations.json
+    case_id: captured-output

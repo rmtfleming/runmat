@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "function_name": "inputParser",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/inputParser/test_inputParser_interface.m",
+  "date": "2026-07-22",
+  "notes": "Observed via the parser object properties (Results, UsingDefaults). inputParser is a handle class; each case records a concrete observable.",
+  "cases": [
+    {
+      "case_id": "construct-class",
+      "description": "class of a constructed parser",
+      "call": "class(inputParser)",
+      "errored": false,
+      "result": {
+        "value": "'inputParser'",
+        "class": "char",
+        "size": [
+          1,
+          11
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "results-class",
+      "description": "class of the Results property after parsing a required argument",
+      "call": "inputParser+addRequired+parse -> class(Results)",
+      "errored": false,
+      "result": {
+        "value": "'struct'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "required-value",
+      "description": "parsed value of a required positional argument",
+      "call": "inputParser+addRequired+parse(5) -> Results.x",
+      "errored": false,
+      "result": {
+        "value": "5",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "param-value",
+      "description": "parsed value of a supplied name-value parameter",
+      "call": "addParameter(tol,0.1)+parse(tol,0.2) -> Results.tol",
+      "errored": false,
+      "result": {
+        "value": "0.20000000000000001",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "param-default",
+      "description": "default used when the parameter is omitted",
+      "call": "addParameter(tol,0.1)+parse() -> Results.tol",
+      "errored": false,
+      "result": {
+        "value": "0.10000000000000001",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "using-defaults",
+      "description": "UsingDefaults lists omitted parameters",
+      "call": "addParameter(tol,0.1)+parse() -> UsingDefaults",
+      "errored": false,
+      "result": {
+        "value": "<cell [1 1]>",
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# Provenance for display (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: display
+claims:
+- claim_id: display.signature-primary
+  statement: The primary invocation form `display(X)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/display_observations.json
+    case_id: scalar-text
+- claim_id: display.formatted-text
+  statement: The text captured from the command window with evalc uses leading whitespace and trailing
+    newlines, and a char array is shown without surrounding quotes. (These cases observe evalc-captured
+    output, not display's own return value.)
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/display_observations.json
+    case_id: scalar-text
+  - file: observations/display_observations.json
+    case_id: vector-text
+  - file: observations/display_observations.json
+    case_id: char-text

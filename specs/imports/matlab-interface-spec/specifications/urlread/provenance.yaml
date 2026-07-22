@@ -1,0 +1,29 @@
+# Provenance for urlread (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: urlread
+claims:
+- claim_id: urlread.signature-primary
+  statement: The primary invocation form `s = urlread(url)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/urlread_observations.json
+    case_id: file-url
+- claim_id: urlread.returns-char
+  statement: Returns the resource contents as a char row vector (a local file:// URL returned 'hello urlread').
+    External http/https behaviour was not exercised.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/urlread_observations.json
+    case_id: file-url

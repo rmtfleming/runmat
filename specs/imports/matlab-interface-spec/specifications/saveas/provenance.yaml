@@ -1,0 +1,32 @@
+# Provenance for saveas (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: saveas
+claims:
+- claim_id: saveas.signature-primary
+  statement: The primary invocation form `saveas(fig, filename)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/saveas_observations.json
+    case_id: file-created
+- claim_id: saveas.creates-file
+  statement: Saving a graphics object creates the target file (isfile is true) with a nonzero byte size
+    (an off-screen line plot produced a PNG of about 12 kB). saveas returns no output; the effect is the
+    written file.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/saveas_observations.json
+    case_id: file-created
+  - file: observations/saveas_observations.json
+    case_id: file-nonempty
