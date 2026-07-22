@@ -4,6 +4,7 @@ pub(crate) mod angle;
 pub(crate) mod complex;
 pub(crate) mod conj;
 pub(crate) mod double;
+pub(crate) mod eps;
 pub(crate) mod exp;
 pub(crate) mod expm1;
 pub(crate) mod factorial;

@@ -11,11 +11,10 @@ register_constant!(
     "crate::builtins::constants"
 );
 
-register_constant!(
-    "eps",
-    Value::Num(f64::EPSILON),
-    "crate::builtins::constants"
-);
+// NOTE: `eps` is intentionally NOT a constant. It is registered as a runtime
+// function in `crate::builtins::math::elementwise::eps` (feature
+// 028-eps-function) so that `eps('single')` and `eps(x)` can be expressed.
+// Bare `eps` still evaluates as a zero-argument builtin call.
 
 register_constant!(
     "sqrt2",
