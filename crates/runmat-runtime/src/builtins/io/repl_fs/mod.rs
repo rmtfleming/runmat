@@ -7,6 +7,7 @@ pub mod delete;
 pub mod dir;
 pub mod exist;
 pub(crate) mod file_dialog;
+pub mod fileparts;
 pub mod fullfile;
 pub mod genpath;
 pub mod getenv;
