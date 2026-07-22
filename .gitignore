@@ -38,3 +38,6 @@ bindings/ts/stdlib.snapshot
 
 node_modules/
 **/node_modules/
+
+# SpecKit extension catalog cache (regenerated on demand)
+.specify/extensions/.cache/
