@@ -12,3 +12,4 @@ pub mod signal;
 pub mod symbolic;
 pub mod trigonometry;
 pub mod type_resolvers;
+pub mod sparse;

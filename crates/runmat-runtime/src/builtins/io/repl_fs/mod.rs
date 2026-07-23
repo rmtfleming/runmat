@@ -39,3 +39,4 @@ pub static REPL_FS_TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 pub(crate) fn is_rooted_path(path: &Path) -> bool {
     path.is_absolute() || path.has_root()
 }
+pub mod isdir;

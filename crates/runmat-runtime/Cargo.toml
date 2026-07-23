@@ -91,6 +91,7 @@ web-sys = { version = "0.3", features = ["XmlHttpRequest", "XmlHttpRequestRespon
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
+parallel_xval = []  # opt-in: compile+run the retained clean-room cross-validation tests
 default = ["plot-core"]
 
 # Core plotting types (figures, builders, shared renderer structs)
