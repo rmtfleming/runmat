@@ -25,6 +25,10 @@ pub fn pause_type(args: &[Type], _context: &ResolveContext) -> Type {
 }
 
 pub fn tic_type(_args: &[Type], _context: &ResolveContext) -> Type {
+    Type::Int
+}
+
+pub fn cputime_type(_args: &[Type], _context: &ResolveContext) -> Type {
     Type::Num
 }
 
@@ -78,8 +82,16 @@ mod tests {
     }
 
     #[test]
-    fn tic_type_reports_num() {
-        assert_eq!(tic_type(&[], &ResolveContext::new(Vec::new())), Type::Num);
+    fn tic_type_reports_int() {
+        assert_eq!(tic_type(&[], &ResolveContext::new(Vec::new())), Type::Int);
+    }
+
+    #[test]
+    fn cputime_type_reports_num() {
+        assert_eq!(
+            cputime_type(&[], &ResolveContext::new(Vec::new())),
+            Type::Num
+        );
     }
 
     #[test]

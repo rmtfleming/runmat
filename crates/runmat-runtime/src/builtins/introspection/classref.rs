@@ -1,8 +1,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinOutputMode, BuiltinParamArity,
-    BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 const CLASSREF_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "ref",
@@ -42,5 +43,14 @@ pub const CLASSREF_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     builtin_path = "crate::builtins::introspection::classref"
 )]
 pub async fn classref_builtin(class_name: String) -> crate::BuiltinResult<Value> {
+    let identity = runmat_types::ClassIdentity::new(&class_name)
+        .map_err(|error| crate::build_runtime_error(error.to_string()).build())?;
+    if identity.is(crate::builtins::introspection::object_indexing::INDEXING_CONTEXT_CLASS)
+        || identity
+            .is(crate::builtins::introspection::object_indexing::LEGACY_INDEXING_CONTEXT_CLASS)
+    {
+        crate::builtins::introspection::object_indexing::ensure_indexing_context_classes_registered(
+        );
+    }
     crate::classref_builtin(class_name).await
 }

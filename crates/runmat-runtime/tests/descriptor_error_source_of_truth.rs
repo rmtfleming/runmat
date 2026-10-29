@@ -2,6 +2,37 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[test]
+fn public_migrated_numeric_descriptors_are_unique() {
+    let _ = runmat_runtime::object_property_getter_name("__descriptor_registry_probe");
+    for name in [
+        "angle", "conj", "double", "expm1", "imag", "int8", "int16", "int32", "int64", "log",
+        "flintmax", "intmax", "intmin", "log1p", "log2", "log10", "real", "realmax", "realmin",
+        "realsqrt", "sign", "single", "sqrt", "uint8", "uint16", "uint32", "uint64",
+    ] {
+        let catalog_count = runmat_builtins::builtin_catalog_entries()
+            .iter()
+            .filter(|entry| {
+                entry.identity.name == name
+                    && entry.descriptor.completion_policy
+                        == runmat_builtins::BuiltinCompletionPolicy::Public
+            })
+            .count();
+        let legacy_count = runmat_builtins::builtin_functions()
+            .into_iter()
+            .filter(|builtin| builtin.name == name)
+            .count();
+        assert_eq!(
+            catalog_count, 1,
+            "expected exactly one canonical public {name} descriptor"
+        );
+        assert_eq!(
+            legacy_count, 0,
+            "expected no legacy {name} descriptor authority"
+        );
+    }
+}
+
 fn collect_rs_files(root: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -90,12 +121,18 @@ fn migrated_builtin_files_do_not_duplicate_stable_error_constants() {
             }
 
             if trimmed.starts_with("identifier:") && trimmed.contains("Some(") {
+                let inline_literal = trimmed.contains("Some(\"");
+                let descriptor_macro_expression = trimmed.contains("concat!(")
+                    && trimmed.contains('$')
+                    && trimmed.contains("\"RunMat:\"");
                 assert!(
-                    trimmed.contains("Some(\""),
-                    "{} forwards identifier via constant/expression ({trimmed}); keep identifier text authored inline in BuiltinErrorDescriptor rows",
+                    inline_literal || descriptor_macro_expression,
+                    "{} forwards identifier via a non-canonical constant/expression ({trimmed}); author it inline in a BuiltinErrorDescriptor row or in the descriptor-generating macro itself",
                     file.display()
                 );
-                if let Some(identifier) = parse_inline_string_literal(trimmed) {
+                if inline_literal {
+                    let identifier = parse_inline_string_literal(trimmed)
+                        .expect("inline descriptor identifiers contain a string literal");
                     *descriptor_identifier_counts.entry(identifier).or_insert(0) += 1;
                 }
             }

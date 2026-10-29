@@ -2,21 +2,25 @@
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
 use crate::builtins::math::ode::common::{
-    build_ode_output, ode_options_from_struct, parse_ode_input, parse_options, solve_ode, OdeMethod,
+    build_ode_output, define_ode_integer_contract, ode_options_from_struct, parse_ode_input,
+    parse_options, prepare_ode_options, solve_ode, OdeMethod,
 };
 use crate::builtins::math::ode::type_resolvers::ode_solution_type;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const NAME: &str = "ode15s";
+
+define_ode_integer_contract!("ode15s", "Ode15s");
 
 const ODE15S_OUTPUT_Y: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "y",
@@ -209,12 +213,15 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "ode15s",
+    execution_stack = "process",
     category = "math/ode",
     summary = "Solve stiff ODE systems with adaptive implicit integration.",
     keywords = "ode15s,ode,stiff,implicit,adaptive step",
     accel = "sink",
     type_resolver(ode_solution_type),
     descriptor(crate::builtins::math::ode::ode15s::ODE15S_DESCRIPTOR),
+    extensions(crate::builtins::math::ode::ode15s::EXTENSIONS),
+    integer_capabilities(crate::builtins::math::ode::ode15s::INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::math::ode::ode15s"
 )]
 async fn ode15s_builtin(
@@ -231,9 +238,12 @@ async fn ode15s_builtin(
     }
     let options = parse_options(NAME, rest.first())
         .map_err(|err| ode15s_map_error(err, &ODE15S_ERROR_INVALID_ARGUMENT))?;
+    let options = prepare_ode_options(NAME, options, ODE_COMPATIBILITY_EXTENSIONS)
+        .await
+        .map_err(|err| ode15s_map_error(err, &ODE15S_ERROR_INVALID_ARGUMENT))?;
     let opts = ode_options_from_struct(NAME, options.as_ref())
         .map_err(|err| ode15s_map_error(err, &ODE15S_ERROR_INVALID_ARGUMENT))?;
-    let input = parse_ode_input(NAME, tspan, y0)
+    let input = parse_ode_input(NAME, tspan, y0, ODE_COMPATIBILITY_EXTENSIONS)
         .await
         .map_err(|err| ode15s_map_error(err, &ODE15S_ERROR_INVALID_INPUT))?;
     let result = solve_ode(NAME, OdeMethod::Ode15s, &function, &input, &opts)
@@ -246,7 +256,7 @@ async fn ode15s_builtin(
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{StructValue, Tensor};
+    use runmat_value::{StructValue, Tensor};
     use std::sync::Arc;
 
     #[test]
@@ -261,7 +271,9 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-15.0 * y)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(-15.0 * y)) },
+                )
             },
         )));
 
@@ -276,7 +288,7 @@ mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.cols(), 1);
-                let last = t.data[t.rows() - 1];
+                let last = t.materialize_f64()[t.rows() - 1];
                 assert!(last.is_finite());
                 assert!(last > 0.0);
                 assert!(last < 0.1);
@@ -297,7 +309,9 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-1000.0 * y)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(-1000.0 * y)) },
+                )
             },
         )));
         let mut options = StructValue::new();
@@ -318,7 +332,7 @@ mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.cols(), 1);
-                let last = t.data[t.rows() - 1];
+                let last = t.materialize_f64()[t.rows() - 1];
                 assert!(last.is_finite());
                 assert!(last > 0.0);
                 assert!(last < 0.02);
@@ -336,13 +350,15 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-15.0 * y)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(-15.0 * y)) },
+                )
             },
         )));
 
         let out = block_on(ode15s_builtin(
             Value::BoundFunctionHandle {
-                name: "ode_stiff_decay".to_string(),
+                name: "ode_stiff_decay".into(),
                 function: 57,
             },
             Value::Tensor(Tensor::new(vec![0.0, 1.0], vec![1, 2]).unwrap()),
@@ -354,7 +370,7 @@ mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.cols(), 1);
-                let last = t.data[t.rows() - 1];
+                let last = t.materialize_f64()[t.rows() - 1];
                 assert!(last.is_finite());
                 assert!(last > 0.0);
                 assert!(last < 0.1);

@@ -196,7 +196,7 @@ mod tests {
             frame: ReferenceFrame::Global,
             materials: vec![MaterialModel {
                 material_id: "m1".to_string(),
-                name: "Steel".to_string(),
+                name: "Steel".into(),
                 mechanical: MaterialMechanicalModel {
                     youngs_modulus_pa: 200e9,
                     poisson_ratio: 0.3,
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn ilu0_preconditioner_is_buildable_and_finite() {
-        let summary = assemble_linear_system(&model(), None, None, None);
+        let summary = assemble_linear_system(&model(), None, None, None, None);
         let pc = build_spd_preconditioner(&summary, SpdPreconditionerKind::Ilu0);
         let z = pc.apply(&summary.operator.rhs);
         assert_eq!(z.len(), summary.dof_count);

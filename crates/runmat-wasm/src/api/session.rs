@@ -10,6 +10,12 @@ use runmat_core::{
     TelemetryFailureInfo, TelemetryHost, TelemetryPlatformInfo, TelemetryRunConfig,
     TelemetryRunFinish, TelemetrySink, WorkspaceEntry, WorkspaceResidency,
 };
+use runmat_runtime::analysis::{
+    AnalysisDocumentCheckResult as FeaCheckPayload, AnalysisDocumentKind,
+    AnalysisDocumentRunResult as FeaRunPayload, AnalysisFieldPageResult as FeaFieldPayload,
+    AnalysisFieldRequestOptions as FeaFieldRequestPayload,
+    AnalysisRuntimeCapabilities as FeaCapabilitiesPayload,
+};
 use runmat_runtime::builtins::plotting::{
     close_figure as runtime_close_figure, close_geometry_scene as runtime_close_geometry_scene,
     export_geometry_scene as runtime_export_geometry_scene,
@@ -23,6 +29,11 @@ use runmat_runtime::builtins::plotting::{
 use runmat_runtime::builtins::wasm_registry;
 use runmat_runtime::data::{
     dataset_root, read_array_payload_async, read_array_slice_payload_async, read_manifest_async,
+    DataArrayValues,
+};
+use runmat_runtime::geometry::{
+    GeometryInspectPayload, GeometryPreviewBudgetPayload, GeometryPreviewBudgetPolicyPayload,
+    GeometryPreviewPayload, GeometryStatsPayload,
 };
 use runmat_runtime::{
     runtime_plot_import_figure_scene_async, runtime_plot_import_figure_scene_from_path_async,
@@ -37,8 +48,10 @@ use wasm_bindgen::JsCast;
 use crate::api::init::install_fs_provider_value;
 use crate::api::streams::js_input_request;
 use crate::runtime::config::{
-    parse_language_compat_from_str, parse_workspace_export_mode, SessionConfig,
+    parse_language_compat_from_str, parse_workspace_export_mode, request_error_namespace,
+    SessionConfig,
 };
+use crate::runtime::execution::BrowserExecutionService;
 use crate::runtime::gpu::{capture_memory_usage, GpuStatus};
 use crate::runtime::logging::init_logging_once;
 use crate::runtime::state::{
@@ -52,24 +65,25 @@ use crate::wire::errors::{
 use crate::wire::payloads::{
     compute_data_preview_slice, estimate_data_array_bytes, infer_dataset_class_name,
     parse_data_materialize_options_wire, parse_materialize_options, parse_materialize_target,
-    DataMaterializedVariablePayload, ExecutionPayload, FusionPlanPayload,
+    DataArrayPreviewPayload, DataMaterializedVariablePayload, ExecutionPayload, FusionPlanPayload,
     MaterializedVariablePayload, MemoryUsagePayload, StatsPayload, WorkspaceEntryPayload,
-    WorkspacePayload, WorkspacePreviewPayload,
+    WorkspacePayload,
 };
-use crate::wire::value::MAX_DATA_PREVIEW;
+use crate::wire::value::{integer_json_value, MAX_DATA_PREVIEW};
 
 #[wasm_bindgen]
 pub struct RunMatWasm {
-    session: RefCell<RunMatSession>,
-    snapshot_seed: Option<Vec<u8>>,
+    pub(crate) session: RefCell<RunMatSession>,
     config: RefCell<SessionConfig>,
     gpu_status: GpuStatus,
     disposed: Cell<bool>,
-    active_interrupt: RefCell<Option<Arc<AtomicBool>>>,
+    pub(crate) active_interrupt: RefCell<Option<Arc<AtomicBool>>>,
     telemetry_sink: Option<Arc<dyn TelemetrySink>>,
+    package_cache: Option<Arc<dyn runmat_package_cache::CacheBackend>>,
+    execution_service: std::rc::Rc<BrowserExecutionService>,
 }
 
-struct WasmInterruptGuard<'a> {
+pub(crate) struct WasmInterruptGuard<'a> {
     slot: &'a RefCell<Option<Arc<AtomicBool>>>,
     _runtime_guard: runmat_runtime::interrupt::InterruptGuard,
 }
@@ -80,7 +94,7 @@ impl Drop for WasmInterruptGuard<'_> {
     }
 }
 
-fn install_wasm_interrupt(
+pub(crate) fn install_wasm_interrupt(
     slot: &RefCell<Option<Arc<AtomicBool>>>,
     handle: Arc<AtomicBool>,
 ) -> WasmInterruptGuard<'_> {
@@ -118,37 +132,30 @@ struct GeometryInputFile {
 impl RunMatWasm {
     pub(crate) fn new(
         session: RunMatSession,
-        snapshot_seed: Option<Vec<u8>>,
         config: SessionConfig,
         gpu_status: GpuStatus,
         telemetry_sink: Option<Arc<dyn TelemetrySink>>,
+        package_cache: Option<Arc<dyn runmat_package_cache::CacheBackend>>,
+        execution_service: std::rc::Rc<BrowserExecutionService>,
     ) -> Self {
         Self {
             session: RefCell::new(session),
-            snapshot_seed,
             config: RefCell::new(config),
             gpu_status,
             disposed: Cell::new(false),
             active_interrupt: RefCell::new(None),
             telemetry_sink,
+            package_cache,
+            execution_service,
         }
     }
 
-    fn ensure_not_disposed(&self) -> Result<(), JsValue> {
+    pub(crate) fn ensure_not_disposed(&self) -> Result<(), JsValue> {
         if self.disposed.get() {
             return Err(js_error("RunMat session has been disposed"));
         }
         Ok(())
     }
-}
-
-async fn inspect_geometry_path(
-    path: String,
-    budget: Option<GeometryPreviewBudgetPayload>,
-) -> Result<GeometryInspectPayload, String> {
-    inspect_geometry_path_with_asset(path, budget)
-        .await
-        .map(|result| result.inspect)
 }
 
 async fn inspect_geometry_path_with_asset(
@@ -564,7 +571,7 @@ async fn check_fea_path(path: String) -> Result<FeaCheckPayload, String> {
             }
             Ok(FeaCheckPayload {
                 path,
-                document_kind: "study".to_string(),
+                document_kind: AnalysisDocumentKind::Study,
                 valid: validation.valid,
                 validation: serde_json::to_value(validation).map_err(|err| err.to_string())?,
                 plan: plan
@@ -600,7 +607,7 @@ async fn check_fea_path(path: String) -> Result<FeaCheckPayload, String> {
             }
             Ok(FeaCheckPayload {
                 path,
-                document_kind: "sweep".to_string(),
+                document_kind: AnalysisDocumentKind::Sweep,
                 valid: validation.valid,
                 validation: serde_json::to_value(validation).map_err(|err| err.to_string())?,
                 plan: plan
@@ -639,8 +646,7 @@ async fn run_fea_path(path: String) -> Result<FeaRunPayload, String> {
             .map(|envelope| envelope.data);
             let field_descriptors = results
                 .as_ref()
-                .map(serialize_field_descriptors)
-                .transpose()?
+                .map(field_descriptors_for_results)
                 .unwrap_or_default();
             let result_summary = results
                 .as_ref()
@@ -650,7 +656,7 @@ async fn run_fea_path(path: String) -> Result<FeaRunPayload, String> {
             let (figure_handles, diagnostics) = generated_fea_figure_handles(&study, &run.run_id)?;
             Ok(FeaRunPayload {
                 path,
-                document_kind: "study".to_string(),
+                document_kind: AnalysisDocumentKind::Study,
                 run: serde_json::to_value(run).map_err(|err| err.to_string())?,
                 results: results
                     .map(serde_json::to_value)
@@ -673,7 +679,7 @@ async fn run_fea_path(path: String) -> Result<FeaRunPayload, String> {
             .data;
             Ok(FeaRunPayload {
                 path,
-                document_kind: "sweep".to_string(),
+                document_kind: AnalysisDocumentKind::Sweep,
                 run: serde_json::to_value(run).map_err(|err| err.to_string())?,
                 results: None,
                 field_descriptors: Vec::new(),
@@ -712,25 +718,6 @@ fn generated_fea_figure_handles(
     Ok((handles, diagnostics))
 }
 
-fn load_fea_results(run_id: String) -> Result<FeaResultsPayload, String> {
-    let results = runmat_runtime::analysis::analysis_results_by_run_id_op(
-        &run_id,
-        runmat_runtime::analysis::AnalysisResultsQuery::metadata_only(),
-        runmat_runtime::operations::OperationContext::new(None, None),
-    )
-    .map_err(|err| err.message)?
-    .data;
-    let field_descriptors = serialize_field_descriptors(&results)?;
-    let result_summary =
-        Some(serde_json::to_value(&results.summary).map_err(|err| err.to_string())?);
-    Ok(FeaResultsPayload {
-        run_id,
-        results: serde_json::to_value(results).map_err(|err| err.to_string())?,
-        field_descriptors,
-        result_summary,
-    })
-}
-
 fn load_fea_field(
     run_id: String,
     field_id: String,
@@ -767,7 +754,7 @@ fn load_fea_field(
     Ok(FeaFieldPayload {
         run_id,
         field_id,
-        descriptor: serde_json::to_value(descriptor).map_err(|err| err.to_string())?,
+        descriptor: descriptor.clone(),
         values: sliced_values,
         offset,
         count,
@@ -776,14 +763,10 @@ fn load_fea_field(
     })
 }
 
-fn serialize_field_descriptors(
+fn field_descriptors_for_results(
     results: &runmat_runtime::analysis::AnalysisResultsData,
-) -> Result<Vec<serde_json::Value>, String> {
-    results
-        .field_descriptors
-        .iter()
-        .map(|descriptor| serde_json::to_value(descriptor).map_err(|err| err.to_string()))
-        .collect()
+) -> Vec<runmat_runtime::analysis::AnalysisFieldDescriptor> {
+    results.field_descriptors.clone()
 }
 
 fn filename_for_display(path: &str) -> &str {
@@ -829,150 +812,31 @@ struct ExecuteHostPolicyPayload {
 struct ExecuteRequestPayload {
     source: ExecuteRequestSourcePayload,
     compatibility: Option<String>,
+    error_namespace: Option<String>,
     host_policy: Option<ExecuteHostPolicyPayload>,
     requested_outputs: Option<u32>,
     retain_figures: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct GeometryPreviewBudgetPayload {
-    max_bytes: Option<u64>,
-    max_triangles: Option<u64>,
-    max_vertices: Option<u64>,
-    timeout_ms: Option<u64>,
-    budget_policy: Option<GeometryPreviewBudgetPolicyPayload>,
-    tessellation_profile: Option<GeometryPreviewTessellationProfilePayload>,
-    xray: Option<bool>,
-    allow_create_fea_study: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum GeometryPreviewBudgetPolicyPayload {
-    #[default]
-    Truncate,
-    Strict,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct GeometryPreviewTessellationProfilePayload {
-    profile_id: Option<String>,
-    chord_tolerance: Option<f64>,
-    angle_tolerance_deg: Option<f64>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GeometryStatsPayload {
-    mesh_count: usize,
-    total_vertices: u64,
-    total_elements: u64,
-    region_count: usize,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GeometryInspectPayload {
-    path: String,
-    format: String,
-    byte_count: u64,
-    supported: bool,
-    stats: Option<GeometryStatsPayload>,
-    geometry_summary: Option<JsonValue>,
-    regions: Vec<JsonValue>,
-    diagnostics: Vec<JsonValue>,
-    degraded_reason: Option<String>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GeometryPreviewPayload {
-    #[serde(flatten)]
-    inspect: GeometryInspectPayload,
-    scene_kind: String,
-    figure_handle: Option<u32>,
-    geometry_scene_handle: Option<u32>,
-    truncated: bool,
-    preview_message: Option<String>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FeaCapabilitiesPayload {
-    supported_document_extensions: Vec<&'static str>,
-    supported_geometry_extensions: Vec<&'static str>,
-    supports_check: bool,
-    supports_run: bool,
-    supports_results: bool,
-    supports_live_progress: bool,
-    visualization_backend: &'static str,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FeaCheckPayload {
-    path: String,
-    document_kind: String,
-    valid: bool,
-    validation: JsonValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    plan: Option<JsonValue>,
-    diagnostics: Vec<JsonValue>,
-    evidence_artifact_paths: Vec<String>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FeaRunPayload {
-    path: String,
-    document_kind: String,
-    run: JsonValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    results: Option<JsonValue>,
-    field_descriptors: Vec<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result_summary: Option<JsonValue>,
-    figure_handles: Vec<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    artifact_manifest: Option<JsonValue>,
-    diagnostics: Vec<JsonValue>,
-    progress_events: Vec<JsonValue>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FeaResultsPayload {
-    run_id: String,
-    results: JsonValue,
-    field_descriptors: Vec<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result_summary: Option<JsonValue>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct FeaFieldRequestPayload {
-    offset: Option<usize>,
-    limit: Option<usize>,
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FeaFieldPayload {
-    run_id: String,
-    field_id: String,
-    descriptor: JsonValue,
-    values: Vec<f64>,
-    offset: usize,
-    count: usize,
-    total_count: usize,
-    truncated: bool,
-}
-
 #[wasm_bindgen]
 impl RunMatWasm {
+    #[wasm_bindgen(js_name = packageCacheSnapshot)]
+    pub async fn package_cache_snapshot_js(&self) -> Result<JsValue, JsValue> {
+        self.ensure_not_disposed()?;
+        let Some(cache) = self.package_cache.as_ref() else {
+            return Ok(JsValue::NULL);
+        };
+        let snapshot = cache
+            .snapshot()
+            .await
+            .map_err(|error| js_error(&format!("Package cache snapshot failed: {error}")))?;
+        serde_wasm_bindgen::to_value(&snapshot).map_err(|error| {
+            js_error(&format!(
+                "Package cache snapshot serialization failed: {error}"
+            ))
+        })
+    }
+
     #[wasm_bindgen(js_name = executeRequest)]
     pub async fn execute_request_js(&self, request_value: JsValue) -> Result<JsValue, JsValue> {
         let request_payload: ExecuteRequestPayload = serde_wasm_bindgen::from_value(request_value)
@@ -1047,15 +911,24 @@ impl RunMatWasm {
             runmat_core::abi::HostExecutionPolicy::default(),
             session.workspace_handle(),
         );
-        if let Some(compatibility) = request_payload.compatibility.as_deref() {
-            if let Some(parsed) = parse_language_compat_from_str(compatibility) {
-                request.compatibility = parsed;
-            } else {
-                return Err(js_error(&format!(
-                    "executeRequest compatibility is invalid: {compatibility}"
-                )));
-            }
-        }
+        let compatibility_override = request_payload
+            .compatibility
+            .as_deref()
+            .map(|compatibility| {
+                if let Some(parsed) = parse_language_compat_from_str(compatibility) {
+                    request.compatibility = parsed;
+                    Ok(parsed)
+                } else {
+                    Err(js_error(&format!(
+                        "executeRequest compatibility is invalid: {compatibility}"
+                    )))
+                }
+            })
+            .transpose()?;
+        let error_namespace_override = request_error_namespace(
+            compatibility_override,
+            request_payload.error_namespace.as_deref(),
+        );
         if let Some(host_policy) = request_payload.host_policy {
             if let Some(top_level_await) = host_policy.top_level_await {
                 request.host_policy.top_level_await = top_level_await;
@@ -1068,7 +941,13 @@ impl RunMatWasm {
                 count => runmat_hir::RequestedOutputCount::Exactly(count as usize),
             };
         }
+        if let Some(namespace) = error_namespace_override.as_deref() {
+            session.set_error_namespace(namespace);
+        }
         let exec_response = session.execute_request(request).await;
+        if error_namespace_override.is_some() {
+            session.set_error_namespace(self.config.borrow().error_namespace.clone());
+        }
         *self.session.borrow_mut() = session;
         let payload = match exec_response.result {
             Ok(outcome) => {
@@ -1169,32 +1048,6 @@ impl RunMatWasm {
             .map_err(|err| js_error(&format!("Failed to serialize execution result: {err}")))
     }
 
-    #[wasm_bindgen(js_name = inspectGeometry)]
-    pub async fn inspect_geometry_js(
-        &self,
-        path: String,
-        budget_value: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        self.ensure_not_disposed()?;
-        let interrupt_handle = self.session.borrow().interrupt_handle();
-        let _interrupt_guard = install_wasm_interrupt(&self.active_interrupt, interrupt_handle);
-        let budget = if budget_value.is_null() || budget_value.is_undefined() {
-            None
-        } else {
-            Some(
-                serde_wasm_bindgen::from_value::<GeometryPreviewBudgetPayload>(budget_value)
-                    .map_err(|err| {
-                        js_error(&format!("inspectGeometry budget parse failed: {err}"))
-                    })?,
-            )
-        };
-        let payload = inspect_geometry_path(path, budget)
-            .await
-            .map_err(|err| js_error(&err))?;
-        serde_wasm_bindgen::to_value(&payload)
-            .map_err(|err| js_error(&format!("Failed to serialize geometry inspection: {err}")))
-    }
-
     #[wasm_bindgen(js_name = previewGeometry)]
     pub async fn preview_geometry_js(
         &self,
@@ -1242,15 +1095,22 @@ impl RunMatWasm {
     pub fn fea_capabilities_js(&self) -> Result<JsValue, JsValue> {
         self.ensure_not_disposed()?;
         let payload = FeaCapabilitiesPayload {
-            supported_document_extensions: vec![".fea"],
+            supported_document_extensions: vec![".fea".to_string()],
             supported_geometry_extensions: vec![
-                ".stl", ".step", ".stp", ".obj", ".ply", ".gltf", ".glb",
+                ".stl".to_string(),
+                ".step".to_string(),
+                ".stp".to_string(),
+                ".obj".to_string(),
+                ".ply".to_string(),
+                ".gltf".to_string(),
+                ".glb".to_string(),
             ],
+            physics_profiles: runmat_runtime::analysis::analysis_runtime_physics_profile_catalog(),
             supports_check: true,
             supports_run: true,
             supports_results: true,
             supports_live_progress: true,
-            visualization_backend: "runmat-plot",
+            visualization_backend: "runmat-plot".to_string(),
         };
         serde_wasm_bindgen::to_value(&payload)
             .map_err(|err| js_error(&format!("Failed to serialize FEA capabilities: {err}")))
@@ -1262,6 +1122,34 @@ impl RunMatWasm {
         let payload = check_fea_path(path).await.map_err(|err| js_error(&err))?;
         serde_wasm_bindgen::to_value(&payload)
             .map_err(|err| js_error(&format!("Failed to serialize FEA check result: {err}")))
+    }
+
+    #[wasm_bindgen(js_name = applyFeaStudyDocumentOperation)]
+    pub fn apply_fea_study_document_operation_js(
+        &self,
+        operation: String,
+        path: String,
+        source: Option<String>,
+        input: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        self.ensure_not_disposed()?;
+        let input = serde_wasm_bindgen::from_value::<JsonValue>(input).map_err(|err| {
+            js_error(&format!(
+                "Failed to deserialize FEA study operation input: {err}"
+            ))
+        })?;
+        let output = runmat_runtime::analysis::apply_fea_study_document_operation(
+            &operation,
+            &path,
+            source.as_deref(),
+            input,
+        )
+        .map_err(|err| js_error(&err))?;
+        serde_wasm_bindgen::to_value(&output).map_err(|err| {
+            js_error(&format!(
+                "Failed to serialize FEA study operation result: {err}"
+            ))
+        })
     }
 
     #[wasm_bindgen(js_name = runFeaStudy)]
@@ -1304,24 +1192,10 @@ impl RunMatWasm {
         let mut payload = run_fea_path(path).await.map_err(|err| js_error(&err))?;
         payload.progress_events = progress_events
             .lock()
-            .ok()
-            .map(|events| {
-                events
-                    .iter()
-                    .filter_map(|event| serde_json::to_value(event).ok())
-                    .collect()
-            })
+            .map(|events| events.clone())
             .unwrap_or_default();
         serde_wasm_bindgen::to_value(&payload)
             .map_err(|err| js_error(&format!("Failed to serialize FEA run result: {err}")))
-    }
-
-    #[wasm_bindgen(js_name = feaResults)]
-    pub fn fea_results_js(&self, run_id: String) -> Result<JsValue, JsValue> {
-        self.ensure_not_disposed()?;
-        let payload = load_fea_results(run_id).map_err(|err| js_error(&err))?;
-        serde_wasm_bindgen::to_value(&payload)
-            .map_err(|err| js_error(&format!("Failed to serialize FEA results: {err}")))
     }
 
     #[wasm_bindgen(js_name = feaField)]
@@ -1352,14 +1226,11 @@ impl RunMatWasm {
         web_sys::console::log_1(
             &format!("RunMat wasm: builtins registered ({builtin_count})").into(),
         );
+        let installed_handoff = self.session.borrow().project_handoff().cloned();
         let config = self.config.borrow();
         let consent = config.telemetry_consent;
-        let mut session = RunMatSession::with_snapshot_bytes(
-            config.enable_jit,
-            config.verbose,
-            self.snapshot_seed.as_deref(),
-        )
-        .map_err(|err| js_error(&format!("Failed to reset session: {err}")))?;
+        let mut session = RunMatSession::with_options(config.enable_jit, config.verbose)
+            .map_err(|err| js_error(&format!("Failed to reset session: {err}")))?;
         session.set_telemetry_consent(consent);
         if let Some(cid) = config.telemetry_client_id.clone() {
             session.set_telemetry_client_id(Some(cid));
@@ -1370,6 +1241,12 @@ impl RunMatWasm {
         session.set_compat_mode(config.language_compat);
         session.set_callstack_limit(config.callstack_limit);
         session.set_error_namespace(config.error_namespace.clone());
+        session.install_execution_services(self.execution_service.clone());
+        if let Some(handoff) = installed_handoff {
+            session
+                .install_project_handoff(handoff)
+                .map_err(|err| js_error(&format!("Failed to restore project handoff: {err}")))?;
+        }
         if self.telemetry_sink.is_some() {
             session.set_telemetry_platform_info(TelemetryPlatformInfo {
                 os: Some("web".to_string()),
@@ -1386,6 +1263,80 @@ impl RunMatWasm {
         runtime_reset_plot_state();
         runtime_invalidate_surface_revisions();
         Ok(())
+    }
+
+    #[wasm_bindgen(js_name = installProjectHandoff)]
+    pub fn install_project_handoff_js(&self, value: JsValue) -> Result<JsValue, JsValue> {
+        self.ensure_not_disposed()?;
+        let handoff: runmat_package::FrozenProjectHandoff =
+            serde_wasm_bindgen::from_value(value)
+                .map_err(|err| js_error(&format!("Project handoff parse failed: {err}")))?;
+        let revision = self
+            .session
+            .borrow_mut()
+            .install_project_handoff(handoff)
+            .map_err(|err| js_error(&format!("Project handoff validation failed: {err}")))?;
+        serde_wasm_bindgen::to_value(&revision)
+            .map_err(|err| js_error(&format!("Project revision serialization failed: {err}")))
+    }
+
+    #[wasm_bindgen(js_name = clearProjectHandoff)]
+    pub fn clear_project_handoff_js(&self) -> Result<(), JsValue> {
+        self.ensure_not_disposed()?;
+        self.session.borrow_mut().clear_project_handoff();
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = projectRevision)]
+    pub fn project_revision_js(&self) -> Result<JsValue, JsValue> {
+        self.ensure_not_disposed()?;
+        let Some(revision) = self.session.borrow().project_revision() else {
+            return Ok(JsValue::NULL);
+        };
+        serde_wasm_bindgen::to_value(&revision)
+            .map_err(|err| js_error(&format!("Project revision serialization failed: {err}")))
+    }
+
+    /// Return semantic discovery for the exact caller-frozen run snapshot.
+    /// The Core session verifies it against the installed project handoff
+    /// before static analysis; no browser filesystem rediscovery occurs.
+    #[wasm_bindgen(js_name = discoverTests)]
+    pub fn discover_tests_js(&self, value: JsValue) -> Result<JsValue, JsValue> {
+        self.ensure_not_disposed()?;
+        let snapshot: runmat_test::discovery::FrozenTestRunSnapshot =
+            serde_wasm_bindgen::from_value(value)
+                .map_err(|err| js_error(&format!("Test snapshot parse failed: {err}")))?;
+        let discovery = self
+            .session
+            .borrow()
+            .discover_tests(&snapshot)
+            .map_err(|err| js_error(&format!("Test discovery failed: {err}")))?;
+        serde_wasm_bindgen::to_value(&discovery)
+            .map_err(|err| js_error(&format!("Test discovery serialization failed: {err}")))
+    }
+
+    /// Discover and construct the selected immutable plan through the same
+    /// Core authority used by native hosts.
+    #[wasm_bindgen(js_name = prepareTests)]
+    pub fn prepare_tests_js(
+        &self,
+        snapshot: JsValue,
+        selector: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        self.ensure_not_disposed()?;
+        let snapshot: runmat_test::discovery::FrozenTestRunSnapshot =
+            serde_wasm_bindgen::from_value(snapshot)
+                .map_err(|err| js_error(&format!("Test snapshot parse failed: {err}")))?;
+        let selector: runmat_test::descriptor::TestSelector =
+            serde_wasm_bindgen::from_value(selector)
+                .map_err(|err| js_error(&format!("Test selector parse failed: {err}")))?;
+        let prepared = self
+            .session
+            .borrow()
+            .prepare_tests(&snapshot, &selector)
+            .map_err(|err| js_error(&format!("Test preparation failed: {err}")))?;
+        serde_wasm_bindgen::to_value(&prepared)
+            .map_err(|err| js_error(&format!("Test preparation serialization failed: {err}")))
     }
 
     #[wasm_bindgen(js_name = cancelExecution)]
@@ -1411,6 +1362,14 @@ impl RunMatWasm {
         } else {
             warn!("RunMat wasm: ignoring unknown language compat mode '{mode}'");
         }
+    }
+
+    #[wasm_bindgen(js_name = "setErrorNamespace")]
+    pub fn set_error_namespace(&self, namespace: String) {
+        if self.disposed.get() {
+            return;
+        }
+        self.session.borrow_mut().set_error_namespace(namespace);
     }
 
     #[wasm_bindgen(js_name = setInputHandler)]
@@ -1615,25 +1574,26 @@ impl RunMatWasm {
                     ))
                 })?,
             };
-        let values: Vec<f64> = payload.values.into_iter().take(limit).collect();
+        let values = data_array_preview_json(&payload.values, limit);
+        let value_text = values
+            .iter()
+            .map(json_value_text)
+            .collect::<Vec<_>>()
+            .join(", ");
         let response = DataMaterializedVariablePayload {
-            name: array.to_string(),
+            name: array.into(),
             class_name: infer_dataset_class_name(meta.shape.len()).to_string(),
             dtype: Some(meta.dtype.clone()),
             shape: meta.shape.clone(),
             is_gpu: false,
             residency: WorkspaceResidency::Cpu.as_str(),
             size_bytes: Some(estimate_data_array_bytes(&meta.shape, &meta.dtype)),
-            preview: Some(WorkspacePreviewPayload {
+            preview: Some(DataArrayPreviewPayload {
                 values: values.clone(),
                 truncated: values.len() < total_elements,
             }),
-            value_text: values
-                .iter()
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-            value_json: JsonValue::Array(values.into_iter().map(JsonValue::from).collect()),
+            value_text,
+            value_json: JsonValue::Array(values),
         };
         serde_wasm_bindgen::to_value(&response).map_err(|err| {
             js_error(&format!(
@@ -1815,5 +1775,62 @@ impl RunMatWasm {
             set_js_stdin_handler(None);
             clear_figure_event_callback_state();
         }
+    }
+}
+
+fn data_array_preview_json(values: &DataArrayValues, limit: usize) -> Vec<JsonValue> {
+    macro_rules! integer_values {
+        ($values:expr, $variant:ident) => {
+            $values
+                .iter()
+                .take(limit)
+                .map(|value| integer_json_value(&runmat_value::IntValue::$variant(*value)))
+                .collect()
+        };
+    }
+
+    match values {
+        DataArrayValues::F64(values) => values
+            .iter()
+            .take(limit)
+            .copied()
+            .map(JsonValue::from)
+            .collect(),
+        DataArrayValues::F32(values) => values
+            .iter()
+            .take(limit)
+            .copied()
+            .map(JsonValue::from)
+            .collect(),
+        DataArrayValues::I8(values) => integer_values!(values, I8),
+        DataArrayValues::I16(values) => integer_values!(values, I16),
+        DataArrayValues::I32(values) => integer_values!(values, I32),
+        DataArrayValues::I64(values) => integer_values!(values, I64),
+        DataArrayValues::U8(values) => integer_values!(values, U8),
+        DataArrayValues::U16(values) => integer_values!(values, U16),
+        DataArrayValues::U32(values) => integer_values!(values, U32),
+        DataArrayValues::U64(values) => integer_values!(values, U64),
+    }
+}
+
+fn json_value_text(value: &JsonValue) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
+#[cfg(test)]
+mod data_array_preview_tests {
+    use super::*;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test]
+    fn single_preview_preserves_values_and_limit() {
+        let preview = data_array_preview_json(&DataArrayValues::F32(vec![1.25, -3.5, 9.0]), 2);
+        assert_eq!(
+            preview,
+            vec![JsonValue::from(1.25_f32), JsonValue::from(-3.5_f32)]
+        );
     }
 }

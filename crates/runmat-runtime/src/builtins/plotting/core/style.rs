@@ -1,10 +1,11 @@
 use glam::Vec4;
-use runmat_builtins::{CellArray, Tensor, Value};
 use runmat_plot::plots::{
     ColorMap, LineMarkerAppearance, LineStyle, MarkerStyle as PlotMarkerStyle, ShadingMode,
     SurfacePlot,
 };
+use runmat_value::{CellArray, Tensor, Value};
 
+use crate::builtins::common::tensor;
 use crate::BuiltinResult;
 
 use super::plotting_error;
@@ -63,6 +64,7 @@ pub struct LineStyleParseOptions {
     pub builtin_name: &'static str,
     pub forbid_leading_numeric: bool,
     pub forbid_interleaved_numeric: bool,
+    pub accepts_handle_visibility: bool,
 }
 
 impl LineStyleParseOptions {
@@ -71,6 +73,7 @@ impl LineStyleParseOptions {
             builtin_name: "plot",
             forbid_leading_numeric: true,
             forbid_interleaved_numeric: false,
+            accepts_handle_visibility: true,
         }
     }
 
@@ -79,6 +82,7 @@ impl LineStyleParseOptions {
             builtin_name: "scatter",
             forbid_leading_numeric: true,
             forbid_interleaved_numeric: true,
+            accepts_handle_visibility: false,
         }
     }
 
@@ -87,6 +91,7 @@ impl LineStyleParseOptions {
             builtin_name: "scatter3",
             forbid_leading_numeric: true,
             forbid_interleaved_numeric: true,
+            accepts_handle_visibility: false,
         }
     }
 
@@ -95,6 +100,7 @@ impl LineStyleParseOptions {
             builtin_name: "stairs",
             forbid_leading_numeric: true,
             forbid_interleaved_numeric: true,
+            accepts_handle_visibility: false,
         }
     }
 
@@ -103,6 +109,7 @@ impl LineStyleParseOptions {
             builtin_name: name,
             forbid_leading_numeric: false,
             forbid_interleaved_numeric: false,
+            accepts_handle_visibility: false,
         }
     }
 }
@@ -122,6 +129,7 @@ pub struct LineAppearance {
     pub line_width: f32,
     pub line_style: LineStyle,
     pub marker: Option<MarkerAppearance>,
+    pub handle_visibility: String,
 }
 
 impl Default for LineAppearance {
@@ -131,6 +139,7 @@ impl Default for LineAppearance {
             line_width: DEFAULT_LINE_WIDTH,
             line_style: LineStyle::Solid,
             marker: None,
+            handle_visibility: "on".to_string(),
         }
     }
 }
@@ -218,7 +227,7 @@ pub enum MarkerColor {
     Color(Vec4),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct SurfaceStyleDefaults {
     pub colormap: ColorMap,
     pub shading: ShadingMode,
@@ -277,7 +286,7 @@ impl SurfaceStyle {
     }
 
     pub fn apply_to_plot(&self, plot: &mut SurfacePlot) {
-        plot.colormap = self.colormap;
+        plot.colormap = self.colormap.clone();
         plot.shading_mode = self.shading;
         plot.wireframe = self.wireframe;
         plot.alpha = self.alpha;
@@ -305,6 +314,7 @@ struct LineStyleOptions {
     marker_face_color: Option<MarkerColor>,
     line_style_order: Option<Vec<LineStyle>>,
     label: Option<String>,
+    handle_visibility: Option<String>,
 }
 
 impl LineStyleOptions {
@@ -341,6 +351,9 @@ impl LineStyleOptions {
         if other.label.is_some() {
             self.label = other.label;
         }
+        if other.handle_visibility.is_some() {
+            self.handle_visibility = other.handle_visibility;
+        }
     }
 
     fn resolve(&self) -> LineAppearance {
@@ -363,6 +376,9 @@ impl LineStyleOptions {
                     face_color: self.marker_face_color.clone().unwrap_or(MarkerColor::Auto),
                 });
             }
+        }
+        if let Some(handle_visibility) = &self.handle_visibility {
+            appearance.handle_visibility = handle_visibility.clone();
         }
         appearance
     }
@@ -402,25 +418,35 @@ pub fn parse_line_style_args(
 
     let mut options = LineStyleOptions::default();
     let mut idx = 0usize;
-    if let Some(token) = rest.first().and_then(value_as_string) {
-        if is_style_token(&token) {
-            options.merge(parse_style_string(opts, &token)?);
-            idx = 1;
-        }
-    }
-
-    let remaining = &rest[idx..];
-    if !remaining.is_empty() {
-        if opts.forbid_interleaved_numeric && begins_with_numeric(remaining) {
+    let mut saw_style_token = false;
+    while idx < rest.len() {
+        if opts.forbid_interleaved_numeric && begins_with_numeric(&rest[idx..]) {
             return Err(ctx_err(
                 opts,
                 "per-series styles interleaved with data are not supported yet",
             ));
         }
-        if !remaining.len().is_multiple_of(2) {
-            return Err(ctx_err(opts, "name-value arguments must come in pairs"));
+
+        if let Some(token) = value_as_string(&rest[idx]) {
+            if is_style_token(opts, &token) {
+                if saw_style_token {
+                    return Err(ctx_err(
+                        opts,
+                        "only one LineSpec string is supported per data series",
+                    ));
+                }
+                options.merge(parse_style_string(opts, &token)?);
+                saw_style_token = true;
+                idx += 1;
+                continue;
+            }
         }
-        options.merge(parse_name_value_pairs(opts, remaining)?);
+
+        let pair = rest
+            .get(idx..=idx + 1)
+            .ok_or_else(|| ctx_err(opts, "name-value arguments must come in pairs"))?;
+        options.merge(parse_name_value_pairs(opts, pair)?);
+        idx += 2;
     }
 
     let appearance = options.resolve();
@@ -547,6 +573,9 @@ fn parse_style_string(
             }
         }
     }
+    if options.line_style.is_none() && options.marker_kind.is_some() {
+        options.line_style = Some(LineStyle::None);
+    }
     Ok(options)
 }
 
@@ -564,8 +593,8 @@ fn parse_name_value_pairs(
             "linewidth" => {
                 let width = value_as_f64(&pair[1])
                     .ok_or_else(|| ctx_err(opts, "LineWidth must be numeric"))?;
-                if width <= 0.0 {
-                    return Err(ctx_err(opts, "LineWidth must be positive"));
+                if !width.is_finite() || width <= 0.0 {
+                    return Err(ctx_err(opts, "LineWidth must be finite and positive"));
                 }
                 options.line_width = Some(width as f32);
             }
@@ -616,6 +645,9 @@ fn parse_name_value_pairs(
                 };
                 options.label = Some(name);
             }
+            "handlevisibility" if opts.accepts_handle_visibility => {
+                options.handle_visibility = Some(parse_handle_visibility(opts, &pair[1])?);
+            }
             other => {
                 return Err(ctx_err(opts, format!("unsupported option `{other}`")));
             }
@@ -626,6 +658,7 @@ fn parse_name_value_pairs(
 
 fn parse_line_style_name(opts: &LineStyleParseOptions, value: &str) -> BuiltinResult<LineStyle> {
     match value.trim() {
+        "none" => Ok(LineStyle::None),
         "-" => Ok(LineStyle::Solid),
         "--" => Ok(LineStyle::Dashed),
         ":" => Ok(LineStyle::Dotted),
@@ -755,18 +788,31 @@ pub(crate) fn parse_color_value(
         ));
     }
     let tensor = Tensor::try_from(value).map_err(|e| ctx_err(opts, e))?;
-    if tensor.data.len() != 3 {
+    let data = tensor::tensor_values_f64(&tensor);
+    if data.len() != 3 {
         return Err(ctx_err(opts, "color vectors must contain three elements"));
     }
+    if data
+        .iter()
+        .any(|component| !component.is_finite() || !(0.0..=1.0).contains(component))
+    {
+        return Err(ctx_err(
+            opts,
+            "RGB color components must be finite values in the range [0, 1]",
+        ));
+    }
     Ok(Vec4::new(
-        tensor.data[0] as f32,
-        tensor.data[1] as f32,
-        tensor.data[2] as f32,
+        data[0] as f32,
+        data[1] as f32,
+        data[2] as f32,
         1.0,
     ))
 }
 
-fn color_from_name_or_token(name: &str) -> Option<Vec4> {
+pub(crate) fn color_from_name_or_token(name: &str) -> Option<Vec4> {
+    if let Some(color) = color_from_hex(name) {
+        return Some(color);
+    }
     if name.chars().count() == 1 {
         return name.chars().next().and_then(color_from_token);
     }
@@ -783,6 +829,24 @@ fn color_from_name_or_token(name: &str) -> Option<Vec4> {
     }
 }
 
+fn color_from_hex(name: &str) -> Option<Vec4> {
+    let hex = name.strip_prefix('#')?;
+    let expanded;
+    let digits = match hex.len() {
+        3 => {
+            expanded = hex.chars().flat_map(|ch| [ch, ch]).collect::<String>();
+            expanded.as_str()
+        }
+        6 => hex,
+        _ => return None,
+    };
+    let value = u32::from_str_radix(digits, 16).ok()?;
+    let r = ((value >> 16) & 0xff) as f32 / 255.0;
+    let g = ((value >> 8) & 0xff) as f32 / 255.0;
+    let b = (value & 0xff) as f32 / 255.0;
+    Some(Vec4::new(r, g, b, 1.0))
+}
+
 pub(crate) fn color_from_token(token: char) -> Option<Vec4> {
     match token {
         'r' | 'R' => Some(Vec4::new(1.0, 0.0, 0.0, 1.0)),
@@ -797,11 +861,35 @@ pub(crate) fn color_from_token(token: char) -> Option<Vec4> {
     }
 }
 
-fn is_style_token(token: &str) -> bool {
-    !token.trim().is_empty() && !looks_like_option_name(token)
+fn is_style_token(opts: &LineStyleParseOptions, token: &str) -> bool {
+    !token.trim().is_empty() && !looks_like_option_name_for(opts, token)
 }
 
 pub fn looks_like_option_name(token: &str) -> bool {
+    looks_like_generic_line_option_name(token)
+}
+
+fn looks_like_option_name_for(opts: &LineStyleParseOptions, token: &str) -> bool {
+    matches!(
+        token.trim().to_ascii_lowercase().as_str(),
+        "linewidth"
+            | "color"
+            | "linestyle"
+            | "marker"
+            | "markersize"
+            | "markeredgecolor"
+            | "markerfacecolor"
+            | "linestyleorder"
+            | "displayname"
+            | "label"
+    ) || (opts.accepts_handle_visibility && token.trim().eq_ignore_ascii_case("handlevisibility"))
+}
+
+pub fn looks_like_plot_option_name(token: &str) -> bool {
+    looks_like_option_name_for(&LineStyleParseOptions::plot(), token)
+}
+
+pub fn looks_like_generic_line_option_name(token: &str) -> bool {
     matches!(
         token.trim().to_ascii_lowercase().as_str(),
         "linewidth"
@@ -817,6 +905,26 @@ pub fn looks_like_option_name(token: &str) -> bool {
     )
 }
 
+pub(crate) fn parse_handle_visibility(
+    opts: &LineStyleParseOptions,
+    value: &Value,
+) -> BuiltinResult<String> {
+    let Some(text) = value_as_string(value) else {
+        return Err(ctx_err(
+            opts,
+            "HandleVisibility must be a char array or string",
+        ));
+    };
+    let lower = text.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "on" | "off" | "callback" => Ok(lower),
+        other => Err(ctx_err(
+            opts,
+            format!("HandleVisibility must be 'on', 'off', or 'callback', got `{other}`"),
+        )),
+    }
+}
+
 pub fn value_as_string(value: &Value) -> Option<String> {
     match value {
         Value::CharArray(chars) => Some(chars.data.iter().collect()),
@@ -829,7 +937,18 @@ pub(crate) fn value_as_f64(value: &Value) -> Option<f64> {
     match value {
         Value::Num(v) => Some(*v),
         Value::Int(i) => Some(i.to_f64()),
-        Value::Tensor(tensor) => tensor.data.first().copied(),
+        Value::Tensor(tensor) => tensor::tensor_values_f64(tensor).first().copied(),
+        _ => None,
+    }
+}
+
+fn value_as_scalar_f64(value: &Value) -> Option<f64> {
+    match value {
+        Value::Num(v) => Some(*v),
+        Value::Int(i) => Some(i.to_f64()),
+        Value::Tensor(tensor) if tensor::is_scalar_tensor(tensor) => {
+            tensor::tensor_values_f64(tensor).first().copied()
+        }
         _ => None,
     }
 }
@@ -1007,12 +1126,44 @@ pub fn parse_bar_style_args(
     let rest = filtered.as_slice();
 
     let mut idx = 0usize;
-    if let Some(token) = rest.first().and_then(value_as_string) {
-        let trimmed = token.trim();
-        if !trimmed.is_empty() && !is_bar_option_name(trimmed) {
+    let mut saw_positional_width = false;
+    let mut saw_positional_color = false;
+    while let Some(value) = rest.get(idx) {
+        if let Some(token) = value_as_string(value) {
+            let trimmed = token.trim();
+            if trimmed.is_empty() || is_bar_option_name(trimmed) {
+                break;
+            }
+            if saw_positional_color {
+                return Err(bar_ctx_err(
+                    builtin,
+                    "only one positional color argument is supported",
+                ));
+            }
             style.face_color = parse_bar_color_literal(&opts, trimmed)?;
-            idx = 1;
+            saw_positional_color = true;
+            idx += 1;
+            continue;
         }
+        if let Some(width) = value_as_scalar_f64(value) {
+            if saw_positional_width {
+                return Err(bar_ctx_err(
+                    builtin,
+                    "only one positional width argument is supported",
+                ));
+            }
+            if !width.is_finite() || !(0.0..=1.0).contains(&width) || width == 0.0 {
+                return Err(bar_ctx_err(
+                    builtin,
+                    "width must be a finite scalar greater than zero and no greater than one",
+                ));
+            }
+            style.bar_width = width as f32;
+            saw_positional_width = true;
+            idx += 1;
+            continue;
+        }
+        break;
     }
 
     let remaining = &rest[idx..];
@@ -1062,18 +1213,24 @@ pub fn parse_bar_style_args(
                 };
             }
             "linewidth" => {
-                let width = value_as_f64(&pair[1])
-                    .ok_or_else(|| bar_ctx_err(builtin, "LineWidth must be numeric"))?;
-                if width <= 0.0 {
-                    return Err(bar_ctx_err(builtin, "LineWidth must be positive"));
+                let width = value_as_scalar_f64(&pair[1])
+                    .ok_or_else(|| bar_ctx_err(builtin, "LineWidth must be a numeric scalar"))?;
+                if !width.is_finite() || width <= 0.0 {
+                    return Err(bar_ctx_err(
+                        builtin,
+                        "LineWidth must be a finite positive scalar",
+                    ));
                 }
                 style.line_width = width as f32;
             }
             "barwidth" => {
-                let width = value_as_f64(&pair[1])
-                    .ok_or_else(|| bar_ctx_err(builtin, "BarWidth must be numeric"))?;
-                if width <= 0.0 {
-                    return Err(bar_ctx_err(builtin, "BarWidth must be positive"));
+                let width = value_as_scalar_f64(&pair[1])
+                    .ok_or_else(|| bar_ctx_err(builtin, "BarWidth must be a numeric scalar"))?;
+                if !width.is_finite() || !(0.0..=1.0).contains(&width) || width == 0.0 {
+                    return Err(bar_ctx_err(
+                        builtin,
+                        "BarWidth must be a finite scalar greater than zero and no greater than one",
+                    ));
                 }
                 style.bar_width = width as f32;
             }
@@ -1238,6 +1395,7 @@ fn bar_ctx_err(builtin: &str, msg: impl Into<String>) -> crate::RuntimeError {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use runmat_value::IntegerStorage;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
@@ -1269,6 +1427,42 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn rgb_triplets_must_be_finite_unit_interval_values() {
+        let opts = LineStyleParseOptions::plot();
+        parse_color_value(
+            &opts,
+            &Value::Tensor(Tensor::new(vec![0.1, 0.2, 1.0], vec![1, 3]).expect("RGB triplet")),
+        )
+        .expect("valid rgb");
+
+        for data in [vec![1.2, 0.0, 0.0], vec![0.0, f64::NAN, 0.0]] {
+            let err = parse_color_value(
+                &opts,
+                &Value::Tensor(Tensor::new(data, vec![1, 3]).expect("RGB triplet")),
+            )
+            .expect_err("invalid rgb should fail");
+            assert!(err.message.contains("RGB color components"));
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn line_style_accepts_handle_visibility_only_for_plot() {
+        let rest = vec![
+            Value::String("HandleVisibility".into()),
+            Value::String("off".into()),
+        ];
+
+        let parsed =
+            parse_line_style_args(&rest, &LineStyleParseOptions::plot()).expect("plot parses");
+        assert_eq!(parsed.appearance.handle_visibility, "off");
+
+        parse_line_style_args(&rest, &LineStyleParseOptions::stairs())
+            .expect_err("stairs should not accept plot-only HandleVisibility");
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn bar_style_parses_face_and_edge_colors() {
         let defaults = BarStyleDefaults::new(Vec4::new(0.2, 0.6, 0.9, 1.0), 0.8);
         let rest = vec![
@@ -1283,6 +1477,29 @@ pub(crate) mod tests {
         assert!((style.bar_width - 0.5).abs() < f32::EPSILON);
         assert_eq!(style.face_color, Vec4::new(1.0, 0.0, 0.0, 1.0));
         assert_eq!(style.edge_color, Some(Vec4::new(0.0, 0.0, 0.0, 1.0)));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn bar_style_parses_positional_width_and_color() {
+        let defaults = BarStyleDefaults::new(Vec4::new(0.2, 0.6, 0.9, 1.0), 0.8);
+        let rest = vec![Value::from(0.4), Value::String("red".into())];
+        let style = parse_bar_style_args("barh", &rest, defaults).expect("parsed");
+        assert!((style.bar_width - 0.4).abs() < f32::EPSILON);
+        assert_eq!(style.face_color, Vec4::new(1.0, 0.0, 0.0, 1.0));
+        assert!(!style.requires_cpu_path());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn bar_style_does_not_treat_rgb_triplet_as_positional_width() {
+        let defaults = BarStyleDefaults::new(Vec4::new(0.2, 0.6, 0.9, 1.0), 0.8);
+        let rest = vec![Value::Tensor(
+            Tensor::new(vec![0.8, 0.1, 0.2], vec![1, 3]).expect("RGB triplet"),
+        )];
+
+        let err = parse_bar_style_args("barh", &rest, defaults).expect_err("rgb is not width");
+        assert!(err.message.contains("name-value arguments"));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -1308,5 +1525,26 @@ pub(crate) mod tests {
         let style = parse_bar_style_args("bar", &rest, defaults).expect("parsed");
         assert!(style.face_color_flat);
         assert!(style.requires_cpu_path());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn line_style_scalar_options_read_typed_integer_storage() {
+        let line_width =
+            Tensor::new_integer(IntegerStorage::U64(vec![3]), vec![1, 1]).expect("width");
+        let marker_size =
+            Tensor::new_integer(IntegerStorage::U16(vec![9]), vec![1, 1]).expect("size");
+        let rest = vec![
+            Value::String("LineWidth".into()),
+            Value::Tensor(line_width),
+            Value::String("MarkerSize".into()),
+            Value::Tensor(marker_size),
+        ];
+        let parsed =
+            parse_line_style_args(&rest, &LineStyleParseOptions::plot()).expect("style parsed");
+
+        assert_eq!(parsed.appearance.line_width, 3.0);
+        assert!(parsed.appearance.marker.is_none());
+        assert_eq!(parsed.appearance.handle_visibility, "on");
     }
 }

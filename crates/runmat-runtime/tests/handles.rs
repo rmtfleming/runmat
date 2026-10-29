@@ -1,6 +1,6 @@
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-use runmat_builtins::Value;
+use runmat_value::Value;
 
 async fn handle_identity_and_delete_impl() {
     let h1 = runmat_runtime::call_builtin_async(
@@ -18,19 +18,11 @@ async fn handle_identity_and_delete_impl() {
     let e = runmat_runtime::call_builtin_async("eq", &[h1.clone(), h2.clone()])
         .await
         .unwrap();
-    if let Value::Num(n) = e {
-        assert_eq!(n, 0.0);
-    } else {
-        panic!();
-    }
+    assert_eq!(e, Value::Bool(false));
     let e2 = runmat_runtime::call_builtin_async("eq", &[h1.clone(), h1.clone()])
         .await
         .unwrap();
-    if let Value::Num(n) = e2 {
-        assert_eq!(n, 1.0);
-    } else {
-        panic!();
-    }
+    assert_eq!(e2, Value::Bool(true));
     let v = runmat_runtime::call_builtin_async("isvalid", std::slice::from_ref(&h1))
         .await
         .unwrap();

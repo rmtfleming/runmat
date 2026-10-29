@@ -1,10 +1,9 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-// Use a local trait-alias shim to avoid compile-time dependency ordering issues.
-// Downstream crates in the workspace provide runmat_builtins; during GC unit tests, we provide a minimal Value.
-use runmat_builtins::Value;
 use runmat_time::Instant;
+use runmat_value::Value;
+use std::cell::Cell;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -22,6 +21,55 @@ pub mod stats;
 
 // Finalizer support
 use std::collections::HashMap;
+
+#[derive(Clone, Copy)]
+struct ExternalRootProvider {
+    roots: fn() -> Vec<GcHandle>,
+    roots_on_other_threads: fn() -> bool,
+}
+
+static EXTERNAL_ROOT_PROVIDERS: once_cell::sync::Lazy<
+    RwLock<HashMap<&'static str, ExternalRootProvider>>,
+> = once_cell::sync::Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// Register a runtime-owned root source without making the collector depend on
+/// that runtime domain. Re-registering the same stable name replaces it.
+pub fn register_external_root_provider(
+    name: &'static str,
+    roots: fn() -> Vec<GcHandle>,
+    roots_on_other_threads: fn() -> bool,
+) {
+    EXTERNAL_ROOT_PROVIDERS.write().insert(
+        name,
+        ExternalRootProvider {
+            roots,
+            roots_on_other_threads,
+        },
+    );
+}
+
+fn external_roots() -> Vec<GcHandle> {
+    let providers = EXTERNAL_ROOT_PROVIDERS
+        .read()
+        .values()
+        .copied()
+        .collect::<Vec<_>>();
+    providers
+        .into_iter()
+        .flat_map(|provider| (provider.roots)())
+        .collect()
+}
+
+fn external_roots_exist_on_other_threads() -> bool {
+    let providers = EXTERNAL_ROOT_PROVIDERS
+        .read()
+        .values()
+        .copied()
+        .collect::<Vec<_>>();
+    providers
+        .into_iter()
+        .any(|provider| (provider.roots_on_other_threads)())
+}
 
 /// A finalizer that runs when a GC-managed Value is collected.
 ///
@@ -149,6 +197,17 @@ enum GcValueAccessGuard<'gc> {
     Exclusive { _guard: RwLockWriteGuard<'gc, ()> },
 }
 
+#[derive(Clone, Copy, Default)]
+struct ThreadBorrowState {
+    shared: usize,
+    mutable: bool,
+}
+
+thread_local! {
+    static THREAD_BORROW_STATE: Cell<ThreadBorrowState> =
+        const { Cell::new(ThreadBorrowState { shared: 0, mutable: false }) };
+}
+
 struct GcValueBorrowGuard<'gc> {
     gc: &'gc GarbageCollector,
     mutable: bool,
@@ -157,6 +216,15 @@ struct GcValueBorrowGuard<'gc> {
 
 impl Drop for GcValueBorrowGuard<'_> {
     fn drop(&mut self) {
+        THREAD_BORROW_STATE.with(|state| {
+            let mut current = state.get();
+            if self.mutable {
+                current.mutable = false;
+            } else {
+                current.shared = current.shared.saturating_sub(1);
+            }
+            state.set(current);
+        });
         self.gc.active_value_borrows.fetch_sub(1, Ordering::AcqRel);
         if self.mutable {
             self.gc
@@ -335,29 +403,50 @@ impl GarbageCollector {
             ));
         }
 
-        let access = if mutable {
-            let guard = self.value_access.try_write().ok_or_else(|| {
-                GcError::SyncError(
+        THREAD_BORROW_STATE.with(|state| {
+            let current = state.get();
+            if mutable && (current.mutable || current.shared != 0) {
+                return Err(GcError::SyncError(
                     "cannot mutably borrow GC value while another borrow is active".to_string(),
-                )
-            })?;
+                ));
+            }
+            if !mutable && current.mutable {
+                return Err(GcError::SyncError(
+                    "cannot immutably borrow GC value during mutable borrow".to_string(),
+                ));
+            }
+            Ok(())
+        })?;
+
+        let access = if mutable {
+            let guard = self.value_access.write();
             self.active_value_mut_borrow.store(true, Ordering::Release);
             GcValueAccessGuard::Exclusive { _guard: guard }
-        } else if self.active_value_mut_borrow.load(Ordering::Acquire) {
-            return Err(GcError::SyncError(
-                "cannot immutably borrow GC value during mutable borrow".to_string(),
-            ));
         } else {
-            let guard = self.value_access.try_read().ok_or_else(|| {
-                GcError::SyncError(
-                    "cannot immutably borrow GC value during mutable borrow".to_string(),
-                )
-            })?;
+            let guard = self.value_access.read();
             GcValueAccessGuard::Shared { _guard: guard }
         };
 
+        THREAD_BORROW_STATE.with(|state| {
+            let mut current = state.get();
+            if mutable {
+                current.mutable = true;
+            } else {
+                current.shared += 1;
+            }
+            state.set(current);
+        });
         self.active_value_borrows.fetch_add(1, Ordering::AcqRel);
         if self.collection_in_progress.load(Ordering::Acquire) {
+            THREAD_BORROW_STATE.with(|state| {
+                let mut current = state.get();
+                if mutable {
+                    current.mutable = false;
+                } else {
+                    current.shared = current.shared.saturating_sub(1);
+                }
+                state.set(current);
+            });
             self.active_value_borrows.fetch_sub(1, Ordering::AcqRel);
             if mutable {
                 self.active_value_mut_borrow.store(false, Ordering::Release);
@@ -453,9 +542,7 @@ impl GarbageCollector {
         // RunMat has stop-the-world safepoints or synchronized root snapshots,
         // cross-thread collection must defer rather than miss another thread's
         // interpreter roots.
-        if registered_roots_exist_on_other_threads()
-            || runmat_builtins::static_property_values_exist_on_other_threads()
-        {
+        if registered_roots_exist_on_other_threads() || external_roots_exist_on_other_threads() {
             return Ok(0);
         }
 
@@ -472,7 +559,7 @@ impl GarbageCollector {
         if let Ok(mut ext) = ROOT_SCANNER.with(|scanner| scanner.scan_roots()) {
             combined_roots.append(&mut ext);
         }
-        combined_roots.extend(runmat_builtins::static_property_gc_roots());
+        combined_roots.extend(external_roots());
         combined_roots.extend(gc_barrier_minor_roots());
 
         // Collect young generation via unified collector/allocator
@@ -519,9 +606,7 @@ impl GarbageCollector {
             return Ok(0);
         }
         // Same thread-local root visibility rule as minor collection.
-        if registered_roots_exist_on_other_threads()
-            || runmat_builtins::static_property_values_exist_on_other_threads()
-        {
+        if registered_roots_exist_on_other_threads() || external_roots_exist_on_other_threads() {
             return Ok(0);
         }
 
@@ -537,7 +622,7 @@ impl GarbageCollector {
         if let Ok(mut ext) = ROOT_SCANNER.with(|scanner| scanner.scan_roots()) {
             combined_roots.append(&mut ext);
         }
-        combined_roots.extend(runmat_builtins::static_property_gc_roots());
+        combined_roots.extend(external_roots());
         combined_roots.extend(gc_barrier_minor_roots());
 
         let mut allocator = self.allocator.lock();
@@ -589,16 +674,24 @@ impl GarbageCollector {
 
     /// Configure the GC
     pub fn configure(&self, config: GcConfig) -> Result<()> {
-        *self.config.write() = config.clone();
-        {
-            // Rebuild allocator to support changes like num_generations and sizes
-            let mut allocator = self.allocator.lock();
+        let mut allocator = self.allocator.lock();
+        let mut collector = self.collector.lock();
+        if config.num_generations != allocator.generation_count() {
+            if allocator.has_live_allocations() {
+                return Err(GcError::ConfigError(
+                    "Cannot change the number of generations while GC allocations are live"
+                        .to_string(),
+                ));
+            }
             *allocator = GenerationalAllocator::new(&config);
-        }
-        {
-            let mut collector = self.collector.lock();
+            *collector = MarkSweepCollector::new(&config);
+        } else {
+            allocator.reconfigure(&config)?;
             collector.reconfigure(&config)?;
         }
+        drop(collector);
+        drop(allocator);
+        *self.config.write() = config;
         Ok(())
     }
 
@@ -1002,6 +1095,18 @@ mod tests {
     use super::*;
     use std::ptr::NonNull;
 
+    thread_local! {
+        static TEST_EXTERNAL_ROOT: std::cell::Cell<Option<GcHandle>> = const { std::cell::Cell::new(None) };
+    }
+
+    fn test_external_roots() -> Vec<GcHandle> {
+        TEST_EXTERNAL_ROOT.with(|root| root.get().into_iter().collect())
+    }
+
+    fn test_external_roots_on_other_threads() -> bool {
+        false
+    }
+
     #[test]
     fn test_basic_allocation() {
         gc_test_context(|| {
@@ -1011,6 +1116,25 @@ mod tests {
                 gc_clone_value(&ptr).expect("valid GC handle"),
                 Value::Num(42.0)
             );
+        });
+    }
+
+    #[test]
+    fn registered_external_root_provider_participates_in_collection() {
+        gc_test_context(|| {
+            register_external_root_provider(
+                "runmat-gc-test-external-root",
+                test_external_roots,
+                test_external_roots_on_other_threads,
+            );
+            let handle = gc_allocate(Value::String("external-root".into())).unwrap();
+            TEST_EXTERNAL_ROOT.with(|root| root.set(Some(handle)));
+            gc_collect_major().unwrap();
+            assert_eq!(
+                gc_clone_value(&handle).unwrap(),
+                Value::String("external-root".into())
+            );
+            TEST_EXTERNAL_ROOT.with(|root| root.set(None));
         });
     }
 
@@ -1077,7 +1201,7 @@ mod tests {
 
     #[test]
     fn collection_skips_when_other_thread_has_registered_roots() {
-        use runmat_builtins::HandleRef;
+        use runmat_value::HandleRef;
         use std::sync::mpsc;
         use std::thread;
 
@@ -1090,7 +1214,7 @@ mod tests {
                 let handle =
                     gc_allocate(Value::String("thread-root".to_string())).expect("allocation");
                 let root_value = Value::HandleObject(HandleRef {
-                    class_name: "ThreadRoot".to_string(),
+                    class_name: "ThreadRoot".into(),
                     target: handle,
                     valid: true,
                 });
@@ -1216,6 +1340,55 @@ mod tests {
     }
 
     #[test]
+    fn reconfigure_preserves_live_allocations() {
+        gc_test_context(|| {
+            let root =
+                gc_allocate_rooted(Value::String("still live".to_string())).expect("rooted alloc");
+            let handle = root.handle();
+            let mut config = gc_get_config();
+            config.minor_gc_threshold = 0.5;
+
+            gc_configure(config).expect("reconfigure GC");
+
+            assert_eq!(
+                gc_clone_value(&handle).expect("reconfiguration must preserve the live heap"),
+                Value::String("still live".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn reconfigure_can_change_generation_count_before_first_allocation() {
+        gc_test_context(|| {
+            let mut config = gc_get_config();
+            config.num_generations = 2;
+
+            gc_configure(config.clone()).expect("configure empty GC");
+
+            assert_eq!(gc_get_config().num_generations, config.num_generations);
+        });
+    }
+
+    #[test]
+    fn reconfigure_rejects_generation_count_change_with_live_allocations() {
+        gc_test_context(|| {
+            let root =
+                gc_allocate_rooted(Value::String("still live".to_string())).expect("rooted alloc");
+            let handle = root.handle();
+            let mut config = gc_get_config();
+            config.num_generations = 2;
+
+            let error = gc_configure(config).expect_err("live heap must prevent topology change");
+
+            assert!(error.to_string().contains("while GC allocations are live"));
+            assert_eq!(
+                gc_clone_value(&handle).expect("failed reconfiguration must preserve live heap"),
+                Value::String("still live".to_string())
+            );
+        });
+    }
+
+    #[test]
     fn test_gc_allocation_and_roots() {
         gc_test_context(|| {
             let v = gc_allocate(Value::Num(7.0)).expect("allocation failed");
@@ -1318,6 +1491,34 @@ mod tests {
                 .expect("outer mutable borrow should succeed");
 
             assert!(matches!(nested, Err(GcError::SyncError(_))));
+        });
+    }
+
+    #[test]
+    fn cross_thread_mutable_borrow_waits_for_active_reader() {
+        gc_test_context(|| {
+            let root = gc_allocate_rooted(Value::Num(1.0)).expect("rooted allocation");
+            let handle = root.handle();
+            let read_guard = gc_read_value(&handle).expect("read guard");
+            let (tx, rx) = std::sync::mpsc::channel();
+
+            let writer = std::thread::spawn(move || {
+                let writer_root =
+                    gc_allocate_rooted(Value::Num(1.0)).expect("writer rooted allocation");
+                let mut write_guard = gc_write_value(&writer_root.handle())
+                    .expect("writer should wait, then acquire");
+                *write_guard = Value::Num(2.0);
+                tx.send(()).expect("signal write completion");
+            });
+
+            assert!(matches!(
+                rx.recv_timeout(std::time::Duration::from_millis(50)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            drop(read_guard);
+            rx.recv_timeout(std::time::Duration::from_secs(1))
+                .expect("writer should proceed after reader drops");
+            writer.join().expect("writer thread");
         });
     }
 }

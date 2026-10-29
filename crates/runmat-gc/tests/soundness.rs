@@ -7,10 +7,8 @@
 //! cargo miri test -p runmat-gc --test soundness
 //! ```
 
-use runmat_builtins::{
-    CellArray, Closure, HandleRef, Listener, ObjectInstance, StructValue, Value,
-};
 use runmat_gc::*;
+use runmat_value::{CellArray, Closure, HandleRef, Listener, ObjectInstance, StructValue, Value};
 use std::ptr::NonNull;
 
 #[test]
@@ -117,7 +115,7 @@ fn root_traversal_keeps_handle_targets_alive() {
         let target = gc_allocate(Value::String("target".to_string()))
             .expect("target allocation should succeed");
         let holder = Value::HandleObject(HandleRef {
-            class_name: "Thing".to_string(),
+            class_name: "Thing".into(),
             target,
             valid: true,
         });
@@ -146,7 +144,7 @@ fn root_traversal_scans_owned_cell_values() {
         let cell = Value::Cell(
             CellArray::new(
                 vec![Value::HandleObject(HandleRef {
-                    class_name: "Thing".to_string(),
+                    class_name: "Thing".into(),
                     target,
                     valid: true,
                 })],
@@ -183,21 +181,21 @@ fn root_traversal_scans_nested_trace_variants() {
             .expect("callback allocation should succeed");
 
         let handle = Value::HandleObject(HandleRef {
-            class_name: "Thing".to_string(),
+            class_name: "Thing".into(),
             target,
             valid: true,
         });
         let listener = Value::Listener(Listener {
             id: 1,
             target,
-            target_class_name: "Thing".to_string(),
-            event_name: "Changed".to_string(),
+            target_class_name: "Thing".into(),
+            event_name: "Changed".into(),
             callback,
             enabled: true,
             valid: true,
         });
         let closure = Value::Closure(Closure {
-            function_name: "callback".to_string(),
+            function_name: "callback".into(),
             bound_function: None,
             captures: vec![Value::OutputList(vec![handle, listener])],
         });

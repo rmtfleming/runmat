@@ -1,15 +1,8 @@
----
-title: "Testing Strategy"
-category: "Development"
-section: "14.3"
-last_updated: "May 28, 2026"
----
-
 # Testing Strategy
 
 RunMat tests are organized by ownership boundary. Parser and lowering crates test language structure, VM tests exercise bytecode and interpreter behavior, runtime tests cover builtins and providers, integration tests cover cross-crate execution behavior, and WASM tests cover browser and JavaScript-hosted behavior.
 
-There are 8,000+ tests in the RunMat codebase, systematically covering the language pipeline, execution engines, runtime builtins, acceleration layer, plotting, CLI, LSP, snapshotting, filesystem, and WASM bindings.
+There are 8,000+ tests in the RunMat codebase, systematically covering the language pipeline, execution engines, runtime builtins, acceleration layer, plotting, CLI, LSP, workspace replay, filesystem, and WASM bindings.
 
 ## Baseline Checks
 
@@ -124,6 +117,23 @@ cargo test -p runmat-macros --test compile
 ```
 
 The fixtures live under `crates/runmat-macros/tests/ui`. Each failing Rust input has a matching `.stderr` expectation. Update those expectations only when the diagnostic change is intentional.
+
+## C MEX Repository Cohorts
+
+The `runmat-mex` suite includes source fixtures maintained in this repository and an opt-in gate for pinned external projects. The external checkouts are not downloaded during ordinary Cargo tests. Supply local checkouts at the exact revisions below, then run the ignored cohort tests explicitly.
+
+| Project | Revision | License file | Executed gateways |
+| --- | --- | --- | --- |
+| FieldTrip | `2e14f7291090b19568827799096daec7dfb99de8` | `COPYING` | `src/det2x2.c`, `src/getpid.c` |
+
+```bash
+RUNMAT_MEX_FIELDTRIP_CHECKOUT=/path/to/fieldtrip \
+cargo test -p runmat-mex --test repository_cohorts -- --ignored
+```
+
+Each test verifies the checkout's Git revision and license file before compiling. It then loads and executes the gateway through `runmat-mex` and checks its returned value. This gate is intended for supported-platform qualification and for changes to the SDK, compiler plan, loader, value conversion, or gateway lifecycle.
+
+Generated C-to-Fortran gateways are tracked separately because a successful link requires their native Fortran libraries. The pinned source audits use fmm2d revision `550dae5b77b1e006c8ffae37fc832f8c2b536871` and fmm3dbie revision `ec79660cf39ef048741a26e2b31960fccefa4e27`; full build and execution belongs to the advanced Fortran MEX qualification gate.
 
 ## Choosing What To Run
 

@@ -1,0 +1,1732 @@
+use std::collections::BTreeSet;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use rcgen::{generate_simple_self_signed, CertifiedKey};
+use runmat_execution::identity::{ArtifactId, WorkerId};
+use runmat_execution::resource::{
+    AcceleratorClass, AcceleratorDevice, AcceleratorDeviceId, AcceleratorFeature,
+    AcceleratorRequest, Capability, ResourceInventory, ResourceRequest,
+};
+use runmat_execution::task::{Callable, RetryPolicy, TaskRequest};
+use runmat_execution::value::{InlineValue, ValuePayload};
+use runmat_execution::{
+    Digest, ExecutionScopeId, GangHandle, GangId, OutputContract, ParallelChunk,
+    ParallelRandomnessContext, PoolHandle, PoolId, ProgramCallable, ProgramFunctionId,
+    ProgramInvocationContext, ProgramRevision, TaskId,
+};
+use runmat_execution_artifact::{
+    archive::{write_bundle, ArchiveLimits},
+    ExecutableForm, ExecutionBundleBuilder, ProgramArtifact, ProgramBuildRecipe,
+    ProgramExecutionRequest, PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
+};
+use runmat_execution_runner::{
+    AttemptReport, AttemptSuccess, PoolSpec, TaskSubmission, WorkerSpec,
+};
+use runmat_execution_transport_native::frame::FrameLimits;
+use runmat_execution_transport_native::overlay::{PinnedQuicEndpoint, QuicOverlayListener};
+
+use super::{run_remote_worker_quic, QuicRemoteWorkerChannel};
+use super::{
+    RemoteAttempt, RemoteBundleReceipt, RemotePoolDriver, RemoteSpmdGangProgram,
+    RemoteWorkerChannel,
+};
+use crate::{NativeExecutionResult, NativeProgramFailure};
+
+struct FakeWorker {
+    node: String,
+    spec: WorkerSpec,
+    installs: Arc<AtomicUsize>,
+    active: Arc<AtomicUsize>,
+    maximum_active: Arc<AtomicUsize>,
+    start_gate: Option<Arc<ConcurrencyGate>>,
+    delay: Duration,
+    cancellations: Arc<AtomicUsize>,
+    drains: Arc<AtomicUsize>,
+    bundle: Arc<Vec<u8>>,
+}
+
+struct ConcurrencyGate {
+    target: usize,
+    arrivals: AtomicUsize,
+    notify: tokio::sync::Notify,
+}
+
+impl ConcurrencyGate {
+    fn new(target: usize) -> Self {
+        Self {
+            target,
+            arrivals: AtomicUsize::new(0),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    async fn arrive_and_wait(&self) {
+        self.arrivals.fetch_add(1, Ordering::AcqRel);
+        self.notify.notify_waiters();
+        loop {
+            let notified = self.notify.notified();
+            if self.arrivals.load(Ordering::Acquire) >= self.target {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+struct ResultObjectWorker {
+    spec: WorkerSpec,
+    bundle: Arc<Vec<u8>>,
+    reference: runmat_execution::value::ValueRef,
+    bytes: Arc<Vec<u8>>,
+    corrupt_download: bool,
+}
+
+struct ExecutingWorker {
+    spec: WorkerSpec,
+    bundle: Arc<Vec<u8>>,
+    assignments: Arc<std::sync::Mutex<Vec<runmat_execution::ProgramExecutionAssignment>>>,
+}
+
+struct CompiledSpmdProgram {
+    recipe: ProgramBuildRecipe,
+    artifact: ProgramArtifact,
+    region: runmat_types::ParallelRegionId,
+    bundle: Vec<u8>,
+    requested_outputs: u16,
+}
+
+#[async_trait]
+impl RemoteWorkerChannel for ExecutingWorker {
+    fn node_identity(&self) -> &str {
+        "node-executing"
+    }
+
+    fn worker(&self) -> &WorkerSpec {
+        &self.spec
+    }
+
+    async fn install_bundle(
+        &self,
+        bundle_digest: Digest,
+        bundle: &[u8],
+    ) -> NativeExecutionResult<RemoteBundleReceipt> {
+        Ok(bundle_receipt(bundle_digest, bundle))
+    }
+
+    async fn activate_bundle(
+        &self,
+        bundle_digest: Digest,
+    ) -> NativeExecutionResult<RemoteBundleReceipt> {
+        Ok(bundle_receipt(bundle_digest, &self.bundle))
+    }
+
+    async fn transfer_value(
+        &self,
+        reference: runmat_execution::value::ValueRef,
+        encoded: &[u8],
+    ) -> NativeExecutionResult<super::RemoteValueReceipt> {
+        Ok(super::RemoteValueReceipt {
+            value_id: reference.id,
+            encoded_bytes: encoded.len() as u64,
+        })
+    }
+
+    async fn execute(&self, attempt: RemoteAttempt) -> NativeExecutionResult<AttemptReport> {
+        let assignment = attempt.program.assignment.clone().ok_or_else(|| {
+            crate::NativeExecutionError::Protocol(
+                "remote execution request is missing scheduler placement".into(),
+            )
+        })?;
+        self.assignments
+            .lock()
+            .expect("assignment observations poisoned")
+            .push(assignment);
+        let response = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("isolated worker runtime")
+                .block_on(crate::execute_host_program_request(attempt.program))
+        })
+        .await
+        .map_err(|error| {
+            crate::NativeExecutionError::Protocol(format!(
+                "isolated remote worker did not complete: {error}"
+            ))
+        })?;
+        Ok(super::worker_execution::report(response))
+    }
+
+    async fn cancel(
+        &self,
+        _request: &runmat_execution_runner::AttemptRequest,
+    ) -> NativeExecutionResult<()> {
+        Ok(())
+    }
+
+    async fn drain(&self) -> NativeExecutionResult<()> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl RemoteWorkerChannel for ResultObjectWorker {
+    fn node_identity(&self) -> &str {
+        "node-result-object"
+    }
+
+    fn worker(&self) -> &WorkerSpec {
+        &self.spec
+    }
+
+    async fn install_bundle(
+        &self,
+        bundle_digest: Digest,
+        bundle: &[u8],
+    ) -> NativeExecutionResult<RemoteBundleReceipt> {
+        Ok(bundle_receipt(bundle_digest, bundle))
+    }
+
+    async fn activate_bundle(
+        &self,
+        bundle_digest: Digest,
+    ) -> NativeExecutionResult<RemoteBundleReceipt> {
+        Ok(bundle_receipt(bundle_digest, &self.bundle))
+    }
+
+    async fn transfer_value(
+        &self,
+        reference: runmat_execution::value::ValueRef,
+        encoded: &[u8],
+    ) -> NativeExecutionResult<super::RemoteValueReceipt> {
+        Ok(super::RemoteValueReceipt {
+            value_id: reference.id,
+            encoded_bytes: encoded.len() as u64,
+        })
+    }
+
+    async fn execute(&self, _attempt: RemoteAttempt) -> NativeExecutionResult<AttemptReport> {
+        Ok(AttemptReport::Succeeded {
+            result: AttemptSuccess::Values {
+                outputs: vec![ValuePayload::Object(Box::new(self.reference.clone()))],
+                result_objects: vec![self.reference.clone()],
+            },
+        })
+    }
+
+    async fn download_object(
+        &self,
+        reference: runmat_execution::value::ValueRef,
+    ) -> NativeExecutionResult<Vec<u8>> {
+        if reference != self.reference {
+            return Err(crate::NativeExecutionError::Protocol(
+                "unexpected result object reference".into(),
+            ));
+        }
+        if self.corrupt_download {
+            Ok(b"substituted result bytes".to_vec())
+        } else {
+            Ok(self.bytes.as_ref().clone())
+        }
+    }
+
+    async fn cancel(
+        &self,
+        _request: &runmat_execution_runner::AttemptRequest,
+    ) -> NativeExecutionResult<()> {
+        Ok(())
+    }
+
+    async fn drain(&self) -> NativeExecutionResult<()> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl RemoteWorkerChannel for FakeWorker {
+    fn node_identity(&self) -> &str {
+        &self.node
+    }
+
+    fn worker(&self) -> &WorkerSpec {
+        &self.spec
+    }
+
+    async fn install_bundle(
+        &self,
+        bundle_digest: Digest,
+        bundle: &[u8],
+    ) -> NativeExecutionResult<RemoteBundleReceipt> {
+        self.installs.fetch_add(1, Ordering::SeqCst);
+        Ok(bundle_receipt(bundle_digest, bundle))
+    }
+
+    async fn execute(&self, attempt: RemoteAttempt) -> NativeExecutionResult<AttemptReport> {
+        let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.maximum_active.fetch_max(active, Ordering::SeqCst);
+        if let Some(gate) = &self.start_gate {
+            gate.arrive_and_wait().await;
+        }
+        tokio::time::sleep(self.delay).await;
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        Ok(AttemptReport::Succeeded {
+            result: AttemptSuccess::Values {
+                outputs: vec![ValuePayload::Inline(Box::new(InlineValue::String(
+                    attempt.scheduling.worker_id.to_string(),
+                )))],
+                result_objects: Vec::new(),
+            },
+        })
+    }
+
+    async fn activate_bundle(
+        &self,
+        bundle_digest: Digest,
+    ) -> NativeExecutionResult<RemoteBundleReceipt> {
+        Ok(bundle_receipt(bundle_digest, &self.bundle))
+    }
+
+    async fn transfer_value(
+        &self,
+        reference: runmat_execution::value::ValueRef,
+        encoded: &[u8],
+    ) -> NativeExecutionResult<super::RemoteValueReceipt> {
+        Ok(super::RemoteValueReceipt {
+            value_id: reference.id,
+            encoded_bytes: encoded.len() as u64,
+        })
+    }
+
+    async fn cancel(
+        &self,
+        _request: &runmat_execution_runner::AttemptRequest,
+    ) -> NativeExecutionResult<()> {
+        self.cancellations.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn drain(&self) -> NativeExecutionResult<()> {
+        self.drains.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_pool_installs_once_per_node_and_schedules_concurrently() {
+    let scope_id = ExecutionScopeId::derive(&[b"remote-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-pool"]);
+    let resources = inventory(3_000);
+    let bundle = Arc::new(executable_bundle().await.2);
+    let pool = RemotePoolDriver::new(
+        scope_id,
+        PoolSpec {
+            id: pool_id,
+            min_workers: 2,
+            max_workers: 3,
+            max_in_flight: 3,
+            resource_limit: resources,
+        },
+        7,
+        bundle.as_ref().clone(),
+    )
+    .unwrap();
+    let installs = Arc::new(AtomicUsize::new(0));
+    let active = Arc::new(AtomicUsize::new(0));
+    let maximum_active = Arc::new(AtomicUsize::new(0));
+    let start_gate = Arc::new(ConcurrencyGate::new(3));
+    for (ordinal, node) in [(0_u8, "node-a"), (1, "node-b"), (2, "node-a")] {
+        pool.add_worker(Arc::new(FakeWorker {
+            node: node.into(),
+            spec: WorkerSpec {
+                id: WorkerId::derive(&[b"worker", &[ordinal]]),
+                pool_id,
+                resources: inventory(1_000),
+                host: host_inventory(),
+            },
+            installs: Arc::clone(&installs),
+            active: Arc::clone(&active),
+            maximum_active: Arc::clone(&maximum_active),
+            start_gate: Some(Arc::clone(&start_gate)),
+            delay: Duration::from_millis(25),
+            cancellations: Arc::new(AtomicUsize::new(0)),
+            drains: Arc::new(AtomicUsize::new(0)),
+            bundle: Arc::clone(&bundle),
+        }))
+        .await
+        .unwrap();
+    }
+    assert_eq!(installs.load(Ordering::SeqCst), 2);
+
+    let (program, artifact_id) = program().await;
+    let mut completions = Vec::new();
+    for ordinal in 0_u8..3 {
+        let task_id = TaskId::derive(&[b"task", &[ordinal]]);
+        completions.push(
+            pool.submit(
+                TaskSubmission {
+                    request: TaskRequest {
+                        id: task_id,
+                        scope_id,
+                        pool_id,
+                        program_artifact_id: artifact_id,
+                        callable: Callable::for_program("remote-test", &program.callable),
+                        invocation_context: runmat_execution::ProgramInvocationContext::Direct,
+                        inputs: Vec::new(),
+                        outputs: OutputContract {
+                            requested_outputs: 1,
+                        },
+                        resources: request(),
+                        host: host_requirement(),
+                        retry: RetryPolicy::Never,
+                        deadline_unix_millis: None,
+                    },
+                    dependencies: BTreeSet::new(),
+                    priority: 0,
+                },
+                program.clone(),
+            )
+            .unwrap(),
+        );
+    }
+    let scheduled = pool.snapshot();
+    assert_eq!(scheduled.pools[&pool_id].active_attempts, 3);
+    assert_eq!(
+        scheduled.pools[&pool_id]
+            .workers
+            .values()
+            .filter(|worker| worker.active_attempts == 1)
+            .count(),
+        3
+    );
+    for completion in completions {
+        let success = completion.wait().await.unwrap();
+        let (outputs, _) = success.values().expect("ordinary remote task result");
+        assert_eq!(outputs.len(), 1);
+    }
+    assert!(maximum_active.load(Ordering::SeqCst) >= 2);
+    assert!(pool
+        .snapshot()
+        .tasks
+        .values()
+        .all(|task| { task.state == runmat_execution::state::TaskState::Succeeded }));
+}
+
+#[tokio::test]
+async fn remote_compiled_program_receives_its_exact_accelerator_lease() {
+    let accelerator = accelerator_request();
+    let (program, artifact_id, bundle) =
+        build_executable_bundle(false, vec![accelerator.clone()]).await;
+    let scope_id = ExecutionScopeId::derive(&[b"remote-accelerator-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-accelerator-pool"]);
+    let mut pool_resources = inventory(1_000);
+    pool_resources.accelerators = vec![accelerator_device()];
+    let pool = RemotePoolDriver::new(
+        scope_id,
+        PoolSpec {
+            id: pool_id,
+            min_workers: 1,
+            max_workers: 1,
+            max_in_flight: 1,
+            resource_limit: pool_resources.clone(),
+        },
+        17,
+        bundle.clone(),
+    )
+    .unwrap();
+    let assignments = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let worker_id = WorkerId::derive(&[b"remote-accelerator-worker"]);
+    pool.add_worker(Arc::new(ExecutingWorker {
+        spec: WorkerSpec {
+            id: worker_id,
+            pool_id,
+            resources: pool_resources,
+            host: host_inventory(),
+        },
+        bundle: Arc::new(bundle),
+        assignments: Arc::clone(&assignments),
+    }))
+    .await
+    .unwrap();
+    let task_id = TaskId::derive(&[b"remote-accelerator-task"]);
+    let weak = submission(scope_id, pool_id, task_id, artifact_id);
+    assert!(pool.submit(weak, program.clone()).is_err());
+    let mut task = submission(scope_id, pool_id, task_id, artifact_id);
+    task.request.resources.accelerators = vec![accelerator];
+    pool.submit(task, program).unwrap().wait().await.unwrap();
+
+    let assignments = assignments.lock().unwrap();
+    assert_eq!(assignments.len(), 1);
+    let lease = &assignments[0].resources.accelerator_leases[0];
+    assert_eq!(lease.device_id, accelerator_device().id);
+    assert_eq!(lease.provider, accelerator_device().provider);
+    lease
+        .validate_for_attempt(assignments[0].attempt_id)
+        .unwrap();
+}
+
+#[tokio::test]
+async fn remote_pool_executes_the_compiler_bound_parallel_region() {
+    let scope_id = ExecutionScopeId::derive(&[b"remote-parfor-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-parfor-pool"]);
+    let worker_id = WorkerId::derive(&[b"remote-parfor-worker"]);
+    let (program, artifact_id, bundle, bytecode) = parallel_region_bundle().await;
+    let bundle = Arc::new(bundle);
+    let assignments = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let pool = RemotePoolDriver::new(
+        scope_id,
+        PoolSpec {
+            id: pool_id,
+            min_workers: 1,
+            max_workers: 1,
+            max_in_flight: 1,
+            resource_limit: inventory(1_000),
+        },
+        8,
+        bundle.as_ref().clone(),
+    )
+    .unwrap();
+    pool.add_worker(Arc::new(ExecutingWorker {
+        spec: WorkerSpec {
+            id: worker_id,
+            pool_id,
+            resources: inventory(1_000),
+            host: host_inventory(),
+        },
+        bundle,
+        assignments: Arc::clone(&assignments),
+    }))
+    .await
+    .unwrap();
+
+    let task_id = TaskId::derive(&[b"remote-parfor-task"]);
+    let context = program.context.clone();
+    let callable = program.callable.clone();
+    let inputs = program.arguments.clone();
+    let result = pool
+        .submit(
+            TaskSubmission {
+                request: TaskRequest {
+                    id: task_id,
+                    scope_id,
+                    pool_id,
+                    program_artifact_id: artifact_id,
+                    callable: Callable::for_program("remote-parfor", &callable),
+                    invocation_context: context,
+                    inputs,
+                    outputs: OutputContract {
+                        requested_outputs: 1,
+                    },
+                    resources: request(),
+                    host: host_requirement(),
+                    retry: RetryPolicy::IdempotentInfrastructure,
+                    deadline_unix_millis: None,
+                },
+                dependencies: BTreeSet::new(),
+                priority: 0,
+            },
+            program,
+        )
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+
+    let (outputs, _) = result.values().expect("parallel region value result");
+    let value = runmat_runtime::execution::value_codec::decode_inline_value(&outputs[0])
+        .expect("remote parallel result decodes");
+    let runmat_value::Value::Cell(outputs) = value else {
+        panic!("parallel region returned a non-cell result envelope");
+    };
+    let region = bytecode
+        .parfor_regions
+        .first()
+        .expect("compiled parallel region");
+    let observed = region
+        .output_variables()
+        .zip(outputs.data)
+        .map(|(variable, value)| {
+            let name = bytecode
+                .var_names
+                .get(&variable.slot)
+                .expect("parallel output has a source binding")
+                .clone();
+            (name, value)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for name in ["task_seen", "worker_seen"] {
+        let runmat_value::Value::Tensor(values) = &observed[name] else {
+            panic!("{name} is not a tensor");
+        };
+        assert_eq!(values.materialize_f64(), vec![1.0; 4]);
+    }
+    let runmat_value::Value::Tensor(values) = &observed["values"] else {
+        panic!("values is not a tensor");
+    };
+    assert_eq!(values.materialize_f64(), vec![2.0, 4.0, 6.0, 8.0]);
+
+    let assignments = assignments
+        .lock()
+        .expect("assignment observations poisoned");
+    assert_eq!(assignments.len(), 1);
+    assert_eq!(assignments[0].scope_id, scope_id);
+    assert_eq!(assignments[0].pool_id, pool_id);
+    assert_eq!(assignments[0].task_id, task_id);
+    assert_eq!(assignments[0].worker_id, worker_id);
+    assert_eq!(
+        assignments[0].backend,
+        runmat_execution::PoolBackend::Remote
+    );
+}
+
+#[tokio::test]
+async fn remote_pool_downloads_and_verifies_externalized_objects_before_success() {
+    let scope_id = ExecutionScopeId::derive(&[b"remote-object-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-object-pool"]);
+    let bundle = Arc::new(executable_bundle().await.2);
+    let pool = RemotePoolDriver::new_with_value_scope(
+        scope_id,
+        PoolSpec {
+            id: pool_id,
+            min_workers: 1,
+            max_workers: 1,
+            max_in_flight: 1,
+            resource_limit: inventory(1_000),
+        },
+        8,
+        bundle.as_ref().clone(),
+        "run-result-object",
+    )
+    .unwrap();
+    let bytes = Arc::new(b"canonical externalized result".to_vec());
+    let reference = object_reference("run-result-object", &bytes);
+    pool.add_worker(Arc::new(ResultObjectWorker {
+        spec: WorkerSpec {
+            id: WorkerId::derive(&[b"result-object-worker"]),
+            pool_id,
+            resources: inventory(1_000),
+            host: host_inventory(),
+        },
+        bundle,
+        reference: reference.clone(),
+        bytes: Arc::clone(&bytes),
+        corrupt_download: false,
+    }))
+    .await
+    .unwrap();
+    let (result_program, artifact_id) = program().await;
+    let success = pool
+        .submit(
+            submission(
+                scope_id,
+                pool_id,
+                TaskId::derive(&[b"result-object-task"]),
+                artifact_id,
+            ),
+            result_program,
+        )
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert_eq!(success.result_objects(), std::slice::from_ref(&reference));
+    assert_eq!(
+        pool.execution_object(&reference).unwrap().unwrap().as_ref(),
+        bytes.as_slice()
+    );
+
+    let mut substituted = reference;
+    substituted.logical_digest = Digest::sha256(b"substituted");
+    assert!(pool.execution_object(&substituted).is_err());
+
+    let corrupt_scope = ExecutionScopeId::derive(&[b"remote-corrupt-object-scope"]);
+    let corrupt_pool_id = PoolId::derive(&[b"remote-corrupt-object-pool"]);
+    let corrupt_bundle = Arc::new(executable_bundle().await.2);
+    let corrupt_pool = RemotePoolDriver::new_with_value_scope(
+        corrupt_scope,
+        PoolSpec {
+            id: corrupt_pool_id,
+            min_workers: 1,
+            max_workers: 1,
+            max_in_flight: 1,
+            resource_limit: inventory(1_000),
+        },
+        9,
+        corrupt_bundle.as_ref().clone(),
+        "run-result-object",
+    )
+    .unwrap();
+    corrupt_pool
+        .add_worker(Arc::new(ResultObjectWorker {
+            spec: WorkerSpec {
+                id: WorkerId::derive(&[b"corrupt-result-object-worker"]),
+                pool_id: corrupt_pool_id,
+                resources: inventory(1_000),
+                host: host_inventory(),
+            },
+            bundle: corrupt_bundle,
+            reference: substituted.clone(),
+            bytes,
+            corrupt_download: true,
+        }))
+        .await
+        .unwrap();
+    let (program, artifact_id) = program().await;
+    assert!(corrupt_pool
+        .submit(
+            submission(
+                corrupt_scope,
+                corrupt_pool_id,
+                TaskId::derive(&[b"corrupt-result-object-task"]),
+                artifact_id,
+            ),
+            program,
+        )
+        .unwrap()
+        .wait()
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn remote_pool_cancels_active_work_and_fences_lost_workers() {
+    let scope_id = ExecutionScopeId::derive(&[b"remote-cancel-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-cancel-pool"]);
+    let accelerator = accelerator_request();
+    let (cancel_program, artifact_id, bundle) =
+        build_executable_bundle(false, vec![accelerator.clone()]).await;
+    let bundle = Arc::new(bundle);
+    let mut resources = inventory(1_000);
+    resources.accelerators = vec![accelerator_device()];
+    let pool = RemotePoolDriver::new(
+        scope_id,
+        PoolSpec {
+            id: pool_id,
+            min_workers: 1,
+            max_workers: 1,
+            max_in_flight: 1,
+            resource_limit: resources.clone(),
+        },
+        11,
+        bundle.as_ref().clone(),
+    )
+    .unwrap();
+    let active = Arc::new(AtomicUsize::new(0));
+    let cancellations = Arc::new(AtomicUsize::new(0));
+    let drains = Arc::new(AtomicUsize::new(0));
+    let worker_id = WorkerId::derive(&[b"cancel-worker"]);
+    pool.add_worker(Arc::new(FakeWorker {
+        node: "node-cancel".into(),
+        spec: WorkerSpec {
+            id: worker_id,
+            pool_id,
+            resources,
+            host: host_inventory(),
+        },
+        installs: Arc::new(AtomicUsize::new(0)),
+        active: Arc::clone(&active),
+        maximum_active: Arc::new(AtomicUsize::new(0)),
+        start_gate: None,
+        delay: Duration::from_secs(30),
+        cancellations: Arc::clone(&cancellations),
+        drains: Arc::clone(&drains),
+        bundle: Arc::clone(&bundle),
+    }))
+    .await
+    .unwrap();
+    let task_id = TaskId::derive(&[b"cancel-task"]);
+    let mut cancel_submission = submission(scope_id, pool_id, task_id, artifact_id);
+    cancel_submission.request.resources.accelerators = vec![accelerator];
+    let completion = pool.submit(cancel_submission, cancel_program).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while active.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    pool.cancel(runmat_execution::CancellationReason::User)
+        .unwrap();
+    let cancelled = tokio::time::timeout(Duration::from_secs(1), completion.wait())
+        .await
+        .unwrap();
+    assert!(matches!(
+        cancelled,
+        Err(crate::NativeProgramFailure::Cancelled)
+    ));
+    assert_eq!(
+        pool.snapshot().tasks.get(&task_id).unwrap().state,
+        runmat_execution::state::TaskState::Cancelled
+    );
+    assert_eq!(cancellations.load(Ordering::SeqCst), 1);
+    let snapshot = pool.snapshot();
+    assert!(snapshot.pools[&pool_id]
+        .allocated
+        .leased_accelerator_domains
+        .is_empty());
+    assert!(snapshot.pools[&pool_id]
+        .workers
+        .values()
+        .all(|worker| worker.allocated.leased_accelerator_domains.is_empty()));
+
+    let scope_id = ExecutionScopeId::derive(&[b"remote-loss-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-loss-pool"]);
+    let accelerator = accelerator_request();
+    let (lost_program, artifact_id, bundle) =
+        build_executable_bundle(false, vec![accelerator.clone()]).await;
+    let bundle = Arc::new(bundle);
+    let mut resources = inventory(1_000);
+    resources.accelerators = vec![accelerator_device()];
+    let pool = RemotePoolDriver::new(
+        scope_id,
+        PoolSpec {
+            id: pool_id,
+            min_workers: 1,
+            max_workers: 1,
+            max_in_flight: 1,
+            resource_limit: resources.clone(),
+        },
+        12,
+        bundle.as_ref().clone(),
+    )
+    .unwrap();
+    let active = Arc::new(AtomicUsize::new(0));
+    let drains = Arc::new(AtomicUsize::new(0));
+    let worker_id = WorkerId::derive(&[b"lost-worker"]);
+    pool.add_worker(Arc::new(FakeWorker {
+        node: "node-loss".into(),
+        spec: WorkerSpec {
+            id: worker_id,
+            pool_id,
+            resources,
+            host: host_inventory(),
+        },
+        installs: Arc::new(AtomicUsize::new(0)),
+        active: Arc::clone(&active),
+        maximum_active: Arc::new(AtomicUsize::new(0)),
+        start_gate: None,
+        delay: Duration::from_secs(30),
+        cancellations: Arc::new(AtomicUsize::new(0)),
+        drains: Arc::clone(&drains),
+        bundle,
+    }))
+    .await
+    .unwrap();
+    let lost_task_id = TaskId::derive(&[b"lost-task"]);
+    let mut lost_submission = submission(scope_id, pool_id, lost_task_id, artifact_id);
+    lost_submission.request.resources.accelerators = vec![accelerator];
+    let completion = pool.submit(lost_submission, lost_program).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while active.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    pool.remove_worker(worker_id, true).await.unwrap();
+    let lost = tokio::time::timeout(Duration::from_secs(1), completion.wait())
+        .await
+        .unwrap();
+    assert!(matches!(
+        lost,
+        Err(crate::NativeProgramFailure::WorkerLost(_))
+    ));
+    assert_eq!(
+        pool.snapshot().tasks.get(&lost_task_id).unwrap().state,
+        runmat_execution::state::TaskState::Indeterminate
+    );
+    assert_eq!(drains.load(Ordering::SeqCst), 0);
+    let snapshot = pool.snapshot();
+    assert!(snapshot.pools[&pool_id]
+        .allocated
+        .leased_accelerator_domains
+        .is_empty());
+}
+
+#[tokio::test]
+async fn pinned_quic_worker_executes_only_the_installed_exact_bundle() {
+    let CertifiedKey { cert, signing_key } =
+        generate_simple_self_signed(vec!["runmat.execution".into()]).unwrap();
+    let certificate_der = cert.der().to_vec();
+    let listener = QuicOverlayListener::bind(
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        vec![certificate_der.clone()],
+        signing_key.serialize_der(),
+        FrameLimits::default(),
+    )
+    .unwrap();
+    let authority = listener.local_addr().unwrap();
+    let scope_id = ExecutionScopeId::derive(&[b"quic-scope"]);
+    let pool_id = PoolId::derive(&[b"quic-pool"]);
+    let worker = WorkerSpec {
+        id: WorkerId::derive(&[b"quic-worker"]),
+        pool_id,
+        resources: inventory(1_000),
+        host: host_inventory(),
+    };
+    let task_id = TaskId::derive(&[b"quic-task"]);
+    let (mut program, artifact_id, bundle) = executable_bundle_with_input().await;
+    let value = ValuePayload::Inline(Box::new(InlineValue::String("transferred".into())));
+    let encoded_value = serde_json::to_vec(&value).unwrap();
+    let value_reference = runmat_execution::value::ValueRef {
+        schema_version: runmat_execution::schema::VALUE_PAYLOAD_SCHEMA_VERSION,
+        id: runmat_execution::identity::ValueId::derive(&[b"quic-value"]),
+        logical_digest: value.logical_digest().unwrap(),
+        encoded_length: encoded_value.len() as u64,
+        media_type: "application/vnd.runmat.value+json".into(),
+        value_schema: "runmat-value-payload-v2".into(),
+        encryption_context: Digest::sha256(b"worker-session"),
+        kind: runmat_execution::value::ValueRefKind::DriverObject,
+        authorization_scope: "run-quic-worker".into(),
+        resident_fence: None,
+    };
+    let object = ValuePayload::Object(Box::new(value_reference.clone()));
+    program.arguments = vec![object.clone()];
+    let scheduling = runmat_execution_runner::AttemptRequest {
+        id: runmat_execution::identity::AttemptId::derive(&[b"quic-attempt"]),
+        task_id,
+        scope_id,
+        worker_id: worker.id,
+        ordinal: 1,
+        driver_fence: 9,
+        resource_assignment: Default::default(),
+        task: TaskRequest {
+            id: task_id,
+            scope_id,
+            pool_id,
+            program_artifact_id: artifact_id,
+            callable: Callable::for_program("remote-test", &program.callable),
+            invocation_context: runmat_execution::ProgramInvocationContext::Direct,
+            inputs: vec![object],
+            outputs: OutputContract {
+                requested_outputs: 1,
+            },
+            resources: request(),
+            host: host_requirement(),
+            retry: RetryPolicy::Never,
+            deadline_unix_millis: None,
+        },
+    };
+    let run_key =
+        runmat_execution_artifact::encryption::RunKeyMaterial::from_entropy([5; 32]).unwrap();
+    let server = run_remote_worker_quic(
+        listener,
+        "run-quic-worker",
+        worker.clone(),
+        9,
+        [7; 16],
+        run_key.clone(),
+        FrameLimits::default(),
+    );
+    let client = async {
+        let channel = QuicRemoteWorkerChannel::connect(
+            super::RemoteWorkerChannelConfig {
+                run_identity: "run-quic-worker".into(),
+                node_identity: "node-quic".into(),
+                worker,
+                driver_fence: 9,
+                session_id: [7; 16],
+                run_key,
+                limits: FrameLimits::default(),
+            },
+            &PinnedQuicEndpoint {
+                authority,
+                server_name: "runmat.execution".into(),
+                certificate_der,
+            },
+        )
+        .await
+        .unwrap();
+        let digest = Digest::sha256(&bundle);
+        let expected_receipt = bundle_receipt(digest, &bundle);
+        assert_eq!(
+            channel.install_bundle(digest, &bundle).await.unwrap(),
+            expected_receipt
+        );
+        let object_bytes = vec![0x5a; 600 * 1024];
+        let object_reference = object_reference("run-quic-worker", &object_bytes);
+        let receipt = channel
+            .transfer_object(object_reference.clone(), &object_bytes)
+            .await
+            .unwrap();
+        assert!(receipt.complete);
+        assert_eq!(receipt.next_offset, object_bytes.len() as u64);
+        assert_eq!(
+            channel
+                .transfer_object(object_reference.clone(), &object_bytes)
+                .await
+                .unwrap(),
+            receipt
+        );
+        assert_eq!(
+            channel.download_object(object_reference,).await.unwrap(),
+            object_bytes
+        );
+        assert_eq!(
+            channel
+                .transfer_value(value_reference.clone(), &encoded_value)
+                .await
+                .unwrap(),
+            super::RemoteValueReceipt {
+                value_id: value_reference.id,
+                encoded_bytes: encoded_value.len() as u64,
+            }
+        );
+        let report = channel
+            .execute(RemoteAttempt {
+                scheduling,
+                program,
+            })
+            .await
+            .unwrap();
+        assert!(
+            matches!(report, AttemptReport::Succeeded { .. }),
+            "unexpected remote attempt report: {report:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        channel.drain().await.unwrap();
+    };
+    let (server, ()) = tokio::join!(server, client);
+    server.unwrap();
+}
+
+#[tokio::test]
+async fn encrypted_remote_pool_executes_one_compiler_bound_rank_per_worker() {
+    let results = execute_encrypted_spmd_program(spmd_region_bundle().await)
+        .await
+        .unwrap();
+    assert_eq!(
+        results.iter().map(|result| result.rank).collect::<Vec<_>>(),
+        vec![runmat_types::LabRank(1), runmat_types::LabRank(2)]
+    );
+    let mut distributed_handle = None;
+    for result in results {
+        let mut saw_reduction = false;
+        let mut saw_distributed = false;
+        for output in result.outputs.into_iter().flatten() {
+            match output {
+                runmat_execution::SpmdOutputValue::Value(value) => {
+                    assert_eq!(
+                        runmat_runtime::execution::value_codec::decode_inline_value(&value)
+                            .unwrap(),
+                        runmat_value::Value::Int(runmat_value::IntValue::U32(3))
+                    );
+                    saw_reduction = true;
+                }
+                runmat_execution::SpmdOutputValue::Distributed(snapshot) => {
+                    snapshot.validate().unwrap();
+                    assert_eq!(snapshot.owned.layout.rank, result.rank);
+                    if let Some(handle) = &distributed_handle {
+                        assert_eq!(handle, &snapshot.handle);
+                    } else {
+                        distributed_handle = Some(snapshot.handle.clone());
+                    }
+                    let local = runmat_runtime::execution::value_codec::decode_inline_value(
+                        &snapshot.owned.value,
+                    )
+                    .unwrap();
+                    let expected = match result.rank.0 {
+                        1 => vec![1_u64, 2],
+                        2 => vec![3_u64, 4],
+                        _ => unreachable!(),
+                    };
+                    let runmat_value::Value::Tensor(local) = local else {
+                        panic!("remote distributed shard must retain its typed local tensor");
+                    };
+                    let Some(runmat_value::IntegerStorage::U64(values)) = local.integer_storage()
+                    else {
+                        panic!("remote distributed shard must retain uint64 storage");
+                    };
+                    assert_eq!(values, expected.as_slice());
+                    saw_distributed = true;
+                }
+            }
+        }
+        assert!(saw_reduction && saw_distributed);
+    }
+}
+
+#[tokio::test]
+async fn remote_rank_failure_releases_a_peer_blocked_in_a_collective() {
+    let program = compile_spmd_region_bundle(
+        r#"
+spmd
+  if spmdIndex() == 1
+    error("RunMat:test:RemoteSpmdPrimary", "primary rank failed");
+  end
+  spmdBarrier();
+  reached = spmdIndex();
+end
+"#,
+        1,
+    )
+    .await;
+    let failure = tokio::time::timeout(
+        Duration::from_secs(5),
+        execute_encrypted_spmd_program(program),
+    )
+    .await
+    .expect("a peer blocked in a remote collective must be released")
+    .unwrap_err();
+    let NativeProgramFailure::Runtime(failure) = failure else {
+        panic!("primary rank failure lost its structured runtime identity: {failure:?}");
+    };
+    assert_eq!(
+        failure.identifier.as_deref(),
+        Some("RunMat:test:RemoteSpmdPrimary")
+    );
+    assert_eq!(failure.message, "primary rank failed");
+}
+
+async fn execute_encrypted_spmd_program(
+    program: CompiledSpmdProgram,
+) -> Result<Vec<runmat_runtime::execution::SpmdRankResult>, NativeProgramFailure> {
+    let CertifiedKey {
+        cert: first_cert,
+        signing_key: first_key,
+    } = generate_simple_self_signed(vec!["runmat.execution".into()]).unwrap();
+    let first_certificate = first_cert.der().to_vec();
+    let first_listener = QuicOverlayListener::bind(
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        vec![first_certificate.clone()],
+        first_key.serialize_der(),
+        FrameLimits::default(),
+    )
+    .unwrap();
+    let first_authority = first_listener.local_addr().unwrap();
+    let CertifiedKey {
+        cert: second_cert,
+        signing_key: second_key,
+    } = generate_simple_self_signed(vec!["runmat.execution".into()]).unwrap();
+    let second_certificate = second_cert.der().to_vec();
+    let second_listener = QuicOverlayListener::bind(
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        vec![second_certificate.clone()],
+        second_key.serialize_der(),
+        FrameLimits::default(),
+    )
+    .unwrap();
+    let second_authority = second_listener.local_addr().unwrap();
+
+    let scope_id = ExecutionScopeId::derive(&[b"remote-spmd-scope"]);
+    let pool_id = PoolId::derive(&[b"remote-spmd-pool"]);
+    let workers = [
+        WorkerSpec {
+            id: WorkerId::derive(&[b"remote-spmd-worker-1"]),
+            pool_id,
+            resources: inventory(1_000),
+            host: host_inventory(),
+        },
+        WorkerSpec {
+            id: WorkerId::derive(&[b"remote-spmd-worker-2"]),
+            pool_id,
+            resources: inventory(1_000),
+            host: host_inventory(),
+        },
+    ];
+    let run_key =
+        runmat_execution_artifact::encryption::RunKeyMaterial::from_entropy([19; 32]).unwrap();
+    let first_server = run_remote_worker_quic(
+        first_listener,
+        "run-remote-spmd",
+        workers[0].clone(),
+        17,
+        [21; 16],
+        run_key.clone(),
+        FrameLimits::default(),
+    );
+    let second_server = run_remote_worker_quic(
+        second_listener,
+        "run-remote-spmd",
+        workers[1].clone(),
+        17,
+        [22; 16],
+        run_key.clone(),
+        FrameLimits::default(),
+    );
+    let client = async {
+        let pool = RemotePoolDriver::new(
+            scope_id,
+            PoolSpec {
+                id: pool_id,
+                min_workers: 2,
+                max_workers: 2,
+                max_in_flight: 2,
+                resource_limit: inventory(2_000),
+            },
+            17,
+            program.bundle,
+        )
+        .unwrap();
+        for (ordinal, (worker, authority, certificate)) in [
+            (workers[0].clone(), first_authority, first_certificate),
+            (workers[1].clone(), second_authority, second_certificate),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let session_id = [u8::try_from(ordinal + 21).unwrap(); 16];
+            let channel = QuicRemoteWorkerChannel::connect(
+                super::RemoteWorkerChannelConfig {
+                    run_identity: "run-remote-spmd".into(),
+                    node_identity: format!("remote-spmd-node-{ordinal}"),
+                    worker,
+                    driver_fence: 17,
+                    session_id,
+                    run_key: run_key.clone(),
+                    limits: FrameLimits::default(),
+                },
+                &PinnedQuicEndpoint {
+                    authority,
+                    server_name: "runmat.execution".into(),
+                    certificate_der: certificate,
+                },
+            )
+            .await
+            .unwrap();
+            pool.add_worker(channel).await.unwrap();
+        }
+        let gang = GangHandle {
+            id: GangId::derive(&[b"remote-spmd-gang"]),
+            scope_id,
+            generation: 1,
+            pool: PoolHandle {
+                id: pool_id,
+                scope_id,
+                generation: 1,
+            },
+            labs: runmat_types::LabCount(2),
+        };
+        let completion = pool
+            .submit_spmd_gang(RemoteSpmdGangProgram {
+                gang,
+                region: program.region,
+                recipe: program.recipe,
+                artifact: program.artifact,
+                captures: Vec::new(),
+                requested_outputs: program.requested_outputs,
+                resources: request(),
+            })
+            .unwrap();
+        let result = completion.wait().await;
+        for worker in workers {
+            pool.remove_worker(worker.id, false).await.unwrap();
+        }
+        result
+    };
+    let (first, second, result) = tokio::join!(first_server, second_server, client);
+    first.unwrap();
+    second.unwrap();
+    result
+}
+
+fn inventory(cpu_millicores: u32) -> ResourceInventory {
+    ResourceInventory {
+        cpu_millicores,
+        memory_bytes: 3 * 1024 * 1024,
+        scratch_bytes: 3 * 1024 * 1024,
+        accelerators: Vec::new(),
+        capabilities: BTreeSet::from([Capability::ProcessIsolation]),
+    }
+}
+
+fn host_inventory() -> runmat_execution::host::ExecutionHostInventory {
+    runmat_core::RunMatSession::with_options(false, false)
+        .unwrap()
+        .execution_host_inventory(runmat_execution::security::ExecutionTrustTier::CustomerTrusted)
+        .unwrap()
+}
+
+fn host_requirement() -> runmat_execution::host::ExecutionHostRequirement {
+    runmat_execution::host::ExecutionHostRequirement::portable(
+        runmat_core::program_environment(runmat_core::CompatMode::Matlab),
+        runmat_types::CapabilitySet(BTreeSet::from([
+            runmat_types::CapabilityRequirement::HostRuntime,
+        ])),
+        runmat_types::InteropManifest::empty(),
+        BTreeSet::from([runmat_execution::security::ExecutionTrustTier::CustomerTrusted]),
+    )
+    .unwrap()
+}
+
+fn request() -> ResourceRequest {
+    ResourceRequest {
+        cpu_millicores: 1_000,
+        memory_bytes: 1024,
+        scratch_bytes: 1024,
+        max_wall_millis: 60_000,
+        max_artifact_bytes: 1024 * 1024,
+        max_egress_bytes: 1024 * 1024,
+        max_relay_bytes: 1024 * 1024,
+        accelerators: Vec::new(),
+        required_capabilities: BTreeSet::from([Capability::ProcessIsolation]),
+    }
+}
+
+fn accelerator_request() -> AcceleratorRequest {
+    AcceleratorRequest {
+        class: AcceleratorClass::new("gpu").unwrap(),
+        count: 1,
+        minimum_allocation_bytes: 1 << 20,
+        provider: Some(
+            runmat_accelerate_api::execution_provider_contract(
+                runmat_accelerate_api::RUNMAT_CUDA_PROVIDER_ID,
+                runmat_accelerate_api::RUNMAT_BUILTIN_PROVIDER_VERSION,
+                runmat_accelerate_api::ExecutionProviderContract::CudaNativeV1,
+            )
+            .unwrap(),
+        ),
+        required_features: BTreeSet::from([AcceleratorFeature::Compute]),
+    }
+}
+
+fn accelerator_device() -> AcceleratorDevice {
+    AcceleratorDevice {
+        id: AcceleratorDeviceId::new("device:remote-accelerator").unwrap(),
+        allocation_domain: runmat_execution::resource::AcceleratorAllocationDomainId::new(
+            "allocation:remote-accelerator",
+        )
+        .unwrap(),
+        class: AcceleratorClass::new("gpu").unwrap(),
+        provider: accelerator_request().provider.unwrap(),
+        max_allocation_bytes: 1 << 30,
+        features: BTreeSet::from([AcceleratorFeature::Compute]),
+        inventory_epoch: 9,
+    }
+}
+
+fn object_reference(authorization_scope: &str, bytes: &[u8]) -> runmat_execution::value::ValueRef {
+    runmat_execution::value::ValueRef {
+        schema_version: runmat_execution::schema::VALUE_PAYLOAD_SCHEMA_VERSION,
+        id: runmat_execution::identity::ValueId::derive(&[b"remote-execution-object", bytes]),
+        logical_digest: Digest::sha256(bytes),
+        encoded_length: bytes.len() as u64,
+        media_type: "application/vnd.runmat.test-object".into(),
+        value_schema: "runmat.test-object.v1".into(),
+        encryption_context: Digest::sha256(b"remote-object-context"),
+        kind: runmat_execution::value::ValueRefKind::ResultObject,
+        authorization_scope: authorization_scope.into(),
+        resident_fence: None,
+    }
+}
+
+fn submission(
+    scope_id: ExecutionScopeId,
+    pool_id: PoolId,
+    task_id: TaskId,
+    artifact_id: ArtifactId,
+) -> TaskSubmission {
+    TaskSubmission {
+        request: TaskRequest {
+            id: task_id,
+            scope_id,
+            pool_id,
+            program_artifact_id: artifact_id,
+            callable: Callable::for_program(
+                "remote-test",
+                &runmat_execution::ProgramCallable::semantic(ProgramFunctionId(0), None),
+            ),
+            invocation_context: runmat_execution::ProgramInvocationContext::Direct,
+            inputs: Vec::new(),
+            outputs: OutputContract {
+                requested_outputs: 1,
+            },
+            resources: request(),
+            host: host_requirement(),
+            retry: RetryPolicy::Never,
+            deadline_unix_millis: None,
+        },
+        dependencies: BTreeSet::new(),
+        priority: 0,
+    }
+}
+
+async fn program() -> (ProgramExecutionRequest, ArtifactId) {
+    let (program, artifact_id, _) = executable_bundle().await;
+    (program, artifact_id)
+}
+
+async fn executable_bundle() -> (ProgramExecutionRequest, ArtifactId, Vec<u8>) {
+    build_executable_bundle(false, Vec::new()).await
+}
+
+async fn executable_bundle_with_input() -> (ProgramExecutionRequest, ArtifactId, Vec<u8>) {
+    build_executable_bundle(true, Vec::new()).await
+}
+
+async fn parallel_region_bundle() -> (
+    ProgramExecutionRequest,
+    ArtifactId,
+    Vec<u8>,
+    runmat_vm::Bytecode,
+) {
+    let project_root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(project_root.path().join("src")).unwrap();
+    std::fs::write(
+        project_root.path().join("runmat.toml"),
+        "[package]\nname = \"remote-parfor\"\n[sources]\nroots = [\"src\"]\n",
+    )
+    .unwrap();
+    let source_text = r#"
+values = zeros(1, 4);
+task_seen = zeros(1, 4);
+worker_seen = zeros(1, 4);
+parfor index = 1:4
+  values(index) = index * 2;
+  task = getCurrentTask();
+  worker = getCurrentWorker();
+  task_seen(index) = task.ID == task.ID;
+  worker_seen(index) = worker.ID == worker.ID;
+end
+"#;
+    std::fs::write(
+        project_root.path().join("src/parallel_region.m"),
+        source_text,
+    )
+    .unwrap();
+    let project = runmat_package::build_frozen_project(
+        &project_root.path().join("runmat.toml"),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    let project_revision = project.revision();
+    let revision = ProgramRevision::new(
+        Digest::from_bytes(*project_revision.graph_digest.bytes()),
+        Digest::from_bytes(*project_revision.source_revision.bytes()),
+        runmat_core::program_environment(runmat_core::CompatMode::Matlab),
+    )
+    .unwrap();
+    let mut session = runmat_core::RunMatSession::with_options(false, false).unwrap();
+    session
+        .install_project_handoff(runmat_package::FrozenProjectHandoff::new(project.clone()))
+        .unwrap();
+    let unit = session
+        .compile_executable_unit(
+            runmat_core::ExecutableSource::new(
+                "remote-parfor",
+                "src/parallel_region.m",
+                source_text,
+            ),
+            Some(revision.clone()),
+        )
+        .await
+        .unwrap();
+    let envelope = unit.portable_envelope().unwrap();
+    let bytecode_payload = envelope
+        .component(runmat_execution::ExecutableComponentKind::Bytecode)
+        .expect("portable parallel product contains bytecode");
+    let bytecode: runmat_vm::Bytecode = serde_json::from_slice(&bytecode_payload.bytes).unwrap();
+    let region = bytecode
+        .parfor_regions
+        .first()
+        .expect("source compiles one parallel region");
+    let recipe = ProgramBuildRecipe {
+        schema_version: runmat_execution_artifact::PROGRAM_BUILD_RECIPE_SCHEMA_VERSION,
+        program_revision: revision,
+        entrypoint: ProgramCallable::parallel_region(region.contract.id).recipe_entrypoint(),
+        outputs: OutputContract {
+            requested_outputs: 1,
+        },
+        execution_mode: "interpreter".into(),
+        target: runmat_execution_artifact::ProgramTarget::portable("remote-parfor-test"),
+        interop: runmat_types::InteropManifest::empty(),
+        accelerators: Vec::new(),
+        features: BTreeSet::new(),
+        compile_options: BTreeSet::new(),
+        source_objects: Vec::new(),
+        expected_artifact_id: None,
+    };
+    let executable_bytes = runmat_vm::encode_interpreter_script_v2(&bytecode).unwrap();
+    let artifact = ProgramArtifact::materialize(
+        &recipe,
+        ExecutableForm::InterpreterScriptV2,
+        executable_bytes,
+    )
+    .unwrap();
+    let bundle = ExecutionBundleBuilder::native(&project, recipe.program_revision.clone())
+        .unwrap()
+        .with_materialized_program(
+            recipe.clone(),
+            ExecutableForm::InterpreterScriptV2,
+            artifact.executable_bytes.clone(),
+        )
+        .build()
+        .unwrap();
+    let recipe = bundle.manifest.recipes.first().cloned().unwrap();
+    let artifact = bundle.manifest.artifacts.first().cloned().unwrap();
+    let artifact_id = ArtifactId::derive(&[artifact.id.0.bytes()]);
+    let mut bundle_bytes = Vec::new();
+    write_bundle(&bundle, &mut bundle_bytes, ArchiveLimits::default()).unwrap();
+
+    let mut arguments = Vec::with_capacity(region.input_variables().count() + 1);
+    let iterations = (1..=4)
+        .map(|value| runmat_value::Value::Num(f64::from(value)))
+        .collect::<Vec<_>>();
+    arguments.push(runmat_value::Value::Cell(
+        runmat_value::CellArray::new(iterations, 1, 4).unwrap(),
+    ));
+    arguments.extend(region.input_variables().map(|variable| {
+        let name = bytecode
+            .var_names
+            .get(&variable.slot)
+            .expect("parallel input has a source binding");
+        assert!(matches!(
+            name.as_str(),
+            "values" | "task_seen" | "worker_seen"
+        ));
+        runmat_value::Value::Tensor(runmat_value::Tensor::zeros2(1, 4))
+    }));
+    let arguments = arguments
+        .iter()
+        .map(runmat_runtime::execution::value_codec::encode_inline_value)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let callable = ProgramCallable::parallel_region(region.contract.id);
+    let program = ProgramExecutionRequest {
+        schema_version: PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
+        recipe,
+        artifact,
+        callable,
+        context: ProgramInvocationContext::ParallelTask {
+            task: runmat_execution::ParallelTaskContext {
+                region: region.contract.id,
+                chunk: ParallelChunk {
+                    ordinal: 0,
+                    start: 0,
+                    len: 4,
+                },
+                randomness: ParallelRandomnessContext::Inherit,
+            },
+        },
+        assignment: None,
+        job_id: None,
+        arguments,
+        requested_outputs: 1,
+    };
+    program.validate_for_portable_host().unwrap();
+    (program, artifact_id, bundle_bytes, bytecode)
+}
+
+async fn spmd_region_bundle() -> CompiledSpmdProgram {
+    compile_spmd_region_bundle(
+        r#"
+spmd
+  built = codistributed.build(uint64([2 * spmdIndex() - 1, 2 * spmdIndex()]), codistributor1d(uint32(2), uint64([2, 2]), uint64([1, 4])), "noCommunication");
+  total = spmdPlus(uint32(spmdIndex()));
+end
+"#,
+        2,
+    )
+    .await
+}
+
+async fn compile_spmd_region_bundle(
+    source_text: &str,
+    expected_outputs: usize,
+) -> CompiledSpmdProgram {
+    let project_root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(project_root.path().join("src")).unwrap();
+    std::fs::write(
+        project_root.path().join("runmat.toml"),
+        "[package]\nname = \"remote-spmd\"\n[sources]\nroots = [\"src\"]\n",
+    )
+    .unwrap();
+    std::fs::write(project_root.path().join("src/remote_spmd.m"), source_text).unwrap();
+    let project = runmat_package::build_frozen_project(
+        &project_root.path().join("runmat.toml"),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    let project_revision = project.revision();
+    let revision = ProgramRevision::new(
+        Digest::from_bytes(*project_revision.graph_digest.bytes()),
+        Digest::from_bytes(*project_revision.source_revision.bytes()),
+        runmat_core::program_environment(runmat_core::CompatMode::Matlab),
+    )
+    .unwrap();
+    let mut session = runmat_core::RunMatSession::with_options(false, false).unwrap();
+    session
+        .install_project_handoff(runmat_package::FrozenProjectHandoff::new(project.clone()))
+        .unwrap();
+    let unit = session
+        .compile_executable_unit(
+            runmat_core::ExecutableSource::new("remote-spmd", "src/remote_spmd.m", source_text),
+            Some(revision.clone()),
+        )
+        .await
+        .unwrap();
+    let envelope = unit.portable_envelope().unwrap();
+    let bytecode_payload = envelope
+        .component(runmat_execution::ExecutableComponentKind::Bytecode)
+        .expect("portable SPMD product contains bytecode");
+    let bytecode: runmat_vm::Bytecode = serde_json::from_slice(&bytecode_payload.bytes).unwrap();
+    let region = bytecode.spmd_regions.first().unwrap();
+    assert!(
+        region.captures.is_empty(),
+        "unexpected SPMD captures: {:?}",
+        region
+            .captures
+            .iter()
+            .map(|capture| (bytecode.var_names.get(&capture.slot), capture.slot))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(region.outputs.len(), expected_outputs);
+    let region_id = region.contract.id;
+    let recipe = ProgramBuildRecipe {
+        schema_version: runmat_execution_artifact::PROGRAM_BUILD_RECIPE_SCHEMA_VERSION,
+        program_revision: revision,
+        entrypoint: ProgramCallable::spmd_region(region_id).recipe_entrypoint(),
+        outputs: OutputContract {
+            requested_outputs: u16::try_from(expected_outputs).unwrap(),
+        },
+        execution_mode: "interpreter".into(),
+        target: runmat_execution_artifact::ProgramTarget::portable("remote-spmd-test"),
+        interop: runmat_types::InteropManifest::empty(),
+        accelerators: Vec::new(),
+        features: BTreeSet::new(),
+        compile_options: BTreeSet::new(),
+        source_objects: Vec::new(),
+        expected_artifact_id: None,
+    };
+    let artifact = ProgramArtifact::materialize(
+        &recipe,
+        ExecutableForm::InterpreterScriptV2,
+        runmat_vm::encode_interpreter_script_v2(&bytecode).unwrap(),
+    )
+    .unwrap();
+    let bundle = ExecutionBundleBuilder::native(&project, recipe.program_revision.clone())
+        .unwrap()
+        .with_materialized_program(
+            recipe.clone(),
+            ExecutableForm::InterpreterScriptV2,
+            artifact.executable_bytes.clone(),
+        )
+        .build()
+        .unwrap();
+    let recipe = bundle.manifest.recipes.first().cloned().unwrap();
+    let artifact = bundle.manifest.artifacts.first().cloned().unwrap();
+    let mut bytes = Vec::new();
+    write_bundle(&bundle, &mut bytes, ArchiveLimits::default()).unwrap();
+    CompiledSpmdProgram {
+        recipe,
+        artifact,
+        region: region_id,
+        bundle: bytes,
+        requested_outputs: u16::try_from(expected_outputs).unwrap(),
+    }
+}
+
+async fn build_executable_bundle(
+    accepts_input: bool,
+    accelerators: Vec<runmat_execution::resource::AcceleratorRequest>,
+) -> (ProgramExecutionRequest, ArtifactId, Vec<u8>) {
+    let project_root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(project_root.path().join("src")).unwrap();
+    std::fs::write(
+        project_root.path().join("runmat.toml"),
+        "[package]\nname = \"remote-pool\"\n[sources]\nroots = [\"src\"]\n",
+    )
+    .unwrap();
+    let source_text = if accepts_input {
+        "function y = answer(x); y = x; end\n"
+    } else {
+        "function y = answer(); y = 42; end\n"
+    };
+    std::fs::write(project_root.path().join("src/answer.m"), source_text).unwrap();
+    let project = runmat_package::build_frozen_project(
+        &project_root.path().join("runmat.toml"),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    let project_revision = project.revision();
+    let revision = ProgramRevision::new(
+        Digest::from_bytes(*project_revision.graph_digest.bytes()),
+        Digest::from_bytes(*project_revision.source_revision.bytes()),
+        runmat_core::program_environment(runmat_core::CompatMode::Matlab),
+    )
+    .unwrap();
+    let mut session = runmat_core::RunMatSession::with_options(false, false).unwrap();
+    session
+        .install_project_handoff(runmat_package::FrozenProjectHandoff::new(project.clone()))
+        .unwrap();
+    let unit = session
+        .compile_executable_unit(
+            runmat_core::ExecutableSource::new("root", "src/answer.m", source_text),
+            Some(revision.clone()),
+        )
+        .await
+        .unwrap();
+    let envelope = unit.portable_envelope_for(Some("answer")).unwrap();
+    let function = usize::try_from(envelope.manifest.identity.entrypoint_function.0).unwrap();
+    let entrypoint = envelope.manifest.identity.entrypoint.clone();
+    let recipe = ProgramBuildRecipe {
+        schema_version: runmat_execution_artifact::PROGRAM_BUILD_RECIPE_SCHEMA_VERSION,
+        program_revision: revision.clone(),
+        entrypoint,
+        outputs: OutputContract {
+            requested_outputs: 1,
+        },
+        execution_mode: "interpreter".into(),
+        target: runmat_execution_artifact::ProgramTarget::portable("remote-pool-test"),
+        interop: runmat_types::InteropManifest::empty(),
+        accelerators,
+        features: BTreeSet::new(),
+        compile_options: BTreeSet::new(),
+        source_objects: Vec::new(),
+        expected_artifact_id: None,
+    };
+    let executable_bytes = envelope.canonical_bytes().unwrap();
+    let artifact =
+        ProgramArtifact::materialize(&recipe, ExecutableForm::ExecutableUnitV3, executable_bytes)
+            .unwrap();
+    let bundle = ExecutionBundleBuilder::native(&project, recipe.program_revision.clone())
+        .unwrap()
+        .with_compiled_package_closure()
+        .with_materialized_program(
+            recipe.clone(),
+            ExecutableForm::ExecutableUnitV3,
+            artifact.executable_bytes.clone(),
+        )
+        .build()
+        .unwrap();
+    assert!(!bundle.requires_source_project());
+    assert!(bundle.objects.is_empty());
+    assert!(bundle.manifest.sources.is_empty());
+    let recipe = bundle.manifest.recipes.first().cloned().unwrap();
+    let artifact = bundle.manifest.artifacts.first().cloned().unwrap();
+    let artifact_id = ArtifactId::derive(&[artifact.id.0.bytes()]);
+    let mut bundle_bytes = Vec::new();
+    write_bundle(&bundle, &mut bundle_bytes, ArchiveLimits::default()).unwrap();
+    let program = ProgramExecutionRequest {
+        schema_version: PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
+        recipe,
+        artifact,
+        callable: ProgramCallable::semantic(
+            ProgramFunctionId(u32::try_from(function).expect("portable function id")),
+            None,
+        ),
+        context: runmat_execution::ProgramInvocationContext::Direct,
+        assignment: None,
+        job_id: None,
+        arguments: Vec::new(),
+        requested_outputs: 1,
+    };
+    (program, artifact_id, bundle_bytes)
+}
+
+fn bundle_receipt(bundle_digest: Digest, bytes: &[u8]) -> RemoteBundleReceipt {
+    let bundle = runmat_execution_artifact::archive::read_bundle(
+        bytes,
+        runmat_execution_artifact::archive::ArchiveLimits::default(),
+    )
+    .unwrap();
+    RemoteBundleReceipt {
+        bundle_digest,
+        bundle_identity: bundle.identity().unwrap(),
+        project_revision: bundle.manifest.project_revision,
+        stored_bytes: bytes.len() as u64,
+    }
+}

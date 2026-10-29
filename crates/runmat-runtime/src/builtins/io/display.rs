@@ -1,31 +1,26 @@
-//! MATLAB-compatible `display` builtin (feature 013-display-formatting).
-//!
-//! Behavioural source: approved clean-room export `display` 0.2.0
-//! (`specs/013-display-formatting/provenance.md`). The normative surface is
-//! the byte-exact command-window text for the three observed cases:
-//! a real scalar (`"    42\n\n"`), a real row vector
-//! (`"     1     2     3\n\n"`, contiguous width-6 right-aligned fields)
-//! and a char row (`"hi\n"`, no quotes, no indent, no trailing blank line).
-//! All other value kinds are rendered by documented independent choice:
-//! they delegate to the `disp` builtin's rendering followed by one blank
-//! line. The two-argument form `display(X, name)` is rejected (recorded
-//! human decision at the feature gate; the form is unapproved in the
-//! export and no header formatting may be invented).
+//! MATLAB-compatible `display` builtin for Command Window variable output.
+#[cfg(test)]
+use runmat_types::MemberAccess;
 
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Tensor, Value,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinIntegerBackendRule,
+    BuiltinIntegerCapabilityDescriptor, BuiltinIntegerComputationDomain,
+    BuiltinIntegerInputAvailability, BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule,
+    BuiltinIntegerOverflowRule, BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule,
+    BuiltinOutputMode, BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType,
+    BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
-use crate::builtins::strings::common::char_row_to_string;
-use crate::console::{record_console_output, ConsoleStream};
+use crate::console::{record_console_line, ConsoleStream};
 use crate::gather_if_needed_async;
+
+use super::disp::{empty_return_value, format_for_display};
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::io::display")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -54,60 +49,73 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     notes: "Side-effecting sink; excluded from fusion planning.",
 };
 
-/// Minimum field width (in characters) for the numeric display layout.
-/// Derived from the observed cases: `42` renders as a 6-character
-/// right-aligned field and `[1 2 3]` as three contiguous 6-character
-/// right-aligned fields with no separator between them.
-const NUMERIC_MIN_FIELD_WIDTH: usize = 6;
-
-const DISPLAY_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "ans",
-    ty: BuiltinParamType::NumericArray,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Empty matrix placeholder returned by sink invocation.",
-}];
 const DISPLAY_INPUTS_VALUE: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "X",
     ty: BuiltinParamType::Any,
     arity: BuiltinParamArity::Required,
     default: None,
-    description: "Value to display in the Command Window.",
+    description: "Value to display with a variable-name header.",
 }];
+
 const DISPLAY_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
     label: "display(X)",
     inputs: &DISPLAY_INPUTS_VALUE,
-    outputs: &DISPLAY_OUTPUT,
+    outputs: &[],
 }];
-const DISPLAY_ERROR_NAME_UNSUPPORTED: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.DISPLAY.ARG_UNSUPPORTED",
-    identifier: None,
-    when: "A second argument is passed to display.",
-    message: "display: the two-argument form is not yet specified",
+
+const DISPLAY_ERROR_ARG_CONFIG: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.DISPLAY.ARG_CONFIG",
+    identifier: Some("RunMat:display:TooManyInputs"),
+    when: "Too many input arguments are passed to display.",
+    message: "display: too many input arguments",
 };
+
 const DISPLAY_ERROR_GATHER: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     code: "RM.DISPLAY.GATHER",
-    identifier: None,
+    identifier: Some("RunMat:display:GatherFailed"),
     when: "Input value cannot be gathered onto the host for rendering.",
     message: "display: failed to gather value for display",
 };
-const DISPLAY_ERROR_RENDER: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.DISPLAY.RENDER",
-    identifier: None,
-    when: "Delegated rendering of an unobserved value kind fails.",
-    message: "display: failed to render value",
+const DISPLAY_ERROR_TOO_MANY_OUTPUTS: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.DISPLAY.TOO_MANY_OUTPUTS",
+    identifier: Some("RunMat:display:TooManyOutputs"),
+    when: "An output is requested from display.",
+    message: "display does not return output arguments",
 };
+
 const DISPLAY_ERRORS: [BuiltinErrorDescriptor; 3] = [
-    DISPLAY_ERROR_NAME_UNSUPPORTED,
+    DISPLAY_ERROR_ARG_CONFIG,
     DISPLAY_ERROR_GATHER,
-    DISPLAY_ERROR_RENDER,
+    DISPLAY_ERROR_TOO_MANY_OUTPUTS,
 ];
+
 pub const DISPLAY_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &DISPLAY_SIGNATURES,
     output_mode: BuiltinOutputMode::Fixed,
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &DISPLAY_ERRORS,
 };
+
+const DISPLAY_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "X",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
+        notes: "Every integer class is displayed exactly through the variable-aware display path unless class-specific display or disp dispatch handles the object.",
+    }];
+
+pub const DISPLAY_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 1] =
+    [BuiltinIntegerCapabilityDescriptor {
+        form: "display(X)",
+        inputs: &DISPLAY_INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::Structural,
+        output_class: BuiltinIntegerOutputClassRule::NotApplicable,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::FunctionSpecific,
+        notes: "display is a no-output host rendering sink with class-method dispatch. Resident integer arrays gather through exact typed provider download before the shared formatter runs.",
+    }];
 
 fn display_error(error: &'static BuiltinErrorDescriptor) -> crate::RuntimeError {
     display_error_with(error, error.message)
@@ -127,290 +135,446 @@ fn display_error_with(
 #[runtime_builtin(
     name = "display",
     category = "io",
-    summary = "Display a value in the command window.",
-    keywords = "display,disp,print,format,gpu",
+    summary = "Display values with a variable-name header.",
+    keywords = "display,disp,print,object,gpu",
     sink = true,
     accel = "sink",
     suppress_auto_output = true,
     type_resolver(crate::builtins::io::type_resolvers::disp_type),
     descriptor(crate::builtins::io::display::DISPLAY_DESCRIPTOR),
+    integer_capabilities(crate::builtins::io::display::DISPLAY_INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::io::display"
 )]
-async fn display_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResult<Value> {
+pub async fn display_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResult<Value> {
+    if matches!(crate::output_count::current_output_count(), Some(n) if n > 0) {
+        return Err(display_error(&DISPLAY_ERROR_TOO_MANY_OUTPUTS));
+    }
     if !rest.is_empty() {
-        // FR-013-06 / recorded gate decision: display(X, name) is unapproved
-        // in the export; reject rather than invent header formatting.
-        return Err(display_error(&DISPLAY_ERROR_NAME_UNSUPPORTED));
+        return Err(display_error(&DISPLAY_ERROR_ARG_CONFIG));
+    }
+
+    if dispatch_custom_display_method(&value).await? {
+        return Ok(empty_return_value());
+    }
+    if dispatch_custom_disp_method(&value).await? {
+        return Ok(empty_return_value());
     }
 
     let host_value = gather_if_needed_async(&value)
         .await
         .map_err(|e| display_error_with(&DISPLAY_ERROR_GATHER, format!("display: {e}")))?;
-
-    match format_display_text(&host_value) {
-        Some(text) => record_console_output(ConsoleStream::Stdout, text),
-        None => {
-            // Documented independent choice (spec Unresolved behaviour):
-            // unobserved value kinds delegate to disp's rendering (which
-            // records its text ending in exactly one newline) followed by
-            // one blank line. disp itself is not modified by this feature.
-            crate::call_builtin_async("disp", std::slice::from_ref(&host_value))
-                .await
-                .map_err(|e| display_error_with(&DISPLAY_ERROR_RENDER, format!("display: {e}")))?;
-            record_console_output(ConsoleStream::Stdout, "\n");
-        }
+    let lines = format_for_display(&host_value);
+    if !lines.is_empty() {
+        let body = match display_label() {
+            Some(label) => format_display_body(&label, &host_value, &lines),
+            None => lines.join("\n"),
+        };
+        record_console_line(ConsoleStream::Stdout, body);
     }
-
     Ok(empty_return_value())
 }
 
-/// Pure formatter for the value kinds whose `display` text is derived from
-/// the approved observations. Returns the COMPLETE emitted text, including
-/// every trailing newline, so tests can assert byte equality directly.
-/// Returns `None` for kinds outside the observed-derived surface; those
-/// delegate to `disp` rendering plus a trailing blank line (documented
-/// choice, non-normative).
-pub(crate) fn format_display_text(value: &Value) -> Option<String> {
+async fn dispatch_custom_display_method(value: &Value) -> crate::BuiltinResult<bool> {
     match value {
-        // Observed case `scalar-text`: display(42) -> "    42\n\n".
-        Value::Num(n) => Some(scalar_text(&format!("{}", Value::Num(*n)))),
-        // Real double tensors generalise the observed layout. 1x1 tensors
-        // take the scalar path; 2-D tensors take the grid path (observed
-        // case `vector-text` for 1x3). Empty and N-D tensors delegate.
-        Value::Tensor(tensor) => {
-            if tensor.data.len() == 1 {
-                return Some(scalar_text(&format!("{}", Value::Num(tensor.data[0]))));
+        Value::Object(_) | Value::HandleObject(_) => {}
+        _ => return Ok(false),
+    }
+    let args = vec![value.clone()];
+    crate::dispatcher::try_call_registered_instance_method("display", &args, Some(0))
+        .await
+        .map(|result| result.is_some())
+}
+
+async fn dispatch_custom_disp_method(value: &Value) -> crate::BuiltinResult<bool> {
+    match value {
+        Value::Object(_) | Value::HandleObject(_) => {}
+        _ => return Ok(false),
+    }
+    let args = vec![value.clone()];
+    crate::dispatcher::try_call_registered_instance_method("disp", &args, Some(0))
+        .await
+        .map(|result| result.is_some())
+}
+
+fn display_label() -> Option<String> {
+    match crate::callsite::arg_text(0) {
+        Some(text) => is_simple_identifier(text.trim()).then(|| text.trim().to_string()),
+        None => Some("ans".to_string()),
+    }
+}
+
+fn is_simple_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn format_display_body(label: &str, value: &Value, lines: &[String]) -> String {
+    if let Some(summary) = implicit_integer_summary(value) {
+        return format!("{label} = {summary}\n{}", lines.join("\n"));
+    }
+    match lines {
+        [] => format!("{label} ="),
+        [single] if !single.contains('\n') => format!("{label} = {single}"),
+        _ => format!("{label} =\n{}", lines.join("\n")),
+    }
+}
+
+fn implicit_integer_summary(value: &Value) -> Option<String> {
+    match value {
+        Value::Int(value) => Some(value.class_name().to_string()),
+        Value::Tensor(tensor) if tensor.integer_storage().is_some() && !tensor.is_empty() => {
+            if tensor.len() == 1 {
+                return Some(tensor.numeric_dtype().class_name().to_string());
             }
-            let dims = canonical_dims(&tensor.shape);
-            if tensor.data.is_empty() || dims.len() > 2 || dims.contains(&0) {
-                return None;
-            }
-            let rows = dims[0];
-            let cols = dims.get(1).copied().unwrap_or(1);
-            Some(grid_text(rows, cols, |r, c| {
-                format!("{}", Value::Num(tensor.data[r + c * rows]))
-            }))
+            let shape = tensor.shape.as_slice();
+            let dimensions = shape
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join("×");
+            let kind = match shape {
+                [1, columns] if *columns > 1 => " row vector",
+                [rows, 1] if *rows > 1 => " column vector",
+                _ if shape.len() > 2 => " array",
+                _ => "",
+            };
+            Some(format!(
+                "{dimensions} {}{kind}",
+                tensor.numeric_dtype().class_name()
+            ))
         }
-        // Observed case `char-text`: display('hi') -> "hi\n" — no quotes,
-        // no indent, no trailing blank line. Multi-row and empty char
-        // arrays are unobserved; they reuse the same rule (one line per
-        // row, single trailing newline) as a documented choice.
-        Value::CharArray(array) => Some(char_text(array)),
         _ => None,
     }
 }
 
-/// Right-align a scalar field to the minimum numeric width and append the
-/// content newline plus the trailing blank line: `"    42\n\n"`.
-fn scalar_text(field: &str) -> String {
-    let width = field.chars().count().max(NUMERIC_MIN_FIELD_WIDTH);
-    format!("{field:>width$}\n\n")
-}
-
-/// Render a 2-D grid as contiguous right-aligned fields (minimum width 6,
-/// no separator between fields), one line per row, then a blank line:
-/// `"     1     2     3\n\n"`.
-fn grid_text<F>(rows: usize, cols: usize, mut field_at: F) -> String
-where
-    F: FnMut(usize, usize) -> String,
-{
-    let mut grid = vec![vec![String::new(); cols]; rows];
-    let mut widths = vec![NUMERIC_MIN_FIELD_WIDTH; cols];
-    for (c, width) in widths.iter_mut().enumerate() {
-        for (r, row) in grid.iter_mut().enumerate() {
-            let field = field_at(r, c);
-            let len = field.chars().count();
-            if len > *width {
-                *width = len;
-            }
-            row[c] = field;
-        }
-    }
-
-    let mut text = String::new();
-    for row in &grid {
-        for (c, field) in row.iter().enumerate() {
-            let width = widths[c];
-            text.push_str(&format!("{field:>width$}"));
-        }
-        text.push('\n');
-    }
-    text.push('\n');
-    text
-}
-
-/// Char arrays: one bare line per row, single trailing newline, no blank
-/// line.
-fn char_text(array: &CharArray) -> String {
-    if array.rows == 0 || array.cols == 0 {
-        return "\n".to_string();
-    }
-    let mut text = String::new();
-    for row in 0..array.rows {
-        text.push_str(&char_row_to_string(array, row));
-        text.push('\n');
-    }
-    text
-}
-
-fn canonical_dims(shape: &[usize]) -> Vec<usize> {
-    match shape.len() {
-        0 => vec![1, 1],
-        1 => vec![1, shape[0]],
-        _ => shape.to_vec(),
-    }
-}
-
-fn empty_return_value() -> Value {
-    Value::Tensor(Tensor::zeros(vec![0, 0]))
-}
-
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    use crate::builtins::common::test_support;
-    use runmat_builtins::{IntValue, StructValue, Tensor};
+    use crate::console::{reset_thread_buffer, take_thread_buffer};
+    use futures::executor::block_on;
+    use runmat_types::{SourceId, Span};
+    use runmat_value::IntegerStorage;
+    use runmat_value::{IntValue, ObjectInstance, Tensor};
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
-    fn captured_display(value: Value) -> String {
-        crate::console::reset_thread_buffer();
-        futures::executor::block_on(display_builtin(value, Vec::new())).expect("display");
-        crate::console::take_thread_buffer()
+    const DISPLAY_HOOK_OBJECT: runmat_types::StaticClassIdentity =
+        runmat_types::StaticClassIdentity::new("DisplayHookObject");
+    const DISP_FALLBACK_OBJECT: runmat_types::StaticClassIdentity =
+        runmat_types::StaticClassIdentity::new("DispFallbackObject");
+    const DISPLAY_HOOK_CHILD: runmat_types::StaticClassIdentity =
+        runmat_types::StaticClassIdentity::new("DisplayHookChild");
+
+    fn span_of(source: &str, needle: &str) -> Span {
+        let start = source.find(needle).expect("needle present");
+        Span {
+            start,
+            end: start + needle.len(),
+        }
+    }
+
+    fn stdout_text() -> String {
+        take_thread_buffer()
             .into_iter()
+            .filter(|entry| entry.stream == ConsoleStream::Stdout)
             .map(|entry| entry.text)
-            .collect()
+            .collect::<String>()
     }
 
     #[test]
-    fn display_descriptor_signatures_cover_primary_form() {
+    fn display_descriptor_signatures_cover_core_forms() {
         let labels: Vec<&str> = DISPLAY_DESCRIPTOR
             .signatures
             .iter()
             .map(|sig| sig.label)
             .collect();
         assert!(labels.contains(&"display(X)"));
+        assert!(DISPLAY_DESCRIPTOR.signatures[0].outputs.is_empty());
     }
 
-    // FR-013-03 [display.formatted-text / scalar-text]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn display_scalar_text_matches_observed() {
-        assert_eq!(
-            format_display_text(&Value::Num(42.0)),
-            Some("    42\n\n".to_string())
-        );
+    fn display_rejects_requested_output() {
+        let _outputs = crate::output_count::push_output_count(Some(1));
+        let err = block_on(display_builtin(Value::Num(1.0), Vec::new())).unwrap_err();
+        assert_eq!(err.identifier(), Some("RunMat:display:TooManyOutputs"));
     }
 
-    // FR-013-04 [display.formatted-text / vector-text]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn display_vector_text_matches_observed() {
-        let tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![1, 3]).expect("tensor");
-        assert_eq!(
-            format_display_text(&Value::Tensor(tensor)),
-            Some("     1     2     3\n\n".to_string())
-        );
-    }
-
-    // FR-013-05 [display.formatted-text / char-text]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn display_char_text_matches_observed() {
-        let array = CharArray::new_row("hi");
-        assert_eq!(
-            format_display_text(&Value::CharArray(array)),
-            Some("hi\n".to_string())
-        );
-    }
-
-    // FR-013-02 + FR-013-03: end-to-end console capture, byte-exact.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn display_scalar_console_capture_matches_observed() {
-        assert_eq!(captured_display(Value::Num(42.0)), "    42\n\n");
-    }
-
-    // FR-013-02 + FR-013-04: end-to-end console capture, byte-exact.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn display_vector_console_capture_matches_observed() {
-        let tensor = Tensor::new(vec![1.0, 2.0, 3.0], vec![1, 3]).expect("tensor");
-        assert_eq!(
-            captured_display(Value::Tensor(tensor)),
-            "     1     2     3\n\n"
-        );
-    }
-
-    // FR-013-02 + FR-013-05: end-to-end console capture, byte-exact.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn display_char_console_capture_matches_observed() {
-        let array = CharArray::new_row("hi");
-        assert_eq!(captured_display(Value::CharArray(array)), "hi\n");
-    }
-
-    // FR-013-06, unresolved_choice: the two-argument form is unapproved in
-    // the export and rejected per the recorded gate decision.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn display_rejects_second_argument_unresolved_choice() {
-        let err = futures::executor::block_on(display_builtin(
-            Value::Num(1.0),
-            vec![Value::String("x".into())],
+    fn display_retains_bare_double_empty_representation() {
+        reset_thread_buffer();
+        block_on(display_builtin(
+            Value::Tensor(Tensor::zeros(vec![0, 0])),
+            Vec::new(),
         ))
-        .expect_err("expected error");
-        assert!(err.contains("two-argument form"));
+        .unwrap();
+        assert_eq!(stdout_text(), "ans = []\n");
     }
 
-    // FR-013-06, unresolved_choice: no variable-name header is ever emitted
-    // (all observed cases pass literals and show no header).
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn display_emits_no_name_header_unresolved_choice() {
-        let text = captured_display(Value::Num(42.0));
-        assert!(!text.contains('='));
+    fn display_reports_typed_integer_empty_class_and_shape() {
+        reset_thread_buffer();
+        let tensor =
+            Tensor::new_integer(IntegerStorage::U8(Vec::new()), vec![0, 5]).expect("typed empty");
+        block_on(display_builtin(Value::Tensor(tensor), Vec::new())).unwrap();
+        assert_eq!(stdout_text(), "ans = 0×5 empty uint8 matrix\n");
     }
 
-    // FR-013-06, unresolved_choice: unobserved kinds delegate to disp's
-    // rendering plus one trailing blank line.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn display_struct_delegates_to_disp_with_trailing_blank_unresolved_choice() {
-        let mut sv = StructValue::new();
-        sv.insert("msg", Value::String("ok".into()));
-        assert_eq!(captured_display(Value::Struct(sv)), "    msg: \"ok\"\n\n");
+    fn display_formats_wide_integer_exactly_under_ans_header() {
+        reset_thread_buffer();
+        block_on(display_builtin(
+            Value::Int(IntValue::U64(u64::MAX)),
+            Vec::new(),
+        ))
+        .expect("display");
+        assert_eq!(stdout_text(), format!("ans = uint64\n{}\n", u64::MAX));
     }
 
-    // FR-013-06, unresolved_choice: integer scalars are unobserved and take
-    // the delegation path (disp rendering + blank line).
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn display_int_delegates_to_disp_unresolved_choice() {
-        assert_eq!(format_display_text(&Value::Int(IntValue::I32(7))), None);
-        assert_eq!(captured_display(Value::Int(IntValue::I32(7))), "7\n\n");
+    fn display_reports_integer_row_vector_class_and_shape() {
+        reset_thread_buffer();
+        let tensor = Tensor::new_integer(
+            IntegerStorage::U64(vec![72_057_594_037_539_387, 72_057_594_037_927_935]),
+            vec![1, 2],
+        )
+        .expect("integer row vector");
+        block_on(display_builtin(Value::Tensor(tensor), Vec::new())).unwrap();
+        assert_eq!(
+            stdout_text(),
+            "ans = 1×2 uint64 row vector\n72057594037539387  72057594037927935\n"
+        );
     }
 
-    // FR-013-02: GPU tensors are gathered before rendering; the gathered
-    // 1x2 double takes the observed-derived grid layout.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn display_accepts_gpu_tensor() {
-        test_support::with_test_provider(|provider| {
-            let tensor = Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("tensor");
-            let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
-                shape: &tensor.shape,
-            };
-            let handle = provider.upload(&view).expect("upload");
-            crate::console::reset_thread_buffer();
-            let result =
-                futures::executor::block_on(display_builtin(Value::GpuTensor(handle), Vec::new()))
-                    .expect("display should succeed");
-            assert_eq!(result, Value::Tensor(Tensor::zeros(vec![0, 0])));
-            let text: String = crate::console::take_thread_buffer()
-                .into_iter()
-                .map(|entry| entry.text)
-                .collect();
-            assert_eq!(text, "     1     2\n\n");
+    #[cfg(feature = "wgpu")]
+    fn display_gathers_wgpu_integer_tensor_exactly() {
+        let _ = runmat_accelerate::backend::wgpu::provider::register_wgpu_provider(
+            runmat_accelerate::backend::wgpu::provider::WgpuProviderOptions::default(),
+        )
+        .expect("register wgpu provider");
+        let provider = runmat_accelerate_api::provider().expect("wgpu provider");
+        let values = [(1_u64 << 53) + 1, u64::MAX];
+        let handle = provider
+            .upload_integer(&runmat_accelerate_api::HostIntegerTensorView {
+                data: runmat_accelerate_api::HostIntegerDataView::U64(&values),
+                shape: &[1, 2],
+            })
+            .expect("upload integer");
+        reset_thread_buffer();
+        block_on(display_builtin(Value::GpuTensor(handle), Vec::new())).expect("display");
+        let text = stdout_text();
+        assert!(text.contains("9007199254740993"));
+        assert!(text.contains("18446744073709551615"));
+    }
+
+    #[test]
+    fn display_uses_simple_callsite_variable_name() {
+        let source = "display(alpha);";
+        let _catalog_guard = crate::source_context::replace_source_catalog(vec![(
+            SourceId(81),
+            "/tmp/display_name.m".to_string(),
+            source.to_string(),
+        )]);
+        let _callsite_guard = crate::callsite::push_callsite(
+            Some(SourceId(81)),
+            Some(vec![span_of(source, "alpha")]),
+        );
+
+        reset_thread_buffer();
+        let result = block_on(display_builtin(Value::Num(42.0), Vec::new())).expect("display");
+
+        assert_eq!(result, Value::Tensor(Tensor::zeros(vec![0, 0])));
+        assert_eq!(stdout_text(), "alpha = 42\n");
+    }
+
+    #[test]
+    fn display_expression_has_no_ans_header() {
+        let source = "display(alpha + 1);";
+        let _catalog_guard = crate::source_context::replace_source_catalog(vec![(
+            SourceId(82),
+            "/tmp/display_expr.m".to_string(),
+            source.to_string(),
+        )]);
+        let _callsite_guard = crate::callsite::push_callsite(
+            Some(SourceId(82)),
+            Some(vec![span_of(source, "alpha + 1")]),
+        );
+
+        reset_thread_buffer();
+        block_on(display_builtin(Value::Num(43.0), Vec::new())).expect("display");
+
+        assert_eq!(stdout_text(), "43\n");
+    }
+
+    #[test]
+    fn display_formats_multiline_values_under_header() {
+        reset_thread_buffer();
+        let tensor = Tensor::new(vec![1.0, 3.0, 2.0, 4.0], vec![2, 2]).expect("tensor");
+        block_on(display_builtin(Value::Tensor(tensor), Vec::new())).expect("display");
+
+        assert_eq!(stdout_text(), "ans =\n     1       2\n     3       4\n");
+    }
+
+    #[test]
+    fn display_dispatches_custom_object_display_method() {
+        let class_name = "DisplayHookObject".to_string();
+        crate::class_registry::register_class(crate::class_registry::RuntimeClass {
+            name: class_name.clone().into(),
+            parent: None,
+            properties: HashMap::new(),
+            methods: HashMap::from([(
+                "display".into(),
+                crate::class_registry::RuntimeMethod {
+                    name: "display".into(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_sealed: false,
+                    access: MemberAccess::Public,
+                    function_name: "DisplayHookObject.customDisplayImpl".into(),
+                    implicit_class_argument: None,
+                },
+            )]),
         });
+        let _resolver =
+            crate::user_functions::install_semantic_function_resolver(Some(Arc::new(|name| {
+                (name == "DisplayHookObject.customDisplayImpl").then_some(771)
+            })));
+        let _invoker = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
+            |function, args, requested_outputs| {
+                let args = args.to_vec();
+                Box::pin(async move {
+                    assert_eq!(function, 771);
+                    assert_eq!(requested_outputs, 0);
+                    assert!(
+                        matches!(args.first(), Some(Value::Object(object)) if object.class_name.is(DISPLAY_HOOK_OBJECT))
+                    );
+                    record_console_line(ConsoleStream::Stdout, "custom display");
+                    Ok(crate::sequence::ValueSequence::empty())
+                })
+            },
+        )));
+
+        reset_thread_buffer();
+        block_on(display_builtin(
+            Value::Object(ObjectInstance::new(class_name)),
+            Vec::new(),
+        ))
+        .expect("display");
+
+        assert_eq!(stdout_text(), "custom display\n");
+    }
+
+    #[test]
+    fn display_falls_back_to_overloaded_disp_method() {
+        let class_name = "DispFallbackObject".to_string();
+        crate::class_registry::register_class(crate::class_registry::RuntimeClass {
+            name: class_name.clone().into(),
+            parent: None,
+            properties: HashMap::new(),
+            methods: HashMap::from([(
+                "disp".into(),
+                crate::class_registry::RuntimeMethod {
+                    name: "disp".into(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_sealed: false,
+                    access: MemberAccess::Public,
+                    function_name: "DispFallbackObject.renderDisp".into(),
+                    implicit_class_argument: None,
+                },
+            )]),
+        });
+        let _resolver =
+            crate::user_functions::install_semantic_function_resolver(Some(Arc::new(|name| {
+                (name == "DispFallbackObject.renderDisp").then_some(773)
+            })));
+        let _invoker = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
+            |function, args, requested_outputs| {
+                let args = args.to_vec();
+                Box::pin(async move {
+                    assert_eq!(function, 773);
+                    assert_eq!(requested_outputs, 0);
+                    assert!(
+                        matches!(args.first(), Some(Value::Object(object)) if object.class_name.is(DISP_FALLBACK_OBJECT))
+                    );
+                    record_console_line(ConsoleStream::Stdout, "custom disp");
+                    Ok(crate::sequence::ValueSequence::empty())
+                })
+            },
+        )));
+        reset_thread_buffer();
+        block_on(display_builtin(
+            Value::Object(ObjectInstance::new(class_name)),
+            Vec::new(),
+        ))
+        .expect("display through disp");
+        assert_eq!(stdout_text(), "custom disp\n");
+    }
+
+    #[test]
+    fn display_dispatches_inherited_custom_object_display_method() {
+        let parent_class_name = "DisplayHookParent".to_string();
+        let child_class_name = "DisplayHookChild".to_string();
+        crate::class_registry::register_class(crate::class_registry::RuntimeClass {
+            name: parent_class_name.clone().into(),
+            parent: None,
+            properties: HashMap::new(),
+            methods: HashMap::from([(
+                "display".into(),
+                crate::class_registry::RuntimeMethod {
+                    name: "display".into(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_sealed: false,
+                    access: MemberAccess::Public,
+                    function_name: "DisplayHookParent.renderDisplay".into(),
+                    implicit_class_argument: None,
+                },
+            )]),
+        });
+        crate::class_registry::register_class(crate::class_registry::RuntimeClass {
+            name: child_class_name.clone().into(),
+            parent: Some(parent_class_name.into()),
+            properties: HashMap::new(),
+            methods: HashMap::new(),
+        });
+        let _resolver =
+            crate::user_functions::install_semantic_function_resolver(Some(Arc::new(|name| {
+                (name == "DisplayHookParent.renderDisplay").then_some(772)
+            })));
+        let _invoker = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
+            |function, args, requested_outputs| {
+                let args = args.to_vec();
+                Box::pin(async move {
+                    assert_eq!(function, 772);
+                    assert_eq!(requested_outputs, 0);
+                    assert!(
+                        matches!(args.first(), Some(Value::Object(object)) if object.class_name.is(DISPLAY_HOOK_CHILD))
+                    );
+                    record_console_line(ConsoleStream::Stdout, "inherited display");
+                    Ok(crate::sequence::ValueSequence::empty())
+                })
+            },
+        )));
+
+        reset_thread_buffer();
+        block_on(display_builtin(
+            Value::Object(ObjectInstance::new(child_class_name)),
+            Vec::new(),
+        ))
+        .expect("display");
+
+        assert_eq!(stdout_text(), "inherited display\n");
+    }
+
+    #[test]
+    fn display_rejects_extra_arguments() {
+        let err = block_on(display_builtin(Value::Num(1.0), vec![Value::Num(2.0)]))
+            .expect_err("extra argument should fail");
+        assert_eq!(err.identifier(), DISPLAY_ERROR_ARG_CONFIG.identifier);
     }
 }

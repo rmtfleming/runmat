@@ -1,10 +1,3 @@
----
-title: "Builtins"
-category: "Builtins"
-section: "6.1"
-last_updated: "May 28, 2026"
----
-
 # RunMat Runtime Builtin Library
 
 This matrix tracks the public builtin surface implemented by `runmat-runtime`.
@@ -46,7 +39,9 @@ For GPU execution details, see [GPU Acceleration & Fusion Engine](/docs/runtime/
 | done | `math/elementwise` | `abs`, `sign`, `real`, `imag`, `conj`, `angle` | yes | E | - | Complex helpers. |
 | done | `math/elementwise` | `exp`, `expm1`, `log`, `log1p`, `log10`, `log2`, `sqrt`, `hypot`, `pow2` | yes | E | - | Exponentials and roots. |
 | done | `math/elementwise` | `single`, `double`, `uint16` | yes | E | - | Numeric casting for scalars and arrays. |
-| done | `math/elementwise` | `plus`, `minus`, `times`, `rdivide`, `ldivide`, `power`, `gamma`, `factorial` | yes | E | - | Elementwise arithmetic and specials. |
+| done | `math/elementwise` | `plus`, `minus`, `times`, `rdivide`, `ldivide`, `power` | yes | E | - | Elementwise arithmetic. |
+| done | `math/elementwise/gamma-functions` | `gamma`, `gammaln` | yes | - | - | Gamma function and its natural logarithm. |
+| done | `math/discrete` | `factorial` | yes | - | - | Elementwise factorial with class-preserving saturation. |
 | done | `math/trigonometry` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` | yes | E | - | Trigonometric and hyperbolic functions. |
 | done | `math/rounding` | `round`, `floor`, `ceil`, `fix`, `mod`, `rem` | yes | E | - | MATLAB-style rounding and modulo behavior. |
 | done | `math/reduction` | `sum`, `prod`, `mean`, `median`, `min`, `max`, `any`, `all`, `std`, `var`, `cumsum`, `cumprod`, `cummin`, `cummax`, `diff`, `nnz` | yes | R | - | Reductions and cumulative operations. |
@@ -154,7 +149,7 @@ For GPU execution details, see [GPU Acceleration & Fusion Engine](/docs/runtime/
 | done | `io/interactive` | `input` | host | - | - | Prompted input, including text mode. |
 | done | `io/import` | `importdata`, `textscan` | host | - | - | Legacy text import with delimiter detection, formatted parsing, header text, column headers, and row labels. |
 | done | `io/audio` | `audioinfo` | host | - | - | Audio metadata inspection for WAV/RF64, FLAC, AIFF/AIFC, Ogg/Vorbis, and MP3 frame headers. |
-| done | `io/tabular` | `readtable`, `detectImportOptions`, `spreadsheetImportOptions`, `readmatrix`, `writematrix`, `writecell`, `csvread`, `csvwrite`, `dlmread`, `dlmwrite` | host | - | - | Tabular I/O; `readtable` imports delimited text and spreadsheet files as table variables with sheet/range/name/type options, and `writecell` exports heterogeneous cells to text or spreadsheets. |
+| done | `io/tabular` | `readtable`, `detectImportOptions`, `spreadsheetImportOptions`, `readmatrix`, `writematrix`, `writecell`, `xlsread`, `xlswrite`, `csvread`, `csvwrite`, `dlmread`, `dlmwrite` | host | - | - | Tabular I/O; `readtable` imports delimited text and spreadsheet files as table variables with sheet/range/name/type options, and `xlswrite`/`writecell` export spreadsheet-compatible data. |
 | done | `io/mat` | `save`, `load` | host | - | - | MAT-like persistence. |
 
 ## I/O - JSON, Networking, and Images
@@ -172,7 +167,7 @@ For GPU execution details, see [GPU Acceleration & Fusion Engine](/docs/runtime/
 
 | Status | Path | Names | GPU | Fusion | Backend | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| done | `plot/core` | `plot`, `scatter`, `scatterplot`, `semilogx`, `semilogy`, `loglog`, `bar`, `area`, `histogram`, `hist`, `stairs`, `stem`, `errorbar`, `quiver`, `patch`, `pie`, `subplot`, `figure`, `gcf`, `gca`, `hold`, `clf`, `cla`, `drawnow`, `print`, `get`, `set`, `isgraphics`, `ishandle`, `title`, `sgtitle`, `suptitle`, `xlabel`, `ylabel`, `zlabel`, `legend`, `xlim`, `ylim`, `zlim`, `axis`, `caxis`, `clim`, `xline`, `yline`, `text`, `grid`, `box`, `colormap`, `shading`, `colorbar` | host | - | - | Feature-gated through `plot-core` and backed by `runmat-plot`. |
+| done | `plot/core` | `plot`, `plotyy`, `scatter`, `scatterplot`, `semilogx`, `semilogy`, `loglog`, `bar`, `barh`, `area`, `histogram`, `hist`, `stairs`, `stem`, `errorbar`, `quiver`, `patch`, `pie`, `subplot`, `figure`, `groot`, `gcf`, `gca`, `axes`, `ancestor`, `hold`, `clf`, `cla`, `drawnow`, `print`, `saveas`, `savefig`, `openfig`, `hgsave`, `hgload`, `get`, `set`, `isgraphics`, `ishandle`, `title`, `subtitle`, `sgtitle`, `suptitle`, `xlabel`, `ylabel`, `zlabel`, `legend`, `xlim`, `ylim`, `zlim`, `xticks`, `yticks`, `xticklabels`, `yticklabels`, `xtickangle`, `ytickangle`, `xtickformat`, `ytickformat`, `xscale`, `yscale`, `linkaxes`, `zoom`, `pan`, `datacursormode`, `waitbar`, `opengl`, `axis`, `caxis`, `clim`, `xline`, `yline`, `text`, `grid`, `box`, `colormap`, `parula`, `colorcube`, `colororder`, `shading`, `colorbar` | host | - | - | Feature-gated through `plot-core` and backed by `runmat-plot`. |
 | done | `plot/3d` | `plot3`, `scatter3`, `surf`, `surfc`, `mesh`, `meshc`, `contour`, `contour3`, `contourf`, `fill3`, `heatmap`, `view` | host | - | - | Surface, contour, 3D, and heatmap plotting through `plot-core`. |
 
 ## Constants

@@ -1,22 +1,21 @@
 use crate::core::docs;
 use crate::core::position::{offset_to_position, position_to_offset};
 use crate::core::project::ProjectContext;
-use crate::core::semantic_tokens::{IdentifierRole, SemanticHint};
+use crate::core::semantic::model::{
+    AnalysisModel, FunctionSemantic, TextRange, VariableKind, VariableSymbol,
+};
 use lsp_types::{
     CompletionItem, Diagnostic, DiagnosticSeverity, DocumentSymbol, Hover, Location, Position,
     Range, SignatureHelp, Url,
 };
-use runmat_builtins::{self, BuiltinFunction, Constant, Type};
+use runmat_builtins::{self, BuiltinCompletionPolicy, BuiltinFunction, Type};
 use runmat_hir::{
-    CallKind, DefPath, FunctionKind, HirDiagnostic, HirDiagnosticSeverity, HirError,
-    LoweringContext, LoweringResult, ReferenceKind,
+    CallKind, DefPath, HirDiagnostic, HirDiagnosticSeverity, HirError, LoweringContext,
+    LoweringResult,
 };
 use runmat_lexer::{tokenize_detailed, SpannedToken, Token};
 pub use runmat_parser::CompatMode;
-use runmat_parser::{parse_with_options, ParserOptions};
 use runmat_vm::CompileError;
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -28,6 +27,16 @@ pub struct DocumentAnalysis {
     pub compile_error: Option<CompileError>,
     pub lowering: Option<LoweringResult>,
     pub semantic: Option<AnalysisModel>,
+    /// Diagnostics produced by the canonical frontend, including failures
+    /// before a semantic model can be constructed.
+    pub diagnostics: Vec<HirDiagnostic>,
+    /// Machine-readable name-resolution decisions, including the indexed
+    /// project source that justified a successful resolution.
+    pub resolution: Vec<runmat_static_analysis::frontend::ResolutionEvidence>,
+    /// Immutable graph/source identity used for this analysis, when the
+    /// document belongs to a package project.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub project_revision: Option<runmat_package::ProjectRevision>,
 }
 
 impl DocumentAnalysis {
@@ -54,25 +63,6 @@ pub struct SyntaxErrorInfo {
     pub position: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct TextRange {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl TextRange {
-    pub fn contains(&self, offset: usize) -> bool {
-        self.start <= offset && offset < self.end
-    }
-
-    pub fn to_lsp_range(self, text: &str) -> Range {
-        Range {
-            start: offset_to_position(text, self.start),
-            end: offset_to_position(text, self.end),
-        }
-    }
-}
-
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn analyze_document_with_compat(text: &str, compat: CompatMode) -> DocumentAnalysis {
     analyze_document_with_compat_and_source(text, compat, None)
@@ -84,63 +74,27 @@ pub fn analyze_document_with_compat_and_source(
     source_name: Option<&str>,
 ) -> DocumentAnalysis {
     let tokens = tokenize_detailed(text);
-    let known_project_symbols = discover_known_project_symbols(source_name);
-    match parse_with_options(text, ParserOptions::new(compat)) {
-        Ok(ast) => {
-            let mut lowering_context = LoweringContext::empty()
-                .with_runmat_extensions_enabled(compat.allows_runmat_extensions());
-            if !known_project_symbols.is_empty() {
-                lowering_context =
-                    lowering_context.with_known_project_symbols(&known_project_symbols);
-            }
-            let lowering = match runmat_hir::lower(&ast, &lowering_context) {
-                Ok(result) => result,
-                Err(err) => {
-                    return DocumentAnalysis {
-                        tokens,
-                        syntax_error: None,
-                        lowering_error: Some(err),
-                        compile_error: None,
-                        lowering: None,
-                        semantic: None,
-                    };
-                }
-            };
-            let compile_error = compile_error_for_lowering(&lowering);
-
-            let semantic = build_semantic_model(&lowering, &tokens, text);
-
-            DocumentAnalysis {
-                tokens,
-                syntax_error: None,
-                lowering_error: None,
-                compile_error,
-                lowering: Some(lowering),
-                semantic: Some(semantic),
-            }
-        }
-        Err(err) => {
-            let mut message = err.message.clone();
-            if let Some(expected) = &err.expected {
-                message = format!("{message} (expected {expected})");
-            }
-            if let Some(found) = &err.found_token {
-                message = format!("{message} (found '{found}')");
-            }
-
-            DocumentAnalysis {
-                tokens,
-                syntax_error: Some(SyntaxErrorInfo {
-                    message,
-                    position: err.position,
-                }),
-                lowering_error: None,
-                compile_error: None,
-                lowering: None,
-                semantic: None,
-            }
-        }
+    let (source_catalog, catalog_diagnostic) = discover_source_context(source_name);
+    let known_project_symbols = source_catalog
+        .as_ref()
+        .map(|catalog| &catalog.symbols)
+        .cloned()
+        .unwrap_or_default();
+    let mut lowering_context =
+        LoweringContext::empty().with_runmat_extensions_enabled(compat.allows_runmat_extensions());
+    if !known_project_symbols.is_empty() {
+        lowering_context = lowering_context.with_known_project_symbols(&known_project_symbols);
     }
+    let mut frontend = runmat_static_analysis::frontend::analyze_source_with_catalog(
+        text,
+        compat,
+        &lowering_context,
+        source_catalog.as_ref(),
+    );
+    if let Some(diagnostic) = catalog_diagnostic {
+        frontend.diagnostics.push(diagnostic);
+    }
+    document_analysis_from_frontend(text, tokens, frontend)
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -150,65 +104,80 @@ pub async fn analyze_document_with_compat_and_source_async(
     source_name: Option<&str>,
 ) -> DocumentAnalysis {
     let tokens = tokenize_detailed(text);
-    let known_project_symbols = discover_known_project_symbols_async(source_name).await;
-    match parse_with_options(text, ParserOptions::new(compat)) {
-        Ok(ast) => {
-            let mut lowering_context = LoweringContext::empty()
-                .with_runmat_extensions_enabled(compat.allows_runmat_extensions());
-            if !known_project_symbols.is_empty() {
-                lowering_context =
-                    lowering_context.with_known_project_symbols(&known_project_symbols);
-            }
-            let lowering = match runmat_hir::lower(&ast, &lowering_context) {
-                Ok(result) => result,
-                Err(err) => {
-                    return DocumentAnalysis {
-                        tokens,
-                        syntax_error: None,
-                        lowering_error: Some(err),
-                        compile_error: None,
-                        lowering: None,
-                        semantic: None,
-                    };
-                }
-            };
-            let compile_error = compile_error_for_lowering(&lowering);
-            let semantic = build_semantic_model(&lowering, &tokens, text);
+    let (source_catalog, catalog_diagnostic) = discover_source_context_async(source_name).await;
+    let known_project_symbols = source_catalog
+        .as_ref()
+        .map(|catalog| &catalog.symbols)
+        .cloned()
+        .unwrap_or_default();
+    let mut lowering_context =
+        LoweringContext::empty().with_runmat_extensions_enabled(compat.allows_runmat_extensions());
+    if !known_project_symbols.is_empty() {
+        lowering_context = lowering_context.with_known_project_symbols(&known_project_symbols);
+    }
+    let mut frontend = runmat_static_analysis::frontend::analyze_source_with_catalog(
+        text,
+        compat,
+        &lowering_context,
+        source_catalog.as_ref(),
+    );
+    if let Some(diagnostic) = catalog_diagnostic {
+        frontend.diagnostics.push(diagnostic);
+    }
+    document_analysis_from_frontend(text, tokens, frontend)
+}
 
-            DocumentAnalysis {
-                tokens,
-                syntax_error: None,
-                lowering_error: None,
-                compile_error,
-                lowering: Some(lowering),
-                semantic: Some(semantic),
-            }
-        }
-        Err(err) => {
-            let mut message = err.message.clone();
-            if let Some(expected) = &err.expected {
-                message = format!("{message} (expected {expected})");
-            }
-            if let Some(found) = &err.found_token {
-                message = format!("{message} (found '{found}')");
-            }
-
-            DocumentAnalysis {
-                tokens,
-                syntax_error: Some(SyntaxErrorInfo {
-                    message,
-                    position: err.position,
-                }),
-                lowering_error: None,
-                compile_error: None,
-                lowering: None,
-                semantic: None,
-            }
-        }
+fn document_analysis_from_frontend(
+    text: &str,
+    tokens: Vec<SpannedToken>,
+    frontend: runmat_static_analysis::frontend::FrontendAnalysis,
+) -> DocumentAnalysis {
+    let syntax_error = frontend
+        .parse_failure
+        .as_ref()
+        .map(|failure| SyntaxErrorInfo {
+            message: frontend
+                .diagnostics
+                .first()
+                .map(|diagnostic| diagnostic.message.clone())
+                .unwrap_or_else(|| failure.message.clone()),
+            position: failure.position,
+        });
+    let semantic = frontend
+        .lowering
+        .as_ref()
+        .map(|_| crate::core::semantic::model::build(&frontend, &tokens, text));
+    let diagnostics = frontend.diagnostics.clone();
+    let resolution = frontend.resolution.clone();
+    let project_revision = frontend.project_revision.clone();
+    DocumentAnalysis {
+        tokens,
+        syntax_error,
+        lowering_error: frontend.lowering_failure,
+        compile_error: frontend.compile_failure,
+        lowering: frontend.lowering,
+        semantic,
+        diagnostics,
+        resolution,
+        project_revision,
     }
 }
 
-fn discover_known_project_symbols(source_name: Option<&str>) -> HashSet<String> {
+#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn discover_known_project_symbols(source_name: Option<&str>) -> std::collections::HashSet<String> {
+    discover_source_context(source_name)
+        .0
+        .map(|catalog| catalog.symbols)
+        .unwrap_or_default()
+}
+
+fn discover_source_context(
+    source_name: Option<&str>,
+) -> (
+    Option<runmat_package::DiscoveredSourceSymbols>,
+    Option<HirDiagnostic>,
+) {
     let cwd = source_name
         .and_then(|name| {
             let path = PathBuf::from(name);
@@ -221,27 +190,35 @@ fn discover_known_project_symbols(source_name: Option<&str>) -> HashSet<String> 
         .or_else(|| runmat_filesystem::current_dir().ok());
 
     let Some(cwd) = cwd else {
-        return HashSet::new();
+        return (None, None);
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        futures::executor::block_on(
-            runmat_config::project::discover_known_project_symbols_from_source_name_async(
-                source_name,
-                &cwd,
-            ),
-        )
+        let Some(source_name) = source_name else {
+            return (None, None);
+        };
+        match futures::executor::block_on(
+            runmat_package::discover_source_symbols_from_source_name_async(source_name, &cwd),
+        ) {
+            Ok(Some(discovered)) => (Some(discovered), None),
+            Ok(None) => (None, None),
+            Err(error) => (None, Some(source_catalog_diagnostic(error.to_string()))),
+        }
     }
     #[cfg(target_arch = "wasm32")]
     {
         let _ = source_name;
         let _ = cwd;
-        HashSet::new()
+        (None, None)
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-async fn discover_known_project_symbols_async(source_name: Option<&str>) -> HashSet<String> {
+async fn discover_source_context_async(
+    source_name: Option<&str>,
+) -> (
+    Option<runmat_package::DiscoveredSourceSymbols>,
+    Option<HirDiagnostic>,
+) {
     let cwd = source_name
         .and_then(|name| {
             let path = PathBuf::from(name);
@@ -254,31 +231,45 @@ async fn discover_known_project_symbols_async(source_name: Option<&str>) -> Hash
         .or_else(|| runmat_filesystem::current_dir().ok());
 
     let Some(cwd) = cwd else {
-        return HashSet::new();
+        return (None, None);
     };
-    runmat_config::project::discover_known_project_symbols_from_source_name_async(source_name, &cwd)
-        .await
+    let Some(source_name) = source_name else {
+        return (None, None);
+    };
+    match runmat_package::discover_source_symbols_from_source_name_async(source_name, &cwd).await {
+        Ok(Some(discovered)) => (Some(discovered), None),
+        Ok(None) => (None, None),
+        Err(error) => (None, Some(source_catalog_diagnostic(error.to_string()))),
+    }
 }
 
-fn compile_error_for_lowering(lowering: &LoweringResult) -> Option<CompileError> {
-    let entrypoint = lowering
-        .assembly
-        .entrypoints
-        .first()
-        .ok_or_else(|| CompileError::new("semantic bytecode compile requires an entrypoint"));
-    let entrypoint = match entrypoint {
-        Ok(entrypoint) => entrypoint,
-        Err(err) => return Some(err),
-    };
-    let mir = match runmat_mir::lowering::lower_assembly(&lowering.assembly) {
-        Ok(mir) => mir,
-        Err(err) => return Some(CompileError::from(err)),
-    };
-    let _analysis = runmat_mir::analysis::analyze_assembly(&mir);
-    runmat_vm::compile(&lowering.assembly, &mir, entrypoint.id).err()
+fn source_catalog_diagnostic(message: String) -> HirDiagnostic {
+    HirDiagnostic::new(
+        runmat_static_analysis::frontend::DIAGNOSTIC_SOURCE_CATALOG,
+        HirDiagnosticSeverity::Error,
+        message,
+        runmat_hir::Span { start: 0, end: 0 },
+    )
+    .with_primary_label("source lookup could not be constructed")
+    .with_category("source-catalog")
 }
 
 pub fn diagnostics_for_document(text: &str, analysis: &DocumentAnalysis) -> Vec<Diagnostic> {
+    if !analysis.diagnostics.is_empty() {
+        return analysis
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let mut rendered = diagnostic_for_hir_lint(diagnostic, text);
+                rendered.data = analysis
+                    .resolution
+                    .iter()
+                    .find(|evidence| evidence.span == diagnostic.primary.span)
+                    .and_then(|evidence| serde_json::to_value(evidence).ok());
+                rendered
+            })
+            .collect();
+    }
     if let Some(syntax_err) = &analysis.syntax_error {
         return vec![Diagnostic {
             range: diagnostic_range_for_parse_error(syntax_err, &analysis.tokens, text),
@@ -330,12 +321,12 @@ pub fn diagnostics_for_document(text: &str, analysis: &DocumentAnalysis) -> Vec<
 }
 
 pub fn completion_at(
-    _text: &str,
-    _analysis: &DocumentAnalysis,
-    _position: &Position,
+    text: &str,
+    analysis: &DocumentAnalysis,
+    position: &Position,
 ) -> Vec<CompletionItem> {
-    if let Some(semantic) = &_analysis.semantic {
-        completion_from_semantic(semantic)
+    if let Some(semantic) = &analysis.semantic {
+        completion_from_semantic(semantic, position_to_offset(text, position))
     } else {
         Vec::new()
     }
@@ -349,10 +340,20 @@ pub fn hover_at(text: &str, analysis: &DocumentAnalysis, position: &Position) ->
     if let Some(semantic) = analysis.semantic.as_ref() {
         if let Some(func) = semantic.function_at_offset(offset) {
             if let Some(var) = func.variables.get(&ident) {
+                let fact = semantic
+                    .facts
+                    .as_ref()
+                    .and_then(|facts| facts.fact_at(var.binding, offset))
+                    .and_then(|observation| observation.fact.as_ref());
                 return Some(Hover {
                     contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                         kind: lsp_types::MarkupKind::Markdown,
-                        value: format_variable_hover(&ident, var),
+                        value: crate::core::semantic::presentation::format_variable_hover(
+                            &ident,
+                            var.kind.as_label(),
+                            fact,
+                            false,
+                        ),
                     }),
                     range: Some(
                         TextRange {
@@ -366,10 +367,20 @@ pub fn hover_at(text: &str, analysis: &DocumentAnalysis, position: &Position) ->
         }
 
         if let Some(glob) = semantic.globals.get(&ident) {
+            let fact = semantic
+                .facts
+                .as_ref()
+                .and_then(|facts| facts.fact_at(glob.binding, offset))
+                .and_then(|observation| observation.fact.as_ref());
             return Some(Hover {
                 contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
                     kind: lsp_types::MarkupKind::Markdown,
-                    value: format_variable_hover(&ident, glob),
+                    value: crate::core::semantic::presentation::format_variable_hover(
+                        &ident,
+                        glob.kind.as_label(),
+                        fact,
+                        true,
+                    ),
                 }),
                 range: Some(
                     TextRange {
@@ -382,7 +393,25 @@ pub fn hover_at(text: &str, analysis: &DocumentAnalysis, position: &Position) ->
         }
     }
 
-    // Built-in functions (rich docs)
+    // Canonical catalog entries are executor-neutral and remain available even
+    // when no runtime implementation is linked into the language server.
+    if let Some(entry) = runmat_builtins::builtin_catalog_entry_by_name(&ident) {
+        return Some(Hover {
+            contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+                kind: lsp_types::MarkupKind::Markdown,
+                value: docs::build_catalog_hover(entry),
+            }),
+            range: Some(
+                TextRange {
+                    start: token.start,
+                    end: token.end,
+                }
+                .to_lsp_range(text),
+            ),
+        });
+    }
+
+    // Legacy built-in functions (rich docs)
     if let Some(func) = runmat_builtins::builtin_functions()
         .into_iter()
         .find(|f| f.name.eq_ignore_ascii_case(&ident))
@@ -426,6 +455,30 @@ pub fn hover_at(text: &str, analysis: &DocumentAnalysis, position: &Position) ->
     }
 
     None
+}
+
+/// Presentation-neutral semantic information at a source position. This is
+/// the structured counterpart to hover and is shared by native and WASM
+/// transports.
+pub fn quick_information_at(
+    text: &str,
+    analysis: &DocumentAnalysis,
+    position: &Position,
+) -> Option<runmat_static_analysis::semantic::SemanticQuickInformation> {
+    let offset = position_to_offset(text, position);
+    let token = token_at_offset(&analysis.tokens, offset)?;
+    analysis
+        .semantic
+        .as_ref()?
+        .facts
+        .as_ref()?
+        .quick_information(&token.lexeme, offset)
+}
+
+pub fn semantic_document_facts(
+    analysis: &DocumentAnalysis,
+) -> Option<&runmat_static_analysis::semantic::SemanticDocumentFacts> {
+    analysis.semantic.as_ref()?.facts.as_ref()
 }
 
 pub fn definition_at(
@@ -643,6 +696,24 @@ pub fn signature_help_at(
 ) -> Option<SignatureHelp> {
     let offset = position_to_offset(_text, _position);
     let name = qualified_call_name_at_offset(&_analysis.tokens, offset)?;
+    if let Some(entry) = runmat_builtins::builtin_catalog_entry_by_name(&name) {
+        if let Some(labels) = docs::catalog_signature_labels(entry) {
+            let signatures = labels
+                .into_iter()
+                .map(|label| lsp_types::SignatureInformation {
+                    label,
+                    documentation: None,
+                    parameters: None,
+                    active_parameter: None,
+                })
+                .collect();
+            return Some(SignatureHelp {
+                signatures,
+                active_signature: Some(0),
+                active_parameter: None,
+            });
+        }
+    }
     if let Some(func) = runmat_builtins::builtin_functions()
         .into_iter()
         .find(|builtin| builtin.name.eq_ignore_ascii_case(&name))
@@ -671,9 +742,39 @@ pub fn signature_help_at(
     let mut sigs = Vec::new();
     for idx in funcs {
         if let Some(f) = semantic.functions.get(*idx) {
+            let documentation = semantic
+                .facts
+                .as_ref()
+                .and_then(|facts| {
+                    facts
+                        .functions
+                        .iter()
+                        .find(|facts| facts.function == f.function)
+                })
+                .and_then(|facts| facts.analysis.as_ref())
+                .map(|analysis| {
+                    let parameters = analysis
+                        .callable
+                        .parameters
+                        .iter()
+                        .map(|fact| crate::core::semantic::presentation::format_fact(Some(fact)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let outputs = analysis
+                        .callable
+                        .outputs
+                        .iter()
+                        .map(|fact| crate::core::semantic::presentation::format_fact(Some(fact)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value: format!("Parameters: `{parameters}`  \nOutputs: `{outputs}`"),
+                    })
+                });
             sigs.push(lsp_types::SignatureInformation {
                 label: f.signature.display(),
-                documentation: None,
+                documentation,
                 parameters: Some(
                     f.signature
                         .inputs
@@ -732,6 +833,18 @@ pub fn semantic_tokens_full(
         .map(|semantic| semantic.token_hints.as_slice())
         .unwrap_or(&[]);
     crate::core::semantic_tokens::full(text, &analysis.tokens, hints)
+}
+
+/// Build the complete lexical semantic-token baseline for a document.
+///
+/// This deliberately uses the same lexer, legend, and encoder as the enriched
+/// semantic-token path. Callers can therefore render correct comments,
+/// keywords, strings, numbers, operators, and identifiers before parsing/HIR
+/// analysis has completed, without depending on an editor-side grammar.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn semantic_tokens_lexical(text: &str) -> Option<lsp_types::SemanticTokens> {
+    let tokens = tokenize_detailed(text);
+    crate::core::semantic_tokens::full(text, &tokens, &[])
 }
 
 pub fn formatting_edits(text: &str, _analysis: &DocumentAnalysis) -> Vec<lsp_types::TextEdit> {
@@ -1009,7 +1122,7 @@ fn project_function_definitions(
     compat: CompatMode,
 ) -> Vec<Location> {
     let mut locations = Vec::new();
-    for source_file in project.all_source_files() {
+    for source_file in project.visible_source_files() {
         let Some(text) = read_file_text(source_file) else {
             continue;
         };
@@ -1017,9 +1130,11 @@ fn project_function_definitions(
             continue;
         };
         let analysis = analyze_document_with_compat_and_source(&text, compat, Some(source_name));
-        for range in function_definitions_in_document(&text, &analysis, symbol_name) {
-            if let Some(uri) = file_path_to_url(source_file) {
-                locations.push(Location { uri, range });
+        for lookup_name in project.definition_lookup_names(source_file, symbol_name) {
+            for range in function_definitions_in_document(&text, &analysis, lookup_name) {
+                if let Some(uri) = file_path_to_url(source_file) {
+                    locations.push(Location { uri, range });
+                }
             }
         }
     }
@@ -1032,7 +1147,7 @@ fn project_function_references(
     compat: CompatMode,
 ) -> Vec<Location> {
     let mut locations = Vec::new();
-    for source_file in project.all_source_files() {
+    for source_file in project.visible_source_files() {
         let Some(text) = read_file_text(source_file) else {
             continue;
         };
@@ -1055,7 +1170,7 @@ async fn project_function_definitions_async(
     compat: CompatMode,
 ) -> Vec<Location> {
     let mut locations = Vec::new();
-    for source_file in project.all_source_files() {
+    for source_file in project.visible_source_files() {
         let Ok(text) = runmat_filesystem::read_to_string_async(source_file).await else {
             continue;
         };
@@ -1064,9 +1179,11 @@ async fn project_function_definitions_async(
         };
         let analysis =
             analyze_document_with_compat_and_source_async(&text, compat, Some(source_name)).await;
-        for range in function_definitions_in_document(&text, &analysis, symbol_name) {
-            if let Some(uri) = file_path_to_url(source_file) {
-                locations.push(Location { uri, range });
+        for lookup_name in project.definition_lookup_names(source_file, symbol_name) {
+            for range in function_definitions_in_document(&text, &analysis, lookup_name) {
+                if let Some(uri) = file_path_to_url(source_file) {
+                    locations.push(Location { uri, range });
+                }
             }
         }
     }
@@ -1079,7 +1196,7 @@ async fn project_function_references_async(
     compat: CompatMode,
 ) -> Vec<Location> {
     let mut locations = Vec::new();
-    for source_file in project.all_source_files() {
+    for source_file in project.visible_source_files() {
         let Ok(text) = runmat_filesystem::read_to_string_async(source_file).await else {
             continue;
         };
@@ -1227,110 +1344,101 @@ fn find_symbol_range(
         .find(|range| scope.is_none_or(|scope| scope.contains(range.start)))
 }
 
-#[derive(Clone)]
-pub struct FunctionSignature {
-    pub name: String,
-    pub outputs: Vec<String>,
-    pub inputs: Vec<String>,
-    pub name_range: TextRange,
-}
-
-impl FunctionSignature {
-    pub fn display(&self) -> String {
-        let mut buf = String::new();
-        if !self.outputs.is_empty() {
-            if self.outputs.len() == 1 {
-                let _ = write!(buf, "{} = ", self.outputs[0]);
-            } else {
-                let _ = write!(buf, "[{}] = ", self.outputs.join(", "));
-            }
-        }
-        let _ = write!(buf, "{}", self.name);
-        let args = self.inputs.join(", ");
-        let _ = write!(buf, "({args})");
-        buf
-    }
-}
-
-#[derive(Clone)]
-pub struct VariableSymbol {
-    pub name: String,
-    pub ty: Type,
-    pub kind: VariableKind,
-    pub declared_span: Option<TextRange>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum VariableKind {
-    Global,
-    Parameter,
-    Output,
-    Local,
-}
-
-impl VariableKind {
-    pub fn as_label(&self) -> &'static str {
-        match self {
-            VariableKind::Global => "global",
-            VariableKind::Parameter => "parameter",
-            VariableKind::Output => "output",
-            VariableKind::Local => "local",
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct FunctionSemantic {
-    pub name: String,
-    pub signature: FunctionSignature,
-    pub range: TextRange,
-    pub selection: TextRange,
-    pub variables: HashMap<String, VariableSymbol>,
-}
-
-#[derive(Clone)]
-pub struct AnalysisModel {
-    pub globals: HashMap<String, VariableSymbol>,
-    pub functions: Vec<FunctionSemantic>,
-    pub function_lookup: HashMap<String, Vec<usize>>,
-    pub token_hints: Vec<SemanticHint>,
-    pub exported_symbols: HashSet<String>,
-    pub referenced_symbols: HashSet<String>,
-    pub status_message: String,
-    pub diagnostics: Vec<HirDiagnostic>,
-}
-
-impl AnalysisModel {
-    fn function_at_offset(&self, offset: usize) -> Option<&FunctionSemantic> {
-        self.functions.iter().find(|f| f.range.contains(offset))
-    }
-}
-
-fn completion_from_semantic(semantic: &AnalysisModel) -> Vec<CompletionItem> {
+fn completion_from_semantic(semantic: &AnalysisModel, offset: usize) -> Vec<CompletionItem> {
     let mut items = Vec::new();
+    let mut builtin_names = std::collections::BTreeSet::new();
     for var in semantic.globals.values() {
-        items.push(variable_completion(var));
+        items.push(variable_completion(var, semantic, offset));
     }
     for func in &semantic.functions {
         for var in func.variables.values() {
-            items.push(variable_completion(var));
+            items.push(variable_completion(var, semantic, offset));
         }
         items.push(function_completion(func));
     }
+    for entry in runmat_builtins::builtin_catalog_entries() {
+        if entry.descriptor.completion_policy == BuiltinCompletionPolicy::HiddenInternal {
+            continue;
+        }
+        builtin_names.insert(entry.identity.name.to_ascii_lowercase());
+        items.push(catalog_completion(entry));
+    }
+    for alias in runmat_builtins::builtin_catalog_aliases() {
+        let Some(entry) =
+            runmat_builtins::builtin_catalog_primary_entry_by_name(alias.canonical.name)
+        else {
+            continue;
+        };
+        if entry.descriptor.completion_policy == BuiltinCompletionPolicy::HiddenInternal
+            || !builtin_names.insert(alias.alias.name.to_ascii_lowercase())
+        {
+            continue;
+        }
+        items.push(catalog_alias_completion(alias.alias.name, entry));
+    }
     for func in runmat_builtins::builtin_functions() {
+        if func.descriptor.is_some_and(|descriptor| {
+            descriptor.completion_policy == BuiltinCompletionPolicy::HiddenInternal
+        }) {
+            continue;
+        }
+        if !builtin_names.insert(func.name.to_ascii_lowercase()) {
+            continue;
+        }
         items.push(builtin_completion(func));
     }
-    for constant in runmat_builtins::constants() {
+    for constant in runmat_builtins::builtin_constant_catalog_entries() {
         items.push(constant_completion(constant));
     }
     items
 }
 
-fn variable_completion(var: &VariableSymbol) -> CompletionItem {
+fn catalog_alias_completion(
+    alias: &str,
+    entry: &runmat_builtins::BuiltinCatalogEntry,
+) -> CompletionItem {
+    let mut completion = catalog_completion(entry);
+    completion.label = alias.to_string();
+    completion.detail = completion
+        .detail
+        .map(|detail| format!("{detail} (alias of {})", entry.identity.name));
+    completion
+}
+
+fn catalog_completion(entry: &runmat_builtins::BuiltinCatalogEntry) -> CompletionItem {
+    CompletionItem {
+        label: entry.identity.name.to_string(),
+        kind: Some(lsp_types::CompletionItemKind::FUNCTION),
+        detail: docs::catalog_completion_signature_label(entry)
+            .or_else(|| Some(format!("builtin: {}", entry.identity.name))),
+        documentation: Some(lsp_types::Documentation::MarkupContent(
+            lsp_types::MarkupContent {
+                kind: lsp_types::MarkupKind::Markdown,
+                value: docs::build_catalog_hover(entry),
+            },
+        )),
+        ..Default::default()
+    }
+}
+
+fn variable_completion(
+    var: &VariableSymbol,
+    semantic: &AnalysisModel,
+    offset: usize,
+) -> CompletionItem {
+    let fact = semantic
+        .facts
+        .as_ref()
+        .and_then(|facts| facts.fact_at(var.binding, offset))
+        .and_then(|observation| observation.fact.as_ref());
     CompletionItem {
         label: var.name.clone(),
         kind: Some(lsp_types::CompletionItemKind::VARIABLE),
-        detail: Some(format!("{}: {}", var.kind.as_label(), format_type(&var.ty))),
+        detail: Some(format!(
+            "{}: {}",
+            var.kind.as_label(),
+            crate::core::semantic::presentation::format_fact(fact)
+        )),
         ..Default::default()
     }
 }
@@ -1374,7 +1482,7 @@ fn builtin_completion(func: &BuiltinFunction) -> CompletionItem {
     }
 }
 
-fn constant_completion(constant: &Constant) -> CompletionItem {
+fn constant_completion(constant: &runmat_builtins::BuiltinConstantCatalogEntry) -> CompletionItem {
     CompletionItem {
         label: constant.name.to_string(),
         kind: Some(lsp_types::CompletionItemKind::CONSTANT),
@@ -1411,199 +1519,6 @@ fn format_dim(dim: Option<usize>) -> String {
     }
 }
 
-fn format_variable_hover(name: &str, symbol: &VariableSymbol) -> String {
-    let mut buf = String::new();
-    let _ = writeln!(
-        buf,
-        "```runmat\n{kind} {name}: {ty}\n```",
-        kind = symbol.kind.as_label(),
-        ty = format_type(&symbol.ty)
-    );
-    if matches!(symbol.kind, VariableKind::Global) {
-        let _ = writeln!(buf, "Global variable available across the workspace.");
-    }
-    buf
-}
-
-fn build_semantic_model(
-    lowering: &LoweringResult,
-    tokens: &[SpannedToken],
-    text: &str,
-) -> AnalysisModel {
-    let mut functions = Vec::new();
-    let mut function_lookup: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut globals = HashMap::new();
-
-    let binding_shapes = runmat_static_analysis::infer_binding_shapes(lowering);
-
-    for binding in &lowering.assembly.bindings {
-        if matches!(
-            binding.workspace_visibility,
-            runmat_hir::WorkspaceVisibility::Hidden
-        ) {
-            continue;
-        }
-        let name = binding.name.0.clone();
-        let symbol = globals
-            .entry(name.clone())
-            .or_insert_with(|| VariableSymbol {
-                name: name.clone(),
-                ty: Type::Unknown,
-                kind: VariableKind::Global,
-                declared_span: span_to_text_range(binding.declared_span, text.len()),
-            });
-        if let Some(shape) = binding_shapes.get(&binding.id) {
-            symbol.ty = type_from_shape(shape.clone());
-        }
-    }
-
-    for function in &lowering.assembly.functions {
-        if matches!(function.kind, FunctionKind::SyntheticEntrypoint) {
-            continue;
-        }
-        let func_name = function.name.0.clone();
-
-        let mut variables = HashMap::new();
-        for param in &function.params {
-            let Some(binding) = lowering.assembly.bindings.get(param.0) else {
-                continue;
-            };
-            let name = binding.name.0.clone();
-            let ty = binding_shapes
-                .get(param)
-                .cloned()
-                .map(type_from_shape)
-                .unwrap_or(Type::Unknown);
-            variables.insert(
-                name.clone(),
-                VariableSymbol {
-                    name: name.clone(),
-                    ty,
-                    kind: VariableKind::Parameter,
-                    declared_span: span_to_text_range(binding.declared_span, text.len()),
-                },
-            );
-        }
-        for out in &function.outputs {
-            let Some(binding) = lowering.assembly.bindings.get(out.0) else {
-                continue;
-            };
-            let name = binding.name.0.clone();
-            let ty = binding_shapes
-                .get(out)
-                .cloned()
-                .map(type_from_shape)
-                .unwrap_or(Type::Unknown);
-            variables.insert(
-                name.clone(),
-                VariableSymbol {
-                    name: name.clone(),
-                    ty,
-                    kind: VariableKind::Output,
-                    declared_span: span_to_text_range(binding.declared_span, text.len()),
-                },
-            );
-        }
-        for local in &function.locals {
-            let Some(binding) = lowering.assembly.bindings.get(local.0) else {
-                continue;
-            };
-            let name = binding.name.0.clone();
-            let ty = binding_shapes
-                .get(local)
-                .cloned()
-                .map(type_from_shape)
-                .unwrap_or(Type::Unknown);
-            variables
-                .entry(name.clone())
-                .or_insert_with(|| VariableSymbol {
-                    name,
-                    ty,
-                    kind: VariableKind::Local,
-                    declared_span: span_to_text_range(binding.declared_span, text.len()),
-                });
-        }
-        for capture in &function.captures {
-            let Some(binding) = lowering.assembly.bindings.get(capture.binding.0) else {
-                continue;
-            };
-            let name = binding.name.0.clone();
-            let ty = binding_shapes
-                .get(&capture.binding)
-                .cloned()
-                .map(type_from_shape)
-                .unwrap_or(Type::Unknown);
-            variables
-                .entry(name.clone())
-                .or_insert_with(|| VariableSymbol {
-                    name,
-                    ty,
-                    kind: VariableKind::Local,
-                    declared_span: span_to_text_range(binding.declared_span, text.len()),
-                });
-        }
-
-        let name_range =
-            find_symbol_range(tokens, &func_name, None).unwrap_or(TextRange { start: 0, end: 0 });
-        let body_range = TextRange {
-            start: function.span.start,
-            end: function.span.end.min(text.len()),
-        };
-
-        let selection = name_range;
-
-        let signature = FunctionSignature {
-            name: func_name.clone(),
-            outputs: function
-                .outputs
-                .iter()
-                .filter_map(|o| lowering.assembly.bindings.get(o.0))
-                .map(|binding| binding.name.0.clone())
-                .collect(),
-            inputs: function
-                .params
-                .iter()
-                .filter_map(|p| lowering.assembly.bindings.get(p.0))
-                .map(|binding| binding.name.0.clone())
-                .collect(),
-            name_range,
-        };
-
-        let semantic = FunctionSemantic {
-            name: func_name.clone(),
-            signature,
-            range: body_range,
-            selection,
-            variables,
-        };
-        functions.push(semantic);
-    }
-
-    for (idx, func) in functions.iter().enumerate() {
-        function_lookup
-            .entry(func.name.clone())
-            .or_default()
-            .push(idx);
-    }
-
-    let mut diagnostics = runmat_static_analysis::lint_shapes(lowering);
-    diagnostics.extend(runmat_static_analysis::lint_mir_analysis(lowering));
-    let token_hints = build_semantic_hints(lowering, tokens, &functions);
-    let exported_symbols = build_exported_symbol_set(&functions);
-    let referenced_symbols = build_referenced_symbol_set(lowering);
-
-    AnalysisModel {
-        globals,
-        functions,
-        function_lookup,
-        token_hints,
-        exported_symbols,
-        referenced_symbols,
-        status_message: String::new(),
-        diagnostics,
-    }
-}
-
 fn span_to_text_range(span: runmat_hir::Span, text_len: usize) -> Option<TextRange> {
     if span.end <= span.start || span.start >= text_len {
         return None;
@@ -1612,142 +1527,6 @@ fn span_to_text_range(span: runmat_hir::Span, text_len: usize) -> Option<TextRan
         start: span.start,
         end: span.end.min(text_len),
     })
-}
-
-fn build_semantic_hints(
-    lowering: &LoweringResult,
-    tokens: &[SpannedToken],
-    functions: &[FunctionSemantic],
-) -> Vec<SemanticHint> {
-    let mut hint_map: HashMap<(usize, usize), (u8, SemanticHint)> = HashMap::new();
-    for function in functions {
-        insert_hint(
-            &mut hint_map,
-            function.signature.name_range,
-            SemanticHint {
-                start: function.signature.name_range.start,
-                end: function.signature.name_range.end,
-                role: IdentifierRole::Function,
-                declaration: true,
-                default_library: false,
-            },
-            80,
-        );
-        for token in tokens
-            .iter()
-            .filter(|token| matches!(token.token, Token::Ident))
-            .filter(|token| function.range.contains(token.start))
-        {
-            let Some(variable) = function.variables.get(&token.lexeme) else {
-                continue;
-            };
-            let role = match variable.kind {
-                VariableKind::Parameter => IdentifierRole::Parameter,
-                VariableKind::Output | VariableKind::Local | VariableKind::Global => {
-                    IdentifierRole::Variable
-                }
-            };
-            let declaration = variable
-                .declared_span
-                .is_some_and(|span| span.start == token.start && span.end == token.end);
-            insert_hint(
-                &mut hint_map,
-                TextRange {
-                    start: token.start,
-                    end: token.end,
-                },
-                SemanticHint {
-                    start: token.start,
-                    end: token.end,
-                    role,
-                    declaration,
-                    default_library: false,
-                },
-                20,
-            );
-        }
-    }
-
-    for reference in &lowering.hir_index.references {
-        let role = match &reference.kind {
-            ReferenceKind::Imported(_) | ReferenceKind::Package(_) => {
-                Some(IdentifierRole::Namespace)
-            }
-            _ => None,
-        };
-        let Some(role) = role else {
-            continue;
-        };
-        if let Some(range) =
-            find_token_range_by_lexeme_in_span(tokens, &reference.name.0, reference.span)
-        {
-            insert_hint(
-                &mut hint_map,
-                range,
-                SemanticHint {
-                    start: range.start,
-                    end: range.end,
-                    role,
-                    declaration: false,
-                    default_library: false,
-                },
-                50,
-            );
-        }
-    }
-
-    for call in &lowering.hir_index.calls {
-        let Some(name) = call.name.display_name() else {
-            continue;
-        };
-        let Some(range) = find_token_range_by_lexeme_in_span(tokens, &name, call.span) else {
-            continue;
-        };
-        insert_hint(
-            &mut hint_map,
-            range,
-            SemanticHint {
-                start: range.start,
-                end: range.end,
-                role: IdentifierRole::Function,
-                declaration: false,
-                default_library: matches!(call.kind, CallKind::Builtin(_)),
-            },
-            if matches!(call.kind, CallKind::Builtin(_)) {
-                95
-            } else {
-                70
-            },
-        );
-    }
-
-    hint_map
-        .into_values()
-        .map(|(_, hint)| hint)
-        .collect::<Vec<_>>()
-}
-
-fn build_exported_symbol_set(functions: &[FunctionSemantic]) -> HashSet<String> {
-    let mut symbols = HashSet::new();
-    for function in functions {
-        symbols.insert(function.name.clone());
-    }
-    symbols
-}
-
-fn build_referenced_symbol_set(lowering: &LoweringResult) -> HashSet<String> {
-    let mut symbols = HashSet::new();
-    for call in &lowering.hir_index.calls {
-        if let Some(name) = call.name.display_name() {
-            symbols.insert(name);
-        }
-        if let CallKind::PackageFunction(path) = &call.kind {
-            for name in def_path_symbol_variants(path) {
-                symbols.insert(name);
-            }
-        }
-    }
-    symbols
 }
 
 fn def_path_symbol_variants(path: &DefPath) -> Vec<String> {
@@ -1769,48 +1548,20 @@ fn def_path_symbol_variants(path: &DefPath) -> Vec<String> {
     variants
 }
 
-fn insert_hint(
-    hints: &mut HashMap<(usize, usize), (u8, SemanticHint)>,
-    range: TextRange,
-    hint: SemanticHint,
-    priority: u8,
-) {
-    let key = (range.start, range.end);
-    match hints.get(&key) {
-        Some((existing, _)) if *existing >= priority => {}
-        _ => {
-            hints.insert(key, (priority, hint));
-        }
-    }
-}
-
-fn find_token_range_by_lexeme_in_span(
-    tokens: &[SpannedToken],
-    lexeme: &str,
-    span: runmat_hir::Span,
-) -> Option<TextRange> {
-    tokens
-        .iter()
-        .filter(|token| matches!(token.token, Token::Ident))
-        .find(|token| token.lexeme == lexeme && token.start >= span.start && token.end <= span.end)
-        .map(|token| TextRange {
-            start: token.start,
-            end: token.end,
-        })
-}
-
-fn type_from_shape(shape: Vec<Option<usize>>) -> Type {
-    Type::Tensor { shape: Some(shape) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
     use crate::core::workspace::workspace_symbols_with_project;
+    #[cfg(not(target_arch = "wasm32"))]
     use futures::executor::block_on;
+    #[cfg(not(target_arch = "wasm32"))]
     use lsp_types::Url;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::fs;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::path::PathBuf;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -1889,6 +1640,29 @@ mod tests {
     }
 
     #[test]
+    fn catalog_backed_builtin_remains_visible_without_legacy_registration() {
+        assert!(runmat_builtins::builtin_catalog_entry_by_name("full").is_some());
+        assert!(runmat_builtins::builtin_function_by_name("full").is_none());
+
+        let text = "full(1);";
+        let analysis = analyze_document_with_compat(text, CompatMode::default());
+        let position = lsp_types::Position::new(0, 0);
+        let hover = hover_at(text, &analysis, &position).expect("catalog hover");
+        let lsp_types::HoverContents::Markup(markup) = hover.contents else {
+            panic!("catalog hover should use markdown")
+        };
+        assert!(markup.value.contains("A = full(S)"), "{}", markup.value);
+
+        let signatures = signature_help_at(text, &analysis, &position)
+            .expect("catalog signature help")
+            .signatures;
+        assert_eq!(signatures[0].label, "A = full(S)");
+
+        let completions = completion_at(text, &analysis, &position);
+        assert!(completions.iter().any(|item| item.label == "full"));
+    }
+
+    #[test]
     fn signature_help_uses_builtin_descriptor_signatures() {
         let text = "linspace(0, 1);";
         let analysis = analyze_document_with_compat(text, CompatMode::default());
@@ -1930,6 +1704,7 @@ mod tests {
                 "normrnd(0, 1, 3, 4);",
                 "r = normrnd(mu, sigma, sz1, sz2, ...)",
             ),
+            ("gamrnd(2, 3, 3, 4);", "r = gamrnd(a, b, sz1, sz2, ...)"),
             ("unifrnd(0, 1, [3 4]);", "r = unifrnd(a, b, sz)"),
             ("rng();", "s = rng()"),
         ];
@@ -1952,15 +1727,23 @@ mod tests {
     fn signature_help_uses_stats_summary_descriptors() {
         let cases = [
             ("mode([1 2 2 3]);", "M = mode(X)"),
-            ("mode([1 2 2 3], 1);", "M = mode(X, dim_or_all)"),
-            ("mode([1 2 2 3], 'all');", "M = mode(X, dim_or_all)"),
+            ("mode([1 2 2 3], 1);", "M = mode(X, dim_or_vecdim_or_all)"),
+            (
+                "mode([1 2 2 3], 'all');",
+                "M = mode(X, dim_or_vecdim_or_all)",
+            ),
             ("cov([1 2; 3 4]);", "C = cov(X)"),
             ("cov([1 2; 3 4], 0);", "C = cov(X, normalization)"),
             (
                 "corrcoef([1 2; 3 4], 'rows', 'complete');",
-                "R = corrcoef(X, \"rows\", rows_option)",
+                "___ = corrcoef(A, Name, Value)",
             ),
-            ("corrcoef([1 2; 3 4], [5 6; 7 8]);", "R = corrcoef(X, Y)"),
+            ("corrcoef([1 2; 3 4], [5 6; 7 8]);", "R = corrcoef(A, B)"),
+            ("corrcov([1 0.2; 0.2 1]);", "R = corrcov(C)"),
+            (
+                "cov2corr([1 0.2; 0.2 1]);",
+                "[ExpSigma, ExpCorrC] = cov2corr(ExpCovariance)",
+            ),
         ];
 
         for (text, expected_label) in cases {
@@ -2128,7 +1911,7 @@ mod tests {
     fn signature_help_uses_plotting_control_descriptors() {
         let cases = [
             ("drawnow();", "ok = drawnow()"),
-            ("hold('on');", "enabled = hold(mode)"),
+            ("hold('on');", "hold(mode)"),
         ];
 
         for (text, expected_label) in cases {
@@ -2153,10 +1936,10 @@ mod tests {
             ("grid('on');", "enabled = grid(mode)"),
             (
                 "axis([0 1 0 1]);",
-                "ok = axis([xmin xmax ymin ymax | ... zmin zmax])",
+                "axis([xmin xmax ymin ymax | ... cmin cmax])",
             ),
             ("cla();", "ok = cla()"),
-            ("colormap('parula');", "ok = colormap(name)"),
+            ("colormap('parula');", "colormap(name)"),
             ("shading('flat');", "ok = shading(mode)"),
             ("colorbar('off');", "enabled = colorbar(mode)"),
             ("semilogx([1 10 100]);", "h = semilogx(Y)"),
@@ -2220,6 +2003,8 @@ mod tests {
             ("imagesc([1 2; 3 4]);", "h = imagesc(C)"),
             ("contour([1 2; 3 4]);", "h = contour(Z)"),
             ("contourf([1 2; 3 4]);", "h = contourf(Z)"),
+            ("contourf(1, [1 2; 3 4]);", "h = contourf(ax, ...)"),
+            ("copyobj(1, 2);", "hnew = copyobj(h, parent)"),
             ("hist([1 2 3]);", "N = hist(X)"),
             ("histogram([1 2 3]);", "h = histogram(X)"),
             ("text(1, 2, 'pt');", "h = text(x, y, label)"),
@@ -2241,7 +2026,7 @@ mod tests {
     #[test]
     fn signature_help_uses_empty_and_magic_descriptors() {
         let cases = [
-            ("empty(0, 3);", "A = empty(m, n, ...)"),
+            ("empty(0, 3);", "A = ClassName.empty(sz1, ..., szN)"),
             ("magic(5);", "A = magic(n)"),
         ];
 
@@ -2263,7 +2048,7 @@ mod tests {
     fn signature_help_uses_colon_fill_meshgrid_peaks_descriptors() {
         let cases = [
             ("colon(1, 0.5, 3);", "x = colon(start, step, stop)"),
-            ("fill(2, 3, 4);", "A = fill(value, m, n, ...)"),
+            ("fill(2, 3, 4);", "p = fill(X, Y, C, ..., Name, Value)"),
             ("meshgrid([1 2 3], [4 5]);", "[X,Y] = meshgrid(x, y)"),
             ("peaks(20);", "Z = peaks(n)"),
         ];
@@ -2286,13 +2071,17 @@ mod tests {
     fn signature_help_uses_introspection_descriptors() {
         let cases = [
             ("isempty([]);", "tf = isempty(A)"),
+            ("iscolumn([1; 2]);", "tf = iscolumn(A)"),
             ("ismatrix([1 2; 3 4]);", "tf = ismatrix(A)"),
+            ("isrow([1 2]);", "tf = isrow(A)"),
             ("isscalar(1);", "tf = isscalar(A)"),
             ("isvector([1 2 3]);", "tf = isvector(A)"),
             ("length([1 2 3]);", "n = length(A)"),
             ("ndims(ones(2,2,2));", "n = ndims(A)"),
-            ("numel([1 2; 3 4], 1, 2);", "n = numel(A, dim, ...)"),
-            ("size([1 2; 3 4], 1);", "d = size(A, dim)"),
+            ("height([1 2; 3 4]);", "n = height(A)"),
+            ("width([1 2; 3 4]);", "n = width(A)"),
+            ("numel([1 2; 3 4], 1, 2);", "n = numel(A, dim1, dim2, ...)"),
+            ("size([1 2; 3 4], 1);", "sz = size(A, dim)"),
         ];
 
         for (text, expected_label) in cases {
@@ -2555,13 +2344,10 @@ mod tests {
     #[test]
     fn signature_help_uses_array_shape_diagonal_descriptors() {
         let cases = [
-            ("diag([1 2 3]);", "B = diag(A)"),
-            ("diag([1 2 3], 1);", "B = diag(A, k)"),
-            ("diag([1 2 3], [3 4]);", "B = diag(A, sz)"),
-            (
-                "diag([1 2 3], \"like\", [0]);",
-                "B = diag(A, \"like\", prototype)",
-            ),
+            ("diag([1 2 3]);", "D = diag(v)"),
+            ("diag([1 2 3], 1);", "D = diag(v, k)"),
+            ("diag([1 2 3], [3 4]);", "x = diag(A, k)"),
+            ("diag([1 2 3], \"like\", [0]);", "D = diag(v, k)"),
             ("tril([1 2; 3 4]);", "B = tril(A)"),
             ("tril([1 2; 3 4], -1);", "B = tril(A, k)"),
             ("triu([1 2; 3 4]);", "B = triu(A)"),
@@ -2676,6 +2462,12 @@ mod tests {
                 "sortrows([3 1;2 4], 'MissingPlacement', 'first');",
                 "B = sortrows(A, ..., \"MissingPlacement\", placement)",
             ),
+            ("maxk([3 1 2], 2);", "B = maxk(A, k)"),
+            (
+                "maxk([3 1 2], 2, 'ComparisonMethod', 'abs');",
+                "B = maxk(A, k, \"ComparisonMethod\", method)",
+            ),
+            ("mink([3 1 2], 2, 1);", "B = mink(A, k, dim)"),
         ];
 
         for (text, expected_label) in cases {
@@ -2694,15 +2486,15 @@ mod tests {
     #[test]
     fn signature_help_uses_diagnostics_descriptors() {
         let cases = [
-            ("assert(true);", "out = assert(condition)"),
+            ("assert(true);", "assert(condition)"),
             (
                 "assert(false, \"id:test\", \"failed %d\", 1);",
-                "out = assert(condition, message_id, message, A...)",
+                "assert(condition, message_id, message, A...)",
             ),
-            ("error(\"failure\");", "out = error(message)"),
+            ("error(\"failure\");", "error(msg)"),
             (
                 "error(\"RunMat:demo:bad\", \"failed %d\", 1);",
-                "out = error(message_id, message, A...)",
+                "error(errID, ___)",
             ),
         ];
 
@@ -2884,8 +2676,11 @@ mod tests {
                 "fullfile(\"a\", \"b\");",
                 "file = fullfile(part1, part2, ...)",
             ),
-            ("exist(\"sin\");", "code = exist(name)"),
-            ("exist(\"sin\", \"builtin\");", "code = exist(name, type)"),
+            ("exist(\"sin\");", "typeID = exist(name)"),
+            (
+                "exist(\"sin\", \"builtin\");",
+                "typeID = exist(name, searchType)",
+            ),
             ("dir();", "listing = dir()"),
             ("dir(\".\");", "listing = dir(name)"),
             ("ls();", "listing = ls()"),
@@ -2913,10 +2708,10 @@ mod tests {
                 "movefile(\"a\", \"b\", \"f\");",
                 "status = movefile(source, destination, flag)",
             ),
-            ("delete(\"a.txt\");", "status = delete(filename)"),
+            ("delete(\"a.txt\");", "delete(filename)"),
             (
                 "delete(\"a.txt\", \"b.txt\");",
-                "status = delete(filename1, filename2, ...)",
+                "delete(filename1, filename2, ...)",
             ),
         ];
 
@@ -2947,19 +2742,19 @@ mod tests {
             ),
             (
                 "csvwrite(\"out.csv\", [1 2; 3 4]);",
-                "bytesWritten = csvwrite(filename, M)",
+                "csvwrite(filename, M)",
             ),
             (
                 "csvwrite(\"out.csv\", [1 2; 3 4], 1, 2);",
-                "bytesWritten = csvwrite(filename, M, row, col)",
+                "csvwrite(filename, M, row, col)",
             ),
             (
                 "writematrix([1 2; 3 4], \"out.csv\");",
-                "bytesWritten = writematrix(data, filename)",
+                "writematrix(data, filename)",
             ),
             (
                 "writematrix([1 2; 3 4], \"out.csv\", \"Delimiter\", \";\");",
-                "bytesWritten = writematrix(data, filename, name, optionValue)",
+                "writematrix(data, filename, name, optionValue)",
             ),
             ("readmatrix(\"data.csv\");", "M = readmatrix(filename)"),
             (
@@ -3090,12 +2885,9 @@ mod tests {
         let cases = [
             (
                 "data.create(\"tmp/demo.data\", struct());",
-                "ds = data.create(path, schema, Name, Value, ...)",
+                "ds = data.create(path, schema)",
             ),
-            (
-                "data.open(\"tmp/demo.data\");",
-                "ds = data.open(path, Name, Value, ...)",
-            ),
+            ("data.open(\"tmp/demo.data\");", "ds = data.open(path)"),
             ("data.exists(\"tmp/demo.data\");", "tf = data.exists(path)"),
             ("data.inspect(\"tmp/demo.data\");", "S = data.inspect(path)"),
             ("Dataset.path(ds);", "path = Dataset.path(ds)"),
@@ -3114,9 +2906,9 @@ mod tests {
             ),
             (
                 "DataTransaction.commit(tx);",
-                "tf = DataTransaction.commit(tx, Name, Value, ...)",
+                "tf = DataTransaction.commit(tx, options)",
             ),
-            ("commit(tx);", "tf = commit(tx, Name, Value, ...)"),
+            ("commit(tx);", "tf = commit(tx, options)"),
             (
                 "DataTransaction.status(tx);",
                 "status = DataTransaction.status(tx)",
@@ -3351,11 +3143,7 @@ mod tests {
         let cases = [
             ("fix(-3.7);", "Y = fix(X)"),
             ("round(3.14159, 2);", "Y = round(X, N)"),
-            ("ceil(3.14159, 3, \"decimals\");", "Y = ceil(X, N, mode)"),
-            (
-                "floor(3.14159, \"like\", 1);",
-                "Y = floor(X, \"like\", prototype)",
-            ),
+            ("ceil(3.14159);", "Y = ceil(X)"),
             ("mod(17, 5);", "R = mod(A, B)"),
             ("rem(-7, 4);", "R = rem(A, B)"),
         ];
@@ -3388,13 +3176,12 @@ mod tests {
             ("min([1,2,3], [], 1);", "M = min(A, [], dim)"),
             ("median([1,2,3]);", "M = median(A)"),
             ("median([1,2,3], 1);", "M = median(A, dim)"),
-            ("median([1,2,3], \"omitnan\");", "M = median(A, nanflag)"),
+            (
+                "median([1,2,3], \"omitnan\");",
+                "M = median(A, missingflag)",
+            ),
             ("std([1,2,3]);", "S = std(A)"),
             ("std([1,2,3], 0, 1);", "S = std(A, w, dim)"),
-            (
-                "std([1,2,3], \"like\", 1);",
-                "S = std(A, \"like\", prototype)",
-            ),
             ("var([1,2,3]);", "V = var(A)"),
             ("var([1,2,3], 0, 1);", "V = var(A, w, dim)"),
             ("var([1,2,3], \"omitnan\");", "V = var(A, nanflag)"),
@@ -3536,7 +3323,7 @@ mod tests {
     #[test]
     fn signature_help_uses_math_linalg_structure_descriptors() {
         let cases = [
-            ("bandwidth([1,2;3,4]);", "bw = bandwidth(A)"),
+            ("bandwidth([1,2;3,4]);", "[lower, upper] = bandwidth(A)"),
             (
                 "bandwidth([1,2;3,4], \"lower\");",
                 "b = bandwidth(A, selector)",
@@ -3711,8 +3498,11 @@ mod tests {
             ("rgb2hsv(ones(2,2,3));", "HSV = rgb2hsv(RGB)"),
             ("hsv2rgb(ones(2,2,3));", "RGB = hsv2rgb(HSV)"),
             ("ind2rgb([1,2;2,1],[1,0,0;0,1,0]);", "RGB = ind2rgb(X, map)"),
-            ("rgb2lab(ones(2,2,3));", "LAB = rgb2lab(RGB)"),
-            ("lab2rgb(ones(2,2,3));", "RGB = lab2rgb(LAB)"),
+            ("rgb2lab(ones(2,2,3));", "LAB = rgb2lab(RGB, Name=Value)"),
+            (
+                "lab2rgb(ones(2,2,3));",
+                "RGB = lab2rgb(LAB, OutputType=type)",
+            ),
             ("im2double(ones(2,2));", "J = im2double(I)"),
             ("im2uint8(ones(2,2));", "J = im2uint8(I)"),
             ("im2uint16(ones(2,2));", "J = im2uint16(I)"),
@@ -4504,6 +4294,7 @@ mod tests {
             ("log(2);", "Y = log(X)"),
             ("log1p(2);", "Y = log1p(X)"),
             ("log2(8);", "Y = log2(X)"),
+            ("log2(8);", "[F,E] = log2(X)"),
             ("log10(100);", "Y = log10(X)"),
             ("sqrt(4);", "Y = sqrt(X)"),
         ];
@@ -4563,11 +4354,8 @@ mod tests {
                 "Y = factorial(X, \"like\", prototype)",
             ),
             ("gamma(5);", "Y = gamma(X)"),
-            (
-                "gamma(5, \"like\", 1);",
-                "Y = gamma(X, \"like\", prototype)",
-            ),
-            ("hypot(3, 4);", "R = hypot(X, Y)"),
+            ("gammaln(5);", "Y = gammaln(A)"),
+            ("hypot(3, 4);", "C = hypot(A, B)"),
             ("nextpow2(9);", "p = nextpow2(X)"),
             ("pow2(3);", "Y = pow2(X)"),
             ("pow2(1.5, 2);", "Y = pow2(F, E)"),
@@ -4853,12 +4641,16 @@ mod tests {
             ("containers.Map.keys(m);", "K = containers.Map.keys(M)"),
             ("containers.Map.values(m);", "V = containers.Map.values(M)"),
             (
+                "containers.Map.values(m, {'a'});",
+                "V = containers.Map.values(M, keySet)",
+            ),
+            (
                 "containers.Map.isKey(m, \"a\");",
                 "tf = containers.Map.isKey(M, keySet)",
             ),
             (
                 "containers.Map.remove(m, \"a\");",
-                "M = containers.Map.remove(M, keySet)",
+                "containers.Map.remove(M, keySet)",
             ),
             (
                 "containers.Map.subsref(m, \"()\", {\"a\"});",
@@ -4881,6 +4673,20 @@ mod tests {
                 labels
             );
         }
+    }
+
+    #[test]
+    fn signature_help_uses_confusionmat_descriptor() {
+        let text = "confusionmat(group,grouphat);";
+        let analysis = analyze_document_with_compat(text, CompatMode::default());
+        let position = lsp_types::Position::new(0, 0);
+        let sig = signature_help_at(text, &analysis, &position).expect("signature help");
+        let labels: Vec<&str> = sig
+            .signatures
+            .iter()
+            .map(|signature| signature.label.as_str())
+            .collect();
+        assert!(labels.contains(&"[C,order] = confusionmat(___)"));
     }
 
     #[test]
@@ -5158,10 +4964,36 @@ mod tests {
 
         let x_value = extract(x_hover);
         let y_value = extract(y_hover);
-        assert!(x_value.contains("Tensor"), "unexpected x hover {x_value}");
+        assert!(x_value.contains("double"), "unexpected x hover {x_value}");
         assert!(x_value.contains("1 x 101"), "unexpected x hover {x_value}");
-        assert!(y_value.contains("Tensor"), "unexpected y hover {y_value}");
+        assert!(y_value.contains("double"), "unexpected y hover {y_value}");
         assert!(y_value.contains("1 x 101"), "unexpected y hover {y_value}");
+    }
+
+    #[test]
+    fn wave_reproduction_uses_program_point_facts() {
+        let text = crate::core::semantic::fixtures::WAVE_SOURCE;
+        let analysis = analyze_document_with_compat(text, CompatMode::default());
+        assert!(analysis.syntax_error.is_none());
+        assert!(analysis.lowering_error.is_none());
+
+        for (needle, dimensions) in crate::core::semantic::fixtures::WAVE_EXPECTATIONS {
+            let offset = text
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing {needle}"));
+            let position = offset_to_position(text, offset);
+            let information = quick_information_at(text, &analysis, &position)
+                .unwrap_or_else(|| panic!("missing quick information for {needle}"));
+            let fact = information
+                .observation
+                .and_then(|observation| observation.fact)
+                .unwrap_or_else(|| panic!("missing fact for {needle}"));
+            assert_eq!(
+                fact.shape.known_dims(),
+                Some(dimensions.iter().copied().map(Some).collect()),
+                "wrong shape for {needle}: {fact:?}"
+            );
+        }
     }
 
     #[test]
@@ -5177,7 +5009,7 @@ mod tests {
             other => panic!("unexpected hover contents {other:?}"),
         };
 
-        assert!(x_value.contains("Tensor"), "unexpected hover {x_value}");
+        assert!(x_value.contains("double"), "unexpected hover {x_value}");
         assert!(x_value.contains("1 x 201"), "unexpected hover {x_value}");
     }
 
@@ -5266,28 +5098,67 @@ end
         let analysis = analyze_document_with_compat(text, CompatMode::default());
         let diags = diagnostics_for_document(text, &analysis);
         let diag = diags.iter().find(|d| match &d.code {
-            Some(lsp_types::NumberOrString::String(code)) => code == "lint.shape.matmul",
+            Some(lsp_types::NumberOrString::String(code)) => code == "RM-TYPE-MATMUL",
             _ => false,
         });
         let diag = diag.expect("expected matmul lint");
         assert!(
-            diag.message.contains("inner dimensions") && diag.message.contains("must match"),
+            diag.message.contains("inner dimensions") && diag.message.contains("do not agree"),
             "unexpected lint message: {}",
             diag.message
         );
     }
 
     #[test]
-    fn diagnostics_do_not_report_logical_index_lint_for_numeric_indexing() {
+    fn diagnostics_include_shared_missing_function_resolution() {
+        let text = "value = missing_project_function(1);";
+        let analysis = analyze_document_with_compat(text, CompatMode::default());
+        let diagnostics = diagnostics_for_document(text, &analysis);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                matches!(
+                    &diagnostic.code,
+                    Some(lsp_types::NumberOrString::String(code)) if code == "RM-RES0001"
+                )
+            })
+            .expect("shared resolution diagnostic");
+        assert_eq!(diagnostic.severity, Some(DiagnosticSeverity::WARNING));
+        assert_eq!(diagnostic.range.start, Position::new(0, 8));
+        assert_eq!(
+            diagnostic
+                .data
+                .as_ref()
+                .and_then(|data| data.get("state"))
+                .and_then(serde_json::Value::as_str),
+            Some("unresolved")
+        );
+    }
+
+    #[test]
+    fn parse_failures_keep_the_shared_frontend_code() {
+        let text = "value = ;";
+        let analysis = analyze_document_with_compat(text, CompatMode::default());
+        let diagnostics = diagnostics_for_document(text, &analysis);
+        assert!(diagnostics.iter().any(|diagnostic| {
+            matches!(
+                &diagnostic.code,
+                Some(lsp_types::NumberOrString::String(code)) if code == "RunMat:ParseError"
+            )
+        }));
+    }
+
+    #[test]
+    fn diagnostics_do_not_report_logical_index_contract_for_numeric_indexing() {
         let text = "a = 0:pi/100:2*pi; b = sin(a); c = a(1:10);";
         let analysis = analyze_document_with_compat(text, CompatMode::default());
         let diags = diagnostics_for_document(text, &analysis);
-        let has_logical_index_lint = diags.iter().any(|d| match &d.code {
-            Some(lsp_types::NumberOrString::String(code)) => code == "lint.shape.logical_index",
+        let has_logical_index_diagnostic = diags.iter().any(|d| match &d.code {
+            Some(lsp_types::NumberOrString::String(code)) => code == "RM-TYPE-LOGICAL-INDEX",
             _ => false,
         });
         assert!(
-            !has_logical_index_lint,
+            !has_logical_index_diagnostic,
             "unexpected logical index diagnostic: {:?}",
             diags
         );
@@ -5306,7 +5177,7 @@ end
             other => panic!("unexpected hover contents {other:?}"),
         };
 
-        assert!(c_value.contains("Tensor"), "unexpected c hover {c_value}");
+        assert!(c_value.contains("double"), "unexpected c hover {c_value}");
         assert!(c_value.contains("1 x 22"), "unexpected c hover {c_value}");
     }
 
@@ -5374,6 +5245,29 @@ end
     }
 
     #[test]
+    fn lexical_semantic_tokens_cover_incomplete_source_before_analysis() {
+        let text = "% title\nvalue = sin(42\n";
+        let tokens = semantic_tokens_lexical(text).expect("lexical tokens");
+        let legend = semantic_tokens_legend();
+        let decoded = decode_semantic_tokens(text, &tokens);
+
+        assert_role_at(
+            text,
+            &decoded,
+            &legend,
+            text.find('%').expect("comment start"),
+            lsp_types::SemanticTokenType::COMMENT,
+        );
+        assert_role_at(
+            text,
+            &decoded,
+            &legend,
+            text.find("42").expect("number"),
+            lsp_types::SemanticTokenType::NUMBER,
+        );
+    }
+
+    #[test]
     fn semantic_tokens_include_comments() {
         let text = "% Grid\nx = 1;";
         let analysis = analyze_document_with_compat(text, CompatMode::RunMat);
@@ -5391,6 +5285,7 @@ end
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn source_context_symbol_discovery_reads_manifest_project_symbols() {
         let suffix = SystemTime::now()
@@ -5415,7 +5310,8 @@ roots = ["."]
             "function y = summarize(x); y = x; end",
         )
         .expect("write package function");
-        fs::write(root.join("main.m"), "x = 1;").expect("write source file");
+        let source_text = "x = stats.summarize(1);";
+        fs::write(root.join("main.m"), source_text).expect("write source file");
 
         let source_name = root.join("main.m");
         let symbols = super::discover_known_project_symbols(source_name.to_str());
@@ -5423,10 +5319,91 @@ roots = ["."]
             symbols.contains("stats.summarize"),
             "expected project symbol discovery to include package-qualified names"
         );
+        let analysis = analyze_document_with_compat_and_source(
+            source_text,
+            CompatMode::RunMat,
+            source_name.to_str(),
+        );
+        assert!(analysis.project_revision.is_some());
+        assert!(analysis.resolution.iter().any(|evidence| {
+            evidence.name == "stats.summarize"
+                && evidence.definition.as_ref().is_some_and(|definition| {
+                    definition.package_instance.is_some() && definition.source_id.is_some()
+                })
+        }));
 
         let _ = fs::remove_dir_all(&root);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn source_context_symbol_discovery_exposes_class_folder_constructor_identity() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("runmat_lsp_class_symbol_{suffix}"));
+        fs::create_dir_all(root.join("src/@Report")).expect("create class folder");
+        fs::write(
+            root.join("runmat.toml"),
+            r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+"#,
+        )
+        .expect("write manifest");
+        fs::write(root.join("src/@Report/Report.m"), "classdef Report; end")
+            .expect("write class source");
+        let source = root.join("src/main.m");
+        fs::write(&source, "report = Report();").expect("write entry source");
+
+        let symbols = super::discover_known_project_symbols(source.to_str());
+        assert!(symbols.contains("Report"));
+        assert!(symbols.contains("Report.Report"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn source_catalog_failures_are_not_silently_dropped() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("runmat_lsp_catalog_error_{suffix}"));
+        fs::create_dir_all(&root).expect("create project");
+        fs::write(
+            root.join("runmat.toml"),
+            r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["missing-source-root"]
+"#,
+        )
+        .expect("write manifest");
+        let source = root.join("main.m");
+        fs::write(&source, "value = 1;").expect("write source");
+
+        let analysis = analyze_document_with_compat_and_source(
+            "value = 1;",
+            CompatMode::RunMat,
+            source.to_str(),
+        );
+        assert!(analysis
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "RM-CAT0001"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn cross_file_definition_and_references_resolve_project_symbols() {
         let root = create_project_fixture("lsp_cross_file");
@@ -5464,6 +5441,7 @@ roots = ["."]
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn workspace_symbols_include_unopened_project_files() {
         let root = create_project_fixture("lsp_workspace_symbols");
@@ -5503,6 +5481,7 @@ roots = ["."]
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn sync_async_project_navigation_and_symbols_are_equivalent() {
         let root = create_project_fixture("lsp_parity");
@@ -5561,6 +5540,7 @@ roots = ["."]
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn create_project_fixture(prefix: &str) -> PathBuf {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -5625,6 +5605,7 @@ roots = ["src"]
         root
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn location_keys(locations: &[Location]) -> std::collections::BTreeSet<String> {
         locations
             .iter()
@@ -5641,6 +5622,7 @@ roots = ["src"]
             .collect()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn symbol_keys(symbols: &[lsp_types::SymbolInformation]) -> std::collections::BTreeSet<String> {
         symbols
             .iter()

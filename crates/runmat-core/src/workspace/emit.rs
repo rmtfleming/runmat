@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use runmat_builtins::Value;
 use runmat_hir::{HirAssembly, HirExprKind, HirPlace, HirStmtKind};
+use runmat_value::Value;
 
 use crate::{
     approximate_size_bytes, matlab_class_name, numeric_dtype_label, preview_numeric_values,
@@ -69,10 +69,17 @@ pub(crate) fn format_type_info(value: &Value) -> String {
             }
         }
         Value::CharArray(ca) => {
-            if ca.rows == 1 && ca.cols == 1 {
+            if ca.data.len() == 1 {
                 "char".to_string()
             } else {
-                format!("{}x{} char array", ca.rows, ca.cols)
+                format!(
+                    "{} char array",
+                    ca.shape
+                        .iter()
+                        .map(usize::to_string)
+                        .collect::<Vec<_>>()
+                        .join("x")
+                )
             }
         }
         Value::Tensor(m) => {
@@ -84,6 +91,35 @@ pub(crate) fn format_type_info(value: &Value) -> String {
                 format!("{}x{} matrix", m.rows(), m.cols())
             }
         }
+        Value::Symbolic(_) => "sym scalar".to_string(),
+        Value::SymbolicArray(array) => {
+            let is_scalar = array.shape.is_empty() || array.shape == [1] || array.shape == [1, 1];
+            if is_scalar {
+                "sym scalar".to_string()
+            } else if array.shape.len() > 2 {
+                let shape = array
+                    .shape
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("x");
+                format!("{shape} sym array")
+            } else {
+                let (rows, cols) = if array.shape.len() == 1 {
+                    (1, array.shape[0])
+                } else {
+                    (
+                        array.shape.first().copied().unwrap_or(1),
+                        array.shape.get(1).copied().unwrap_or(1),
+                    )
+                };
+                if rows == 1 || cols == 1 {
+                    format!("{}x{} sym vector", rows, cols)
+                } else {
+                    format!("{}x{} sym matrix", rows, cols)
+                }
+            }
+        }
         Value::Cell(cells) => {
             if cells.data.len() == 1 {
                 "1x1 cell".to_string()
@@ -91,6 +127,16 @@ pub(crate) fn format_type_info(value: &Value) -> String {
                 format!("{}x1 cell array", cells.data.len())
             }
         }
+        Value::Struct(_) => "scalar struct".to_string(),
+        Value::StructArray(array) => format!(
+            "{} struct array",
+            array
+                .shape()
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join("x")
+        ),
         Value::GpuTensor(h) => {
             if h.shape.len() == 2 {
                 let r = h.shape[0];
@@ -248,7 +294,7 @@ fn expr_emit_disposition(expr: &runmat_hir::HirExpr, suppressed: bool) -> FinalS
     }
     match &expr.kind {
         HirExprKind::Call(call) => {
-            if call.requested_outputs.fixed_count() == 0 {
+            if call.requested_outputs.known_count() == Some(0) {
                 return FinalStmtEmitDisposition::Suppressed;
             }
             if let runmat_hir::HirCallableRef::Builtin(builtin) = &call.callee {
@@ -296,7 +342,7 @@ pub(crate) fn workspace_entry(name: &str, value: &Value) -> WorkspaceEntry {
         WorkspaceResidency::Cpu
     };
     WorkspaceEntry {
-        name: name.to_string(),
+        name: name.into(),
         class_name: matlab_class_name(value),
         dtype,
         shape: value_shape(value).unwrap_or_default(),
@@ -305,5 +351,66 @@ pub(crate) fn workspace_entry(name: &str, value: &Value) -> WorkspaceEntry {
         preview,
         residency,
         preview_token: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use runmat_value::{StructArray, StructValue, SymbolicArray, SymbolicExpr};
+
+    fn structure(payload: f64) -> StructValue {
+        let mut value = StructValue::new();
+        value.insert("payload", Value::Num(payload));
+        value
+    }
+
+    #[test]
+    fn symbolic_nd_array_is_not_labeled_scalar() {
+        let array = SymbolicArray::new(
+            vec![SymbolicExpr::variable("x"), SymbolicExpr::variable("y")],
+            vec![1, 1, 2],
+        )
+        .expect("symbolic array");
+
+        assert_eq!(
+            format_type_info(&Value::SymbolicArray(array)),
+            "1x1x2 sym array"
+        );
+    }
+
+    #[test]
+    fn symbolic_one_dimensional_array_is_row_vector() {
+        let array = SymbolicArray::new(
+            vec![SymbolicExpr::variable("x"), SymbolicExpr::variable("y")],
+            vec![2],
+        )
+        .expect("symbolic array");
+
+        assert_eq!(
+            format_type_info(&Value::SymbolicArray(array)),
+            "1x2 sym vector"
+        );
+    }
+
+    #[test]
+    fn structure_array_workspace_metadata_reports_class_shape_and_dimensions() {
+        let array = StructArray::with_fields(
+            vec!["payload".into()],
+            vec![
+                structure(1.0),
+                structure(2.0),
+                structure(3.0),
+                structure(4.0),
+            ],
+            vec![2, 1, 2],
+        )
+        .expect("structure array");
+        let value = Value::StructArray(array);
+
+        assert_eq!(format_type_info(&value), "2x1x2 struct array");
+        let entry = workspace_entry("records", &value);
+        assert_eq!(entry.class_name, "struct");
+        assert_eq!(entry.shape, [2, 1, 2]);
     }
 }

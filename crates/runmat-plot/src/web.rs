@@ -365,14 +365,14 @@ impl WebRenderer {
             .unwrap_or(false);
 
         #[cfg(feature = "egui-overlay")]
-        if self.overlay.is_some() {
-            if should_forward_event_to_overlay(
+        if self.overlay.is_some()
+            && should_forward_event_to_overlay(
                 &event,
                 overlay_pointer_captured,
                 self.camera_controller.active_button.is_some(),
-            ) {
-                self.pending_overlay_events.push(event.clone());
-            }
+            )
+        {
+            self.pending_overlay_events.push(event.clone());
         }
         #[cfg(feature = "egui-overlay")]
         if overlay_pointer_captured && self.camera_controller.active_button.is_none() {
@@ -672,11 +672,10 @@ impl WebRenderer {
     pub fn take_host_actions(&mut self) -> Vec<WebSurfaceHostAction> {
         #[cfg(feature = "egui-overlay")]
         {
-            return self
-                .overlay
+            self.overlay
                 .as_mut()
                 .map(|overlay| std::mem::take(&mut overlay.host_actions))
-                .unwrap_or_default();
+                .unwrap_or_default()
         }
 
         #[cfg(not(feature = "egui-overlay"))]
@@ -861,6 +860,9 @@ impl WebRenderer {
                         show_grid: false,
                         // Toolbar is handled by the host UI in the wasm IDE.
                         show_toolbar: false,
+                        // CAD controls are also handled by host UI so no egui
+                        // controls overlap the hosted surface.
+                        show_cad_overlay: false,
                         // Make overlay text more readable in the IDE.
                         font_scale: 1.25,
                         show_axes: true,
@@ -974,6 +976,7 @@ impl WebRenderer {
 
                 // Render plot content into the plot area viewport(s) using the camera-to-viewport path.
                 let (rows, cols) = self.plot_renderer.figure_axes_grid();
+                let expected_axes = self.plot_renderer.figure_axes_count().max(1);
                 let rect_points = plot_area_points.unwrap_or_else(|| {
                     egui::Rect::from_min_size(
                         egui::Pos2::new(0.0, 0.0),
@@ -983,8 +986,8 @@ impl WebRenderer {
                         ),
                     )
                 });
-                let axes_plot_rects = if rows * cols > 1 {
-                    if overlay.plot_overlay.axes_plot_rects().len() == rows * cols {
+                let axes_plot_rects = if rows * cols > 1 || expected_axes > 1 {
+                    if overlay.plot_overlay.axes_plot_rects().len() == expected_axes {
                         overlay.plot_overlay.axes_plot_rects().to_vec()
                     } else {
                         overlay.plot_overlay.compute_subplot_plot_rects_snapped(
@@ -1008,7 +1011,7 @@ impl WebRenderer {
                     .collect();
                 self.plot_renderer
                     .ensure_scene_viewport_dependent_geometry_for_axes(&axes_plot_sizes_px);
-                if rows * cols > 1 {
+                if axes_plot_rects.len() > 1 {
                     let sw = self.surface_config.width as f32;
                     let sh = self.surface_config.height as f32;
                     let mut viewports: Vec<(u32, u32, u32, u32)> =

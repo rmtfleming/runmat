@@ -12,6 +12,7 @@ pub mod figure;
 pub mod line;
 pub mod line3;
 pub mod mesh;
+mod numeric_data;
 pub mod patch;
 pub mod pie;
 pub mod quiver;
@@ -24,7 +25,7 @@ pub mod surface;
 pub mod volume;
 
 pub use area::{AreaGpuSource, AreaPlot};
-pub use bar::BarChart;
+pub use bar::{BarChart, PolarHistogramDisplayStyle};
 pub use contour::ContourPlot;
 pub use contour_fill::ContourFillPlot;
 pub use errorbar::ErrorBar;
@@ -37,6 +38,7 @@ pub use mesh::{
     MeshDeformation, MeshEdgeMode, MeshFieldLocation, MeshPlot, MeshRegion, MeshScalarField,
     MeshTriangleRange, MeshVectorField,
 };
+pub use numeric_data::NumericPlotData;
 pub use patch::{PatchEdgeColorMode, PatchFaceColorMode, PatchPlot};
 pub use pie::PieChart;
 pub use quiver::{QuiverGpuSource, QuiverPlot};

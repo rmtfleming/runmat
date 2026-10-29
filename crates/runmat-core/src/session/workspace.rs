@@ -72,6 +72,9 @@ impl RunMatSession {
 
     pub fn import_workspace_state(&mut self, bytes: &[u8]) -> Result<()> {
         let entries = runtime_import_workspace_state(bytes)?;
+        for (_, value) in &entries {
+            runmat_runtime::execution::validate_storable_value(value)?;
+        }
         self.clear_variables();
 
         for (index, (name, value)) in entries.into_iter().enumerate() {
@@ -136,7 +139,13 @@ impl RunMatSession {
                 if let Some((values, truncated)) =
                     gather_gpu_preview_values(handle, &value_shape_vec, &options).await?
                 {
-                    preview = Some(WorkspacePreview { values, truncated });
+                    preview = Some(WorkspacePreview {
+                        values: values
+                            .into_iter()
+                            .map(crate::NumericPreviewValue::Float)
+                            .collect(),
+                        truncated,
+                    });
                 }
             }
         } else {

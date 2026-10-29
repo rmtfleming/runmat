@@ -1,10 +1,15 @@
 //! MATLAB-compatible `erase` builtin with GPU-aware semantics for RunMat.
+use regex::Regex;
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CellArray, CharArray, StringArray, Value,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinIntegerBackendRule,
+    BuiltinIntegerCapabilityDescriptor, BuiltinIntegerComputationDomain,
+    BuiltinIntegerInputAvailability, BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule,
+    BuiltinIntegerOverflowRule, BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule,
+    BuiltinOutputMode, BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType,
+    BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CellArray, CharArray, StringArray, Value};
 
 use crate::builtins::common::map_control_flow_with_builtin;
 use crate::builtins::common::spec::{
@@ -12,6 +17,7 @@ use crate::builtins::common::spec::{
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
 use crate::builtins::strings::common::{char_row_to_string_slice, is_missing_string};
+use crate::builtins::strings::core::compat::pattern_regex;
 use crate::builtins::strings::type_resolvers::text_preserve_type;
 use crate::{
     build_runtime_error, gather_if_needed_async, make_cell_with_shape, BuiltinResult, RuntimeError,
@@ -25,13 +31,12 @@ pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     broadcast: BroadcastSemantics::None,
     provider_hooks: &[],
     constant_strategy: ConstantStrategy::InlineLiteral,
-    residency: ResidencyPolicy::GatherImmediately,
+    residency: ResidencyPolicy::NewHandle,
     nan_mode: ReductionNaN::Include,
     two_pass_threshold: None,
     workgroup_size: None,
     accepts_nan_mode: false,
-    notes:
-        "Executes on the CPU; GPU-resident inputs are gathered to host memory before substrings are removed.",
+    notes: "The builtin owns resident arguments so it can reject numeric values before provider access; accepted text executes on the host and produces host text.",
 };
 
 #[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::strings::transform::erase")]
@@ -42,11 +47,38 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     elementwise: None,
     reduction: None,
     emits_nan: false,
-    notes:
-        "String manipulation builtin; not eligible for fusion plans and always gathers GPU inputs before execution.",
+    notes: "String manipulation builtin; not eligible for fusion plans, and resident numeric values are rejected as non-text.",
 };
 
 const BUILTIN_NAME: &str = "erase";
+
+const INTEGER_INPUTS: [BuiltinIntegerInputCapability; 2] = [
+    BuiltinIntegerInputCapability {
+        name: "str",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Rejected,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Rejected,
+        notes: "The public input text accepts string arrays, a character vector, or a cell array of character vectors; numeric values are rejected before provider access.",
+    },
+    BuiltinIntegerInputCapability {
+        name: "match",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Rejected,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Rejected,
+        notes: "The public match argument accepts text or pattern values; numeric values are rejected before provider access.",
+    },
+];
+pub const INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 1] =
+    [BuiltinIntegerCapabilityDescriptor {
+        form: "newStr = erase(str, match)",
+        inputs: &INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::FunctionSpecific,
+        output_class: BuiltinIntegerOutputClassRule::NotApplicable,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::HostOnly,
+        overload: BuiltinIntegerOverloadKind::FunctionSpecific,
+        notes: "erase is text-only; integer values in either role, including nested resident values, are rejected without gathering.",
+    }];
 
 const ERASE_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "newStr",
@@ -148,11 +180,18 @@ fn erase_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
     summary = "Remove substring occurrences from text inputs.",
     keywords = "erase,remove substring,strings,character array,text",
     accel = "sink",
+    integer_capabilities(INTEGER_CAPABILITIES),
     type_resolver(text_preserve_type),
     descriptor(crate::builtins::strings::transform::erase::ERASE_DESCRIPTOR),
     builtin_path = "crate::builtins::strings::transform::erase"
 )]
 async fn erase_builtin(text: Value, pattern: Value) -> BuiltinResult<Value> {
+    if contains_numeric_or_resident(&text) {
+        return Err(erase_error(&ERASE_ERROR_INVALID_INPUT));
+    }
+    if contains_numeric_or_resident(&pattern) {
+        return Err(erase_error(&ERASE_ERROR_PATTERN_TYPE));
+    }
     let text = gather_if_needed_async(&text).await.map_err(map_flow)?;
     let pattern = gather_if_needed_async(&pattern).await.map_err(map_flow)?;
 
@@ -167,22 +206,61 @@ async fn erase_builtin(text: Value, pattern: Value) -> BuiltinResult<Value> {
     }
 }
 
+fn contains_numeric_or_resident(value: &Value) -> bool {
+    match value {
+        Value::Num(_)
+        | Value::Int(_)
+        | Value::Bool(_)
+        | Value::Tensor(_)
+        | Value::LogicalArray(_)
+        | Value::Complex(_, _)
+        | Value::ComplexTensor(_)
+        | Value::GpuTensor(_) => true,
+        Value::Cell(cell) => cell.data.iter().any(contains_numeric_or_resident),
+        Value::Struct(value) => value.fields.values().any(contains_numeric_or_resident),
+        Value::StructArray(array) => array.any_value(contains_numeric_or_resident),
+        _ => false,
+    }
+}
+
 struct PatternList {
-    entries: Vec<String>,
+    entries: Vec<PatternEntry>,
+}
+
+enum PatternEntry {
+    Literal(String),
+    Regex(Regex),
 }
 
 impl PatternList {
     fn from_value(value: &Value) -> BuiltinResult<Self> {
         let entries = match value {
-            Value::String(text) => vec![text.clone()],
-            Value::StringArray(array) => array.data.clone(),
+            Value::Object(_) => vec![PatternEntry::Regex(
+                Regex::new(&pattern_regex(value, BUILTIN_NAME).map_err(|err| {
+                    erase_error_with_message(err.message().to_string(), &ERASE_ERROR_PATTERN_TYPE)
+                })?)
+                .map_err(|err| {
+                    erase_error_with_message(err.to_string(), &ERASE_ERROR_PATTERN_TYPE)
+                })?,
+            )],
+            Value::String(text) => vec![PatternEntry::Literal(text.clone())],
+            Value::StringArray(array) => array
+                .data
+                .iter()
+                .cloned()
+                .map(PatternEntry::Literal)
+                .collect(),
             Value::CharArray(array) => {
                 if array.rows == 0 {
                     Vec::new()
                 } else {
                     let mut list = Vec::with_capacity(array.rows);
                     for row in 0..array.rows {
-                        list.push(char_row_to_string_slice(&array.data, array.cols, row));
+                        list.push(PatternEntry::Literal(char_row_to_string_slice(
+                            &array.data,
+                            array.cols,
+                            row,
+                        )));
                     }
                     list
                 }
@@ -191,13 +269,17 @@ impl PatternList {
                 let mut list = Vec::with_capacity(cell.data.len());
                 for handle in &cell.data {
                     match &handle {
-                        Value::String(text) => list.push(text.clone()),
+                        Value::String(text) => list.push(PatternEntry::Literal(text.clone())),
                         Value::StringArray(sa) if sa.data.len() == 1 => {
-                            list.push(sa.data[0].clone());
+                            list.push(PatternEntry::Literal(sa.data[0].clone()));
                         }
-                        Value::CharArray(ca) if ca.rows == 0 => list.push(String::new()),
+                        Value::CharArray(ca) if ca.rows == 0 => {
+                            list.push(PatternEntry::Literal(String::new()));
+                        }
                         Value::CharArray(ca) if ca.rows == 1 => {
-                            list.push(char_row_to_string_slice(&ca.data, ca.cols, 0));
+                            list.push(PatternEntry::Literal(char_row_to_string_slice(
+                                &ca.data, ca.cols, 0,
+                            )));
                         }
                         Value::CharArray(_) => return Err(erase_error(&ERASE_ERROR_CELL_ELEMENT)),
                         _ => return Err(erase_error(&ERASE_ERROR_CELL_ELEMENT)),
@@ -216,13 +298,20 @@ impl PatternList {
         }
         let mut current = input.to_string();
         for pattern in &self.entries {
-            if pattern.is_empty() {
-                continue;
+            match pattern {
+                PatternEntry::Literal(pattern) => {
+                    if pattern.is_empty() {
+                        continue;
+                    }
+                    current = current.replace(pattern, "");
+                }
+                PatternEntry::Regex(pattern) => {
+                    current = pattern.replace_all(&current, "").to_string();
+                }
             }
             if current.is_empty() {
                 break;
             }
-            current = current.replace(pattern, "");
         }
         current
     }
@@ -254,9 +343,19 @@ fn erase_string_array(array: StringArray, patterns: &PatternList) -> BuiltinResu
 }
 
 fn erase_char_array(array: CharArray, patterns: &PatternList) -> BuiltinResult<Value> {
-    let CharArray { data, rows, cols } = array;
+    let CharArray {
+        data,
+        shape,
+        rows,
+        cols,
+    } = array;
     if rows == 0 {
-        return Ok(Value::CharArray(CharArray { data, rows, cols }));
+        return Ok(Value::CharArray(CharArray {
+            data,
+            shape,
+            rows,
+            cols,
+        }));
     }
 
     let mut processed: Vec<String> = Vec::with_capacity(rows);
@@ -547,6 +646,61 @@ pub(crate) mod tests {
     fn erase_errors_on_invalid_pattern_type() {
         let err = erase_builtin(Value::String("abc".into()), Value::Num(1.0)).unwrap_err();
         assert_eq!(err.to_string(), ERASE_ERROR_PATTERN_TYPE.message);
+    }
+
+    #[test]
+    fn erase_rejects_nested_integer_text_before_conversion() {
+        let cell = CellArray::new(
+            vec![Value::Tensor(
+                runmat_value::Tensor::new_integer(
+                    runmat_value::IntegerStorage::U64(vec![u64::MAX]),
+                    vec![1, 1],
+                )
+                .expect("integer tensor"),
+            )],
+            1,
+            1,
+        )
+        .expect("cell");
+        let error = erase_builtin(Value::Cell(cell), Value::String("x".into()))
+            .expect_err("numeric cell is invalid text");
+        assert_eq!(error.identifier(), ERASE_ERROR_INVALID_INPUT.identifier);
+    }
+
+    #[test]
+    fn erase_rejects_resident_numeric_pattern_before_gather() {
+        use crate::builtins::common::test_support;
+        use runmat_accelerate_api::HostTensorView;
+
+        test_support::with_test_provider(|provider| {
+            let handle = provider
+                .upload(&HostTensorView {
+                    data: &[1.0],
+                    shape: &[1, 1],
+                })
+                .expect("upload");
+            provider.reset_telemetry();
+            let error = erase_builtin(
+                Value::String("abc".into()),
+                Value::GpuTensor(handle.clone()),
+            )
+            .expect_err("resident numeric pattern is invalid");
+            assert_eq!(error.identifier(), ERASE_ERROR_PATTERN_TYPE.identifier);
+            assert_eq!(provider.telemetry_snapshot().download_bytes, 0);
+            provider.free(&handle).expect("free input");
+        });
+    }
+
+    #[test]
+    fn erase_dispatch_preserves_residency_until_builtin_validation() {
+        assert_eq!(GPU_SPEC.residency, ResidencyPolicy::NewHandle);
+    }
+
+    #[test]
+    fn erase_accepts_pattern_object() {
+        let pattern = crate::builtins::strings::core::compat::pattern_object(r"\d+");
+        let result = erase_builtin(Value::String("run42mat".into()), pattern).expect("erase");
+        assert_eq!(result, Value::String("runmat".into()));
     }
 
     #[test]

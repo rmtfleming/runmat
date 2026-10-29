@@ -80,6 +80,59 @@ result = z + 5
 }
 
 #[test]
+fn spawned_async_functions_respect_local_worker_capacity() {
+    let available_workers = std::thread::available_parallelism().map_or(1, |count| count.get());
+    let temp_dir = TempDir::new().unwrap();
+    let script_path = temp_dir.path().join("local_execution.m");
+    fs::write(
+        &script_path,
+        r#"
+async function y = delayed_square(x)
+    pause(0.4);
+    y = x * x;
+end
+tic;
+t1 = spawn(delayed_square(3));
+t2 = spawn(delayed_square(4));
+r1 = await(t1);
+r2 = await(t2);
+elapsed = toc;
+disp(r1);
+disp(r2);
+disp(elapsed);
+"#,
+    )
+    .unwrap();
+
+    let output = run_runmat(&["--no-jit", "run", script_path.to_str().unwrap()]);
+    assert!(
+        output.status.success(),
+        "local execution failed. stdout: {} stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let numbers = stdout
+        .lines()
+        .filter_map(|line| line.trim().parse::<f64>().ok())
+        .collect::<Vec<_>>();
+    assert!(numbers.len() >= 3, "unexpected output: {stdout}");
+    assert_eq!(numbers[0], 9.0);
+    assert_eq!(numbers[1], 16.0);
+    if available_workers >= 2 {
+        assert!(
+            numbers[2] < 0.7,
+            "tasks were not observably concurrent with {available_workers} available workers: {stdout}"
+        );
+    } else {
+        assert!(
+            numbers[2] < 1.5,
+            "tasks did not complete within the bounded single-worker allowance: {stdout}"
+        );
+    }
+}
+
+#[test]
 fn test_signal_compatibility_harness_cli() {
     let temp_dir = TempDir::new().unwrap();
     let script_path = temp_dir.path().join("signal_compatibility_harness.m");
@@ -104,6 +157,70 @@ fn test_signal_compatibility_harness_cli() {
     assert!(
         stdout.contains("RESULT_signal_compat csv=4 fft=2.0 conv=-1.0 mat=1.0"),
         "Signal compatibility harness produced unexpected stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_freqz_fir_response_cli() {
+    let temp_dir = TempDir::new().unwrap();
+    let script_path = temp_dir.path().join("freqz_fir_response.m");
+    fs::write(
+        &script_path,
+        r#"
+[H, w] = freqz([1 1], 1, 4);
+fprintf('RESULT_freqz_fir real0=%.1f imag2=%.1f w2=%.4f len=%d\n', real(H(1)), imag(H(3)), w(3), length(H));
+"#,
+    )
+    .unwrap();
+
+    let output = run_runmat_in_dir_os(
+        &[OsStr::new("run"), script_path.as_os_str()],
+        Some(temp_dir.path()),
+    );
+    assert!(
+        output.status.success(),
+        "freqz FIR script failed. stdout: {} stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("RESULT_freqz_fir real0=2.0 imag2=-1.0 w2=1.5708 len=4"),
+        "freqz FIR script produced unexpected stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_freqz_butter_response_cli() {
+    let temp_dir = TempDir::new().unwrap();
+    let script_path = temp_dir.path().join("freqz_butter_response.m");
+    fs::write(
+        &script_path,
+        r#"
+[b, a] = butter(2, 0.25, 'low');
+[H, w] = freqz(b, a, 8);
+m = abs(H);
+fprintf('RESULT_freqz_butter len=%d dc=%.4f lastw=%.4f finite=%d\n', length(H), m(1), w(end), sum(isfinite(m)));
+"#,
+    )
+    .unwrap();
+
+    let output = run_runmat_in_dir_os(
+        &[OsStr::new("run"), script_path.as_os_str()],
+        Some(temp_dir.path()),
+    );
+    assert!(
+        output.status.success(),
+        "freqz butter script failed. stdout: {} stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("RESULT_freqz_butter len=8 dc=1.0000 lastw=2.7489 finite=8"),
+        "freqz butter script produced unexpected stdout: {stdout}"
     );
 }
 

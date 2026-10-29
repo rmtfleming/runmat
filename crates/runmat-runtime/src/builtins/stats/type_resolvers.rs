@@ -48,33 +48,6 @@ pub fn histcounts_type(args: &[Type], ctx: &ResolveContext) -> Type {
     }
 }
 
-/// Type resolver for `histc`. The counts vector has one element per edge
-/// (`length(edges)`), oriented along the operating dimension: a column-vector
-/// input yields a column output, otherwise a row output. When the edge length
-/// is unknown the resolver falls back to a generic row vector.
-pub fn histc_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    let edges_len = args.get(1).and_then(size_vector_len);
-    match edges_len {
-        Some(len) if len >= 1 => {
-            let is_column = matches!(
-                args.first(),
-                Some(Type::Tensor { shape: Some(shape) } | Type::Logical { shape: Some(shape) })
-                    if shape.len() >= 2 && shape[1] == Some(1) && shape[0] != Some(1)
-            );
-            if is_column {
-                Type::Tensor {
-                    shape: Some(vec![Some(len), Some(1)]),
-                }
-            } else {
-                Type::Tensor {
-                    shape: Some(vec![Some(1), Some(len)]),
-                }
-            }
-        }
-        _ => row_vector_type(ctx),
-    }
-}
-
 pub fn histcounts2_type(args: &[Type], _context: &ResolveContext) -> Type {
     let mut edges_lens: Vec<usize> = Vec::new();
     for arg in args.iter().skip(2) {
@@ -121,10 +94,7 @@ fn square_summary_type(args: &[Type]) -> Type {
     }
     let total = match data.len() {
         1 => variable_count(data[0]),
-        2 => match (variable_count(data[0]), variable_count(data[1])) {
-            (Some(a), Some(b)) => Some(a + b),
-            _ => None,
-        },
+        2 => Some(2),
         _ => None,
     };
     match total {

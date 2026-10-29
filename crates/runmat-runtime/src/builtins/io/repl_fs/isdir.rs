@@ -9,9 +9,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -88,7 +89,7 @@ pub const ISDIR_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
 )]
 async fn isdir_builtin(path: Value) -> BuiltinResult<Value> {
     // Legacy alias: identical behaviour to isfolder via the shared helper.
-    crate::builtins::io::repl_fs::isfolder::folder_predicate(path).await
+    crate::builtins::parallel_implementations::isfolder::folder_predicate(path).await
 }
 
 fn bool_scalar_type(_: &[Type], _context: &ResolveContext) -> Type {
@@ -99,7 +100,7 @@ fn bool_scalar_type(_: &[Type], _context: &ResolveContext) -> Type {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::CharArray;
+    use runmat_value::CharArray;
     use std::fs;
 
     fn run_isdir(value: Value) -> Value {

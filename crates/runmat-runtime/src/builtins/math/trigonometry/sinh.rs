@@ -2,11 +2,13 @@
 
 use runmat_accelerate_api::GpuTensorHandle;
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, ComplexTensor, Tensor, Value,
+    BuiltinErrorDescriptor, SINH_CHARACTER_INPUT_EXTENSION, SINH_ERROR_INTERNAL,
+    SINH_ERROR_INVALID_INPUT, SINH_INTEGER_INPUT_EXTENSION, SINH_LOGICAL_INPUT_EXTENSION,
 };
+#[cfg(test)]
+use runmat_builtins::{SINH_DESCRIPTOR, SINH_ERROR_TOO_MANY_OUTPUTS};
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, ComplexTensor, Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, FusionError,
@@ -14,55 +16,9 @@ use crate::builtins::common::spec::{
     ResidencyPolicy, ScalarType, ShapeRequirements,
 };
 use crate::builtins::common::{gpu_helpers, tensor};
-use crate::builtins::math::type_resolvers::numeric_unary_type;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "sinh";
-
-const SINH_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "Y",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Element-wise hyperbolic sine result.",
-}];
-
-const SINH_INPUTS: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "X",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Input scalar, array, char array, complex value, or gpuArray.",
-}];
-
-const SINH_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "Y = sinh(X)",
-    inputs: &SINH_INPUTS,
-    outputs: &SINH_OUTPUT,
-}];
-
-const SINH_ERROR_INVALID_INPUT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.SINH.INVALID_INPUT",
-    identifier: Some("RunMat:sinh:InvalidInput"),
-    when: "Input cannot be interpreted as supported numeric/char/complex data.",
-    message: "sinh: invalid input",
-};
-
-const SINH_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.SINH.INTERNAL",
-    identifier: Some("RunMat:sinh:Internal"),
-    when: "Internal gather/conversion/allocation/provider flow failed.",
-    message: "sinh: internal error",
-};
-
-const SINH_ERRORS: [BuiltinErrorDescriptor; 2] = [SINH_ERROR_INVALID_INPUT, SINH_ERROR_INTERNAL];
-
-pub const SINH_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &SINH_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &SINH_ERRORS,
-};
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::math::trigonometry::sinh")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -120,15 +76,26 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "sinh",
-    category = "math/trigonometry",
-    summary = "Compute element-wise hyperbolic sine values.",
-    keywords = "sinh,hyperbolic,trigonometry,gpu",
-    accel = "unary",
-    type_resolver(numeric_unary_type),
-    descriptor(crate::builtins::math::trigonometry::sinh::SINH_DESCRIPTOR),
+    binding_variant = "default",
     builtin_path = "crate::builtins::math::trigonometry::sinh"
 )]
 async fn sinh_builtin(value: Value) -> BuiltinResult<Value> {
+    super::inverse_helpers::reject_excess_outputs(BUILTIN_NAME)?;
+    super::inverse_helpers::ensure_input_extensions(
+        &value,
+        BUILTIN_NAME,
+        &SINH_INTEGER_INPUT_EXTENSION,
+        &SINH_LOGICAL_INPUT_EXTENSION,
+        &SINH_CHARACTER_INPUT_EXTENSION,
+    )?;
+    crate::builtins::common::validation::ensure_runmat_integer_f64_boundary(
+        &value,
+        &SINH_INTEGER_INPUT_EXTENSION,
+        BUILTIN_NAME,
+        "X",
+    )
+    .await?;
+    crate::builtins::common::validation::reject_typed_complex_integer(&value, "sinh")?;
     match value {
         Value::GpuTensor(handle) => sinh_gpu(handle).await,
         Value::Complex(re, im) => Ok(Value::Complex(
@@ -143,13 +110,50 @@ async fn sinh_builtin(value: Value) -> BuiltinResult<Value> {
 }
 
 async fn sinh_gpu(handle: GpuTensorHandle) -> BuiltinResult<Value> {
+    if runmat_accelerate_api::handle_integer_type(&handle).is_some()
+        || runmat_accelerate_api::handle_is_logical(&handle)
+        || runmat_accelerate_api::handle_storage(&handle)
+            != runmat_accelerate_api::GpuTensorStorage::Real
+    {
+        return crate::builtins::common::provider_restore::gather_value_compute_restore(
+            handle,
+            BUILTIN_NAME,
+            |value| match value {
+                Value::Complex(re, im) => Ok(Value::Complex(
+                    sinh_complex_re(re, im),
+                    sinh_complex_im(re, im),
+                )),
+                Value::ComplexTensor(tensor) => sinh_complex_tensor(tensor),
+                other => sinh_real(other),
+            },
+        )
+        .await;
+    }
     if let Some(provider) = runmat_accelerate_api::provider_for_handle(&handle) {
-        if let Ok(out) = provider.unary_sinh(&handle).await {
-            return Ok(Value::GpuTensor(out));
+        match provider.unary_sinh(&handle).await {
+            Ok(output) => {
+                return crate::builtins::common::provider_restore::validate_real_unary_provider_output(
+                    provider,
+                    &handle,
+                    output,
+                    BUILTIN_NAME,
+                )
+            }
+            Err(error) if gpu_helpers::provider_hook_is_unsupported(&error) => {}
+            Err(error) => {
+                return Err(sinh_error_with_detail(
+                    &SINH_ERROR_INTERNAL,
+                    format!("provider unary_sinh failed: {error}"),
+                ))
+            }
         }
     }
-    let tensor = gpu_helpers::gather_tensor_async(&handle).await?;
-    sinh_tensor(tensor).map(tensor::tensor_into_value)
+    crate::builtins::common::provider_restore::gather_value_compute_restore(
+        handle,
+        BUILTIN_NAME,
+        sinh_real,
+    )
+    .await
 }
 
 fn sinh_real(value: Value) -> BuiltinResult<Value> {
@@ -159,19 +163,16 @@ fn sinh_real(value: Value) -> BuiltinResult<Value> {
 }
 
 fn sinh_tensor(tensor: Tensor) -> BuiltinResult<Tensor> {
-    let data = tensor.data.iter().map(|&v| v.sinh()).collect::<Vec<_>>();
-    Tensor::new(data, tensor.shape.clone())
-        .map_err(|e| sinh_error_with_detail(&SINH_ERROR_INTERNAL, e))
+    super::inverse_helpers::map_real_tensor(tensor, BUILTIN_NAME, f64::sinh, f32::sinh)
 }
 
 fn sinh_complex_tensor(ct: ComplexTensor) -> BuiltinResult<Value> {
-    let mapped = ct
-        .data
-        .iter()
-        .map(|&(re, im)| (sinh_complex_re(re, im), sinh_complex_im(re, im)))
-        .collect::<Vec<_>>();
-    let tensor = ComplexTensor::new(mapped, ct.shape.clone())
-        .map_err(|e| sinh_error_with_detail(&SINH_ERROR_INTERNAL, e))?;
+    let tensor = super::inverse_helpers::map_complex_tensor(
+        ct,
+        BUILTIN_NAME,
+        |(real, imag)| (sinh_complex_re(real, imag), sinh_complex_im(real, imag)),
+        |(real, imag)| (real.sinh() * imag.cos(), real.cosh() * imag.sin()),
+    )?;
     Ok(Value::ComplexTensor(tensor))
 }
 
@@ -200,7 +201,7 @@ fn sinh_complex_im(re: f64, im: f64) -> f64 {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{IntValue, ResolveContext, Tensor, Type};
+    use runmat_value::{IntValue, Tensor};
 
     use crate::builtins::common::test_support;
 
@@ -219,30 +220,52 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn sinh_type_preserves_tensor_shape() {
-        let out = numeric_unary_type(
-            &[Type::Tensor {
-                shape: Some(vec![Some(2), Some(3)]),
-            }],
-            &ResolveContext::new(Vec::new()),
-        );
+    fn sinh_preserves_native_single_real_and_complex_storage() {
+        let real = Tensor::from_f32(vec![0.5, 2.0], vec![2, 1]).unwrap();
+        let Value::Tensor(real_output) = sinh_builtin(Value::Tensor(real)).expect("single sinh")
+        else {
+            panic!("expected single tensor");
+        };
+        assert_eq!(real_output.numeric_dtype(), runmat_value::NumericDType::F32);
+
+        let complex = ComplexTensor::from_f32(vec![(0.5, 0.25), (2.0, -1.0)], vec![2, 1]).unwrap();
+        let Value::ComplexTensor(complex_output) =
+            sinh_builtin(Value::ComplexTensor(complex)).expect("complex-single sinh")
+        else {
+            panic!("expected complex-single tensor");
+        };
         assert_eq!(
-            out,
-            Type::Tensor {
-                shape: Some(vec![Some(2), Some(3)])
-            }
+            complex_output.numeric_dtype(),
+            runmat_value::NumericDType::F32
         );
     }
 
     #[test]
-    fn sinh_type_scalar_tensor_returns_num() {
-        let out = numeric_unary_type(
-            &[Type::Tensor {
-                shape: Some(vec![Some(1), Some(1)]),
-            }],
-            &ResolveContext::new(Vec::new()),
+    fn sinh_extensions_and_output_arity_are_gated() {
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+        let integer = block_on(super::sinh_builtin(Value::Int(IntValue::I8(1))))
+            .expect_err("integer input must be gated");
+        assert_eq!(
+            integer.identifier(),
+            SINH_INTEGER_INPUT_EXTENSION.error_identifier
         );
-        assert_eq!(out, Type::Num);
+        let logical = block_on(super::sinh_builtin(Value::Bool(true)))
+            .expect_err("logical input must be gated");
+        assert_eq!(
+            logical.identifier(),
+            SINH_LOGICAL_INPUT_EXTENSION.error_identifier
+        );
+        let chars = CharArray::new("A".chars().collect(), 1, 1).unwrap();
+        let character = block_on(super::sinh_builtin(Value::CharArray(chars)))
+            .expect_err("character input must be gated");
+        assert_eq!(
+            character.identifier(),
+            SINH_CHARACTER_INPUT_EXTENSION.error_identifier
+        );
+        let _outputs = crate::output_count::push_output_count(Some(2));
+        let arity =
+            block_on(super::sinh_builtin(Value::Num(0.0))).expect_err("excess outputs must reject");
+        assert_eq!(arity.identifier(), SINH_ERROR_TOO_MANY_OUTPUTS.identifier);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -265,7 +288,7 @@ pub(crate) mod tests {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![3, 1]);
                 let expected = [-1.0f64.sinh(), 0.0, 1.0f64.sinh()];
-                for (got, exp) in t.data.iter().zip(expected.iter()) {
+                for (got, exp) in t.materialize_f64().iter().zip(expected.iter()) {
                     assert!((got - exp).abs() < 1e-12);
                 }
             }
@@ -275,13 +298,64 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn sinh_reads_typed_integer_tensor_storage_exactly() {
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
+        let tensor = Tensor::new_integer(
+            runmat_value::IntegerStorage::I16(vec![-1, 0, 1]),
+            vec![3, 1],
+        )
+        .expect("integer tensor");
+
+        match sinh_builtin(Value::Tensor(tensor)).expect("sinh") {
+            Value::Tensor(out) => {
+                assert_eq!(out.shape, vec![3, 1]);
+                let expected = [-1.0f64.sinh(), 0.0, 1.0f64.sinh()];
+                for (actual, expected) in out.materialize_f64().iter().zip(expected.iter()) {
+                    assert!((actual - expected).abs() < 1e-12);
+                }
+                assert!(out.integer_storage().is_none());
+            }
+            other => panic!("expected tensor result, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn sinh_int_value_promotes() {
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
         let value = Value::Int(IntValue::I32(1));
         let result = sinh_builtin(value).expect("sinh");
         match result {
             Value::Num(v) => assert!((v - 1.0f64.sinh()).abs() < 1e-12),
             other => panic!("expected scalar result, got {other:?}"),
         }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn sinh_all_integer_scalar_classes_cross_the_double_boundary_exactly() {
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
+        for value in [
+            IntValue::I8(1),
+            IntValue::I16(1),
+            IntValue::I32(1),
+            IntValue::I64(1),
+            IntValue::U8(1),
+            IntValue::U16(1),
+            IntValue::U32(1),
+            IntValue::U64(1),
+        ] {
+            let Value::Num(result) = sinh_builtin(Value::Int(value)).expect("integer sinh") else {
+                panic!("expected real double scalar")
+            };
+            assert_eq!(result, 1.0f64.sinh());
+        }
+
+        let error = sinh_builtin(Value::Int(IntValue::U64(u64::MAX)))
+            .expect_err("inexact wide integer must reject");
+        assert!(error
+            .message()
+            .contains("must be exactly representable as double"));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -300,6 +374,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn sinh_char_array_roundtrip() {
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
         let chars = CharArray::new("abc".chars().collect(), 1, 3).unwrap();
         let result = sinh_builtin(Value::CharArray(chars)).expect("sinh");
         match result {
@@ -307,7 +382,7 @@ pub(crate) mod tests {
                 assert_eq!(t.shape, vec![1, 3]);
                 for (idx, ch) in ['a', 'b', 'c'].into_iter().enumerate() {
                     let expected = (ch as u32 as f64).sinh();
-                    assert!((t.data[idx] - expected).abs() < 1e-12);
+                    assert!((t.materialize_f64()[idx] - expected).abs() < 1e-12);
                 }
             }
             other => panic!("expected tensor result, got {other:?}"),
@@ -320,15 +395,37 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![0.0, 0.5, 1.0, 1.5], vec![4, 1]).unwrap();
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");
             let result = sinh_builtin(Value::GpuTensor(handle)).expect("sinh");
             let gathered = test_support::gather(result).expect("gather");
-            let expected: Vec<f64> = tensor.data.iter().map(|&v| v.sinh()).collect();
+            let expected: Vec<f64> = tensor.materialize_f64().iter().map(|&v| v.sinh()).collect();
             assert_eq!(gathered.shape, vec![4, 1]);
-            assert_eq!(gathered.data, expected);
+            assert_eq!(gathered.materialize_f64(), expected);
+        });
+    }
+
+    #[test]
+    fn sinh_complex_gpu_fallback_restores_through_the_owner() {
+        test_support::with_test_provider(|provider| {
+            let input = ComplexTensor::new(vec![(0.5, 0.25), (1.0, -0.75)], vec![2, 1])
+                .expect("complex tensor");
+            let handle = gpu_helpers::upload_complex_tensor(provider, &input).expect("upload");
+            let resident = sinh_builtin(Value::GpuTensor(handle)).expect("resident sinh");
+            let gathered = block_on(gpu_helpers::gather_value_async(&resident)).expect("gather");
+            let Value::ComplexTensor(output) = gathered else {
+                panic!("expected complex tensor")
+            };
+            for (actual, &(real, imag)) in output
+                .materialize_f64()
+                .iter()
+                .zip(input.materialize_f64().iter())
+            {
+                assert!((actual.0 - sinh_complex_re(real, imag)).abs() < 1e-12);
+                assert!((actual.1 - sinh_complex_im(real, imag)).abs() < 1e-12);
+            }
         });
     }
 
@@ -345,29 +442,27 @@ pub(crate) mod tests {
     #[test]
     #[cfg(feature = "wgpu")]
     fn sinh_wgpu_matches_cpu_elementwise() {
-        let _ = runmat_accelerate::backend::wgpu::provider::register_wgpu_provider(
-            runmat_accelerate::backend::wgpu::provider::WgpuProviderOptions::default(),
-        );
+        let _guard = test_support::accel_test_lock();
+        let Some(provider) = test_support::wgpu_provider_if_available() else {
+            return;
+        };
         let t = Tensor::new(vec![0.0, 0.25, 0.5, 0.75], vec![4, 1]).unwrap();
         let cpu = sinh_real(Value::Tensor(t.clone())).unwrap();
         let view = runmat_accelerate_api::HostTensorView {
-            data: &t.data,
+            data: &t.materialize_f64(),
             shape: &t.shape,
         };
-        let h = runmat_accelerate_api::provider()
-            .unwrap()
-            .upload(&view)
-            .unwrap();
+        let h = provider.upload(&view).unwrap();
         let gpu = block_on(sinh_gpu(h)).unwrap();
         let gathered = test_support::gather(gpu).expect("gather");
         match (cpu, gathered) {
             (Value::Tensor(ct), gt) => {
                 assert_eq!(gt.shape, ct.shape);
-                let tol = match runmat_accelerate_api::provider().unwrap().precision() {
+                let tol = match provider.precision() {
                     runmat_accelerate_api::ProviderPrecision::F64 => 1e-12,
                     runmat_accelerate_api::ProviderPrecision::F32 => 1e-5,
                 };
-                for (a, b) in gt.data.iter().zip(ct.data.iter()) {
+                for (a, b) in gt.materialize_f64().iter().zip(ct.materialize_f64().iter()) {
                     assert!((a - b).abs() < tol, "|{} - {}| >= {}", a, b, tol);
                 }
             }

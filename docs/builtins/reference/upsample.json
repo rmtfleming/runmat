@@ -16,7 +16,7 @@
       "f64"
     ],
     "broadcasting": "none",
-    "notes": "GPU inputs are accepted through the active provider gather path. The current implementation performs sample-rate conversion on the host and returns a host tensor."
+    "notes": "Real, logical, and complex-interleaved GPU inputs use the active provider's storage-aware zeros and linear-scatter hooks to keep the upsampled output resident."
   },
   "fusion": {
     "elementwise": false,
@@ -31,10 +31,11 @@
   },
   "description": "`y = upsample(x, n)` inserts `n - 1` zeros after each sample of `x` along the first non-singleton dimension. `y = upsample(x, n, phase)` places each original sample at the zero-based `phase` offset within each `n`-sample output group.",
   "behaviors": [
-    "Accepts numeric, logical, integer, complex, vector, matrix, N-D tensor, and GPU tensor inputs.",
+    "The documented input surface is vectors and matrices. RunMat also accepts N-D inputs; inputs with more than two dimensions are a compatibility-gated RunMat extension.",
+    "Integer input samples preserve all eight signed and unsigned integer classes and exact element values because upsampling performs zero insertion rather than floating-point computation.",
     "Operates along the first non-singleton dimension, matching MATLAB's column-wise behavior for matrices and row-wise behavior for row vectors.",
-    "`n` must be a finite positive integer scalar.",
-    "`phase` is optional, defaults to 0, and must be an integer scalar in the range `0 <= phase < n`.",
+    "`n` must be a finite positive integer-valued single or double scalar. Native typed-integer `n` is a separately gated RunMat extension and is parsed exactly.",
+    "`phase` is optional, defaults to 0, and must be an integer-valued single or double scalar in the range `0 <= phase < n`. Native typed-integer `phase` is a separately gated RunMat extension and is parsed exactly.",
     "The output size along the operated dimension is `size(x, dim) * n`; all other dimensions are preserved.",
     "Inserted samples are numeric zero or complex zero, depending on the input domain."
   ],
@@ -66,7 +67,7 @@
     },
     {
       "question": "Can I pass GPU tensors?",
-      "answer": "Yes. GPU inputs are gathered through the active provider, converted on the host, and returned as host tensors."
+      "answer": "Yes. Real, logical, and complex-interleaved GPU inputs stay resident through provider `zeros_with_storage` and `scatter_linear` hooks."
     }
   ],
   "links": [

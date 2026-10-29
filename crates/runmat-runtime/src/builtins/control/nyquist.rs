@@ -2,18 +2,20 @@
 
 use nalgebra::DMatrix;
 use num_complex::Complex64;
-use runmat_builtins::{ObjectInstance, Tensor, Value};
 use runmat_macros::runtime_builtin;
+use runmat_value::{ObjectInstance, Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
+use crate::builtins::common::tensor;
+use crate::builtins::control::plot_setup_error::is_nonfatal_plot_setup_error;
 use crate::builtins::control::type_resolvers::nyquist_type;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "nyquist";
-const TF_CLASS: &str = "tf";
+const TF_CLASS: runmat_types::StaticClassIdentity = runmat_types::StaticClassIdentity::new("tf");
 const EPS: f64 = 1.0e-12;
 const DEFAULT_FREQUENCY_POINTS: usize = 200;
 
@@ -115,7 +117,7 @@ impl TfSystem {
                 "nyquist: expected a dynamic system model, got {gathered:?}"
             )));
         };
-        if object.class_name != TF_CLASS {
+        if !object.class_name.is(TF_CLASS) {
             return Err(nyquist_error(format!(
                 "nyquist: unsupported model class '{}'; only SISO tf objects are currently supported",
                 object.class_name
@@ -192,10 +194,9 @@ fn coefficients(value: &Value, label: &str) -> BuiltinResult<Vec<Complex64>> {
             ensure_vector(label, &tensor.shape)?;
             finite_complex_values(
                 label,
-                tensor
-                    .data
-                    .iter()
-                    .map(|&value| Complex64::new(value, 0.0))
+                tensor::tensor_values_f64(tensor)
+                    .into_iter()
+                    .map(|value| Complex64::new(value, 0.0))
                     .collect(),
             )
         }
@@ -204,7 +205,7 @@ fn coefficients(value: &Value, label: &str) -> BuiltinResult<Vec<Complex64>> {
             finite_complex_values(
                 label,
                 tensor
-                    .data
+                    .materialize_f64()
                     .iter()
                     .map(|&(re, im)| Complex64::new(re, im))
                     .collect(),
@@ -250,7 +251,9 @@ fn scalar_property(value: &Value, label: &str) -> BuiltinResult<f64> {
         Value::Num(n) => Ok(*n),
         Value::Int(i) => Ok(i.to_f64()),
         Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        Value::Tensor(tensor) if tensor.data.len() == 1 => Ok(tensor.data[0]),
+        Value::Tensor(tensor) if tensor::is_scalar_tensor(tensor) => {
+            Ok(tensor::tensor_value_f64(tensor, 0))
+        }
         other => Err(nyquist_error(format!(
             "nyquist: {label} must be a real scalar, got {other:?}"
         ))),
@@ -270,14 +273,16 @@ impl FrequencySpec {
         let gathered = crate::dispatcher::gather_if_needed_async(value).await?;
         let tensor = frequency_tensor_from_value(gathered)?;
         ensure_vector("frequency", &tensor.shape)?;
-        validate_frequency_vector(&tensor.data)?;
-        Ok(Self::Values(tensor.data))
+        let values = tensor::tensor_into_values_f64(tensor);
+        validate_frequency_vector(&values)?;
+        Ok(Self::Values(values))
     }
 }
 
 fn frequency_tensor_from_value(value: Value) -> BuiltinResult<Tensor> {
     match value {
-        Value::Tensor(tensor) => Ok(tensor),
+        Value::Tensor(tensor) => tensor::integer_tensor_to_f64(tensor)
+            .map_err(|err| nyquist_error(format!("nyquist: {err}"))),
         Value::Num(n) => {
             Tensor::new(vec![n], vec![1, 1]).map_err(|err| nyquist_error(format!("nyquist: {err}")))
         }
@@ -461,7 +466,7 @@ async fn render_nyquist_plot(response: &NyquistResponse) -> BuiltinResult<()> {
     }
 
     if let Err(err) = crate::call_builtin_async("plot", &args).await {
-        if super::is_nonfatal_plot_setup_error(&err) {
+        if is_nonfatal_plot_setup_error(&err) {
             return Ok(());
         }
         return Err(err);
@@ -517,7 +522,7 @@ fn zero_small(value: f64) -> f64 {
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{CharArray, ComplexTensor};
+    use runmat_value::{CharArray, ComplexTensor, IntegerStorage};
 
     fn tf_object(num: Vec<f64>, den: Vec<f64>, ts: f64) -> Value {
         let mut object = ObjectInstance::new("tf".to_string());
@@ -549,9 +554,14 @@ mod tests {
 
     fn tensor_data(value: Value) -> Vec<f64> {
         match value {
-            Value::Tensor(tensor) => tensor.data,
+            Value::Tensor(tensor) => tensor.materialize_f64(),
             other => panic!("expected tensor, got {other:?}"),
         }
+    }
+
+    fn integer_tensor(storage: IntegerStorage, shape: Vec<usize>) -> Value {
+        let tensor = Tensor::new_integer(storage, shape).expect("integer tensor");
+        Value::Tensor(tensor)
     }
 
     #[test]
@@ -650,6 +660,45 @@ mod tests {
         let w = Value::Tensor(Tensor::new(vec![0.0, f64::INFINITY], vec![1, 2]).unwrap());
         let err = run_nyquist(sys, vec![w]).expect_err("should fail");
         assert!(err.message().contains("frequency values must be finite"));
+    }
+
+    #[test]
+    fn nyquist_typed_integer_coefficients_and_frequency_cross_double_boundary_exactly() {
+        let mut object = ObjectInstance::new("tf".to_string());
+        object.properties.insert(
+            "Numerator".to_string(),
+            integer_tensor(IntegerStorage::U16(vec![1]), vec![1, 1]),
+        );
+        object.properties.insert(
+            "Denominator".to_string(),
+            integer_tensor(IntegerStorage::I16(vec![1, 1]), vec![1, 2]),
+        );
+        object.properties.insert(
+            "Variable".to_string(),
+            Value::CharArray(CharArray::new_row("s")),
+        );
+        let sample_time =
+            Tensor::new_integer(IntegerStorage::U16(vec![1]), vec![1, 1]).expect("sample time");
+        object
+            .properties
+            .insert("Ts".to_string(), Value::Tensor(sample_time));
+        object
+            .properties
+            .insert("InputDelay".to_string(), Value::Num(0.0));
+        object
+            .properties
+            .insert("OutputDelay".to_string(), Value::Num(0.0));
+
+        let _guard = crate::output_count::push_output_count(Some(3));
+        let result = run_nyquist(
+            Value::Object(object),
+            vec![integer_tensor(IntegerStorage::U64(vec![0, 1]), vec![1, 2])],
+        )
+        .expect("nyquist");
+        let Value::OutputList(outputs) = result else {
+            panic!("expected output list");
+        };
+        assert_eq!(tensor_data(outputs[2].clone()), vec![0.0, 1.0]);
     }
 
     #[test]

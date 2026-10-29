@@ -5,17 +5,56 @@ use std::collections::BTreeSet;
 
 use runmat_accelerate_api::{AccelProvider, GpuTensorHandle, ReduceDimResult};
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinExtensionDescriptor,
+    BuiltinExtensionMode, BuiltinIntegerBackendRule, BuiltinIntegerCapabilityDescriptor,
+    BuiltinIntegerComputationDomain, BuiltinIntegerInputAvailability,
+    BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule, BuiltinIntegerOverflowRule,
+    BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ComplexTensor, ResolveContext, Tensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{ComplexStorage, ComplexTensor, NumericDType, NumericStorage, Tensor, Value};
 
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const NAME: &str = "max";
 
+const NANMAX_INTEGER_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
+    id: "nanmax-typed-integer-input",
+    mode: BuiltinExtensionMode::RunMatOnly,
+    description: "nanmax with a typed-integer data or control input is a RunMat extension",
+    error_identifier: Some("RunMat:compatibility:NanmaxTypedIntegerInputExtension"),
+};
+
+pub const NANMAX_EXTENSIONS: [BuiltinExtensionDescriptor; 1] = [NANMAX_INTEGER_EXTENSION];
+
+const NANMAX_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "A_B_or_dimension",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::RunMatOnly,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "Typed-integer data, pairwise operands, and dimension controls are accepted only with the nanmax typed-integer-input extension; documented single- and double-valued forms remain available in MATLAB-compatible mode.",
+    }];
+
+pub const NANMAX_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 1] =
+    [BuiltinIntegerCapabilityDescriptor {
+        form: "M = nanmax(A, args...) or nanmax(A, B)",
+        inputs: &NANMAX_INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::ExactInteger,
+        output_class: BuiltinIntegerOutputClassRule::PreserveInput,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::Multiple,
+        notes: "RunMat extends legacy nanmax with exact typed-integer reductions and compatible pairwise forms while preserving all eight integer classes; omit-NaN resident reductions gather because the max provider path does not expose NaN-mode selection.",
+    }];
+
 fn max_type(args: &[Type], ctx: &ResolveContext) -> Type {
+    min_max_type(args, ctx)
+}
+
+fn nanmax_type(args: &[Type], ctx: &ResolveContext) -> Type {
     min_max_type(args, ctx)
 }
 
@@ -157,7 +196,85 @@ const MAX_INPUTS_A_B_OPTIONS: [BuiltinParamDescriptor; 4] = [
     MAX_PARAM_OPTION_VALUE,
 ];
 
-const MAX_SIGNATURES: [BuiltinSignatureDescriptor; 22] = [
+const NANMAX_INPUTS_A: [BuiltinParamDescriptor; 1] = [MAX_PARAM_A];
+const NANMAX_INPUTS_A_B: [BuiltinParamDescriptor; 2] = [MAX_PARAM_A, MAX_PARAM_B];
+const NANMAX_INPUTS_A_EMPTY_DIM: [BuiltinParamDescriptor; 3] =
+    [MAX_PARAM_A, MAX_PARAM_EMPTY, MAX_PARAM_DIM];
+
+const NANMAX_SIGNATURES: [BuiltinSignatureDescriptor; 14] = [
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A)",
+        inputs: &NANMAX_INPUTS_A,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "[M, I] = nanmax(A)",
+        inputs: &NANMAX_INPUTS_A,
+        outputs: &MAX_OUTPUT_MI,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, B)",
+        inputs: &NANMAX_INPUTS_A_B,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, [], dim)",
+        inputs: &NANMAX_INPUTS_A_EMPTY_DIM,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "[M, I] = nanmax(A, [], dim)",
+        inputs: &NANMAX_INPUTS_A_EMPTY_DIM,
+        outputs: &MAX_OUTPUT_MI,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, [], vecdim)",
+        inputs: &NANMAX_INPUTS_A_EMPTY_DIM,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "[M, I] = nanmax(A, [], vecdim)",
+        inputs: &NANMAX_INPUTS_A_EMPTY_DIM,
+        outputs: &MAX_OUTPUT_MI,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, [], \"all\")",
+        inputs: &MAX_INPUTS_A_EMPTY_FLAG,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "[M, I] = nanmax(A, [], \"all\")",
+        inputs: &MAX_INPUTS_A_EMPTY_FLAG,
+        outputs: &MAX_OUTPUT_MI,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, [], \"linear\")",
+        inputs: &MAX_INPUTS_A_EMPTY_FLAG,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "[M, I] = nanmax(A, [], \"linear\")",
+        inputs: &MAX_INPUTS_A_EMPTY_FLAG,
+        outputs: &MAX_OUTPUT_MI,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, [], \"ComparisonMethod\", method)",
+        inputs: &MAX_INPUTS_A_EMPTY_COMPARISON,
+        outputs: &MAX_OUTPUT_M,
+    },
+    BuiltinSignatureDescriptor {
+        label: "[M, I] = nanmax(A, [], \"ComparisonMethod\", method)",
+        inputs: &MAX_INPUTS_A_EMPTY_COMPARISON,
+        outputs: &MAX_OUTPUT_MI,
+    },
+    BuiltinSignatureDescriptor {
+        label: "M = nanmax(A, B, \"ComparisonMethod\", method)",
+        inputs: &MAX_INPUTS_A_B_COMPARISON,
+        outputs: &MAX_OUTPUT_M,
+    },
+];
+
+const MAX_SIGNATURES: [BuiltinSignatureDescriptor; 19] = [
     BuiltinSignatureDescriptor {
         label: "M = max(A)",
         inputs: &MAX_INPUTS_A,
@@ -172,11 +289,6 @@ const MAX_SIGNATURES: [BuiltinSignatureDescriptor; 22] = [
         label: "M = max(A, B)",
         inputs: &MAX_INPUTS_A_B,
         outputs: &MAX_OUTPUT_M,
-    },
-    BuiltinSignatureDescriptor {
-        label: "[M, I] = max(A, B)",
-        inputs: &MAX_INPUTS_A_B,
-        outputs: &MAX_OUTPUT_MI,
     },
     BuiltinSignatureDescriptor {
         label: "M = max(A, [], dim)",
@@ -244,11 +356,6 @@ const MAX_SIGNATURES: [BuiltinSignatureDescriptor; 22] = [
         outputs: &MAX_OUTPUT_M,
     },
     BuiltinSignatureDescriptor {
-        label: "[M, I] = max(A, B, \"ComparisonMethod\", method)",
-        inputs: &MAX_INPUTS_A_B_COMPARISON,
-        outputs: &MAX_OUTPUT_MI,
-    },
-    BuiltinSignatureDescriptor {
         label: "M = max(A, [], optionName, optionValue, ...)",
         inputs: &MAX_INPUTS_A_EMPTY_OPTIONS,
         outputs: &MAX_OUTPUT_M,
@@ -262,11 +369,6 @@ const MAX_SIGNATURES: [BuiltinSignatureDescriptor; 22] = [
         label: "M = max(A, B, optionName, optionValue, ...)",
         inputs: &MAX_INPUTS_A_B_OPTIONS,
         outputs: &MAX_OUTPUT_M,
-    },
-    BuiltinSignatureDescriptor {
-        label: "[M, I] = max(A, B, optionName, optionValue, ...)",
-        inputs: &MAX_INPUTS_A_B_OPTIONS,
-        outputs: &MAX_OUTPUT_MI,
     },
 ];
 
@@ -307,6 +409,70 @@ const MAX_ERRORS: [BuiltinErrorDescriptor; 4] = [
 
 pub const MAX_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &MAX_SIGNATURES,
+    output_mode: BuiltinOutputMode::ByRequestedOutputCount,
+    completion_policy: BuiltinCompletionPolicy::Public,
+    errors: &MAX_ERRORS,
+};
+
+const MAX_REDUCTION_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 2] = [
+    BuiltinIntegerInputCapability {
+        name: "A",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
+        notes: "Ordinary real reduction data accepts every integer storage class; complex-integer ordering remains a separately tracked conformance question.",
+    },
+    BuiltinIntegerInputCapability {
+        name: "dim_or_vecdim",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "Positive integer dimension selectors are decoded exactly from typed integer or integer-valued floating storage.",
+    },
+];
+
+const MAX_PAIRWISE_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 2] = [
+    BuiltinIntegerInputCapability {
+        name: "A",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "An integer array may pair with the same integer class or a scalar double in either operand position.",
+    },
+    BuiltinIntegerInputCapability {
+        name: "B",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "Two integer arrays must share one class; mixed integer classes and nonscalar floating arrays are rejected.",
+    },
+];
+
+pub const INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 2] = [
+    BuiltinIntegerCapabilityDescriptor {
+        form: "[M, I] = max(A, [], dim_or_vecdim, missingflag)",
+        inputs: &MAX_REDUCTION_INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::ExactInteger,
+        output_class: BuiltinIntegerOutputClassRule::PreserveInput,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::HostAndGpu,
+        overload: BuiltinIntegerOverloadKind::Multiple,
+        notes: "Maximum values preserve the integer input class and one-based indices are double; supported provider reductions retain resident values and indices.",
+    },
+    BuiltinIntegerCapabilityDescriptor {
+        form: "C = max(A, B, missingflag)",
+        inputs: &MAX_PAIRWISE_INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::ExactInteger,
+        output_class: BuiltinIntegerOutputClassRule::PreserveInput,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::HostAndGpu,
+        overload: BuiltinIntegerOverloadKind::BroadcastCompatible,
+        notes: "Pairwise maximum applies compatible-size expansion and preserves the integer operand class, including exact comparison against an allowed scalar double.",
+    },
+];
+
+pub const NANMAX_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
+    signatures: &NANMAX_SIGNATURES,
     output_mode: BuiltinOutputMode::ByRequestedOutputCount,
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &MAX_ERRORS,
@@ -434,10 +600,66 @@ impl MaxEvaluation {
     accel = "reduction",
     type_resolver(max_type),
     descriptor(crate::builtins::math::reduction::max::MAX_DESCRIPTOR),
+    integer_capabilities(crate::builtins::math::reduction::max::INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::math::reduction::max"
 )]
 async fn max_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+    if let Some(eval) = crate::builtins::table::categorical_max_evaluate(&value, &rest).await {
+        return crate::builtins::table::categorical_extrema_to_value(eval?);
+    }
+    reject_pairwise_multiple_outputs(&rest)?;
     let eval = evaluate(value, &rest).await?;
+    evaluation_to_value(eval)
+}
+
+#[runtime_builtin(
+    name = "nanmax",
+    category = "stats/summary",
+    summary = "Return maximum values while omitting NaNs.",
+    keywords = "nanmax,max,maximum,omitnan,statistics",
+    type_resolver(nanmax_type),
+    descriptor(crate::builtins::math::reduction::max::NANMAX_DESCRIPTOR),
+    extensions(crate::builtins::math::reduction::max::NANMAX_EXTENSIONS),
+    integer_capabilities(crate::builtins::math::reduction::max::NANMAX_INTEGER_CAPABILITIES),
+    builtin_path = "crate::builtins::math::reduction::max"
+)]
+async fn nanmax_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+    if is_real_typed_integer_value(&value) || rest.iter().any(is_real_typed_integer_value) {
+        crate::compatibility::ensure_builtin_extension_enabled(
+            &NANMAX_INTEGER_EXTENSION,
+            "nanmax",
+        )?;
+    }
+    let adjusted = nanmax_rest(rest);
+    reject_pairwise_multiple_outputs(&adjusted)?;
+    let eval = evaluate(value, &adjusted).await?;
+    evaluation_to_value(eval)
+}
+
+fn is_real_typed_integer_value(value: &Value) -> bool {
+    matches!(value, Value::Int(_))
+        || matches!(value, Value::Tensor(tensor) if tensor.integer_storage().is_some())
+        || matches!(
+            value,
+            Value::GpuTensor(handle)
+                if runmat_accelerate_api::handle_integer_type(handle).is_some()
+        )
+}
+
+fn reject_pairwise_multiple_outputs(rest: &[Value]) -> BuiltinResult<()> {
+    if crate::output_count::current_output_count().unwrap_or(1) > 1
+        && rest
+            .first()
+            .is_some_and(|value| !is_empty_placeholder(value))
+    {
+        return Err(max_invalid_argument(
+            "max: pairwise element-wise form has exactly one output",
+        ));
+    }
+    Ok(())
+}
+
+fn evaluation_to_value(eval: MaxEvaluation) -> BuiltinResult<Value> {
     if let Some(out_count) = crate::output_count::current_output_count() {
         if out_count == 0 {
             return Ok(Value::OutputList(Vec::new()));
@@ -454,8 +676,27 @@ async fn max_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
     Ok(eval.into_value())
 }
 
+fn nanmax_rest(rest: Vec<Value>) -> Vec<Value> {
+    let mut args = Vec::with_capacity(rest.len() + 2);
+    if rest.is_empty() {
+        args.push(empty_placeholder());
+    }
+    args.extend(rest);
+    args.push(Value::from("omitnan"));
+    args
+}
+
+fn empty_placeholder() -> Value {
+    Value::Tensor(Tensor::new(Vec::<f64>::new(), vec![0, 0]).expect("empty placeholder shape"))
+}
+
 /// Evaluate the builtin once and expose both outputs (value + indices).
 pub async fn evaluate(value: Value, rest: &[Value]) -> BuiltinResult<MaxEvaluation> {
+    if crate::builtins::common::validation::is_typed_complex_integer(&value) {
+        return Err(max_invalid_input(
+            "operations involving complex numbers with integer types are not supported",
+        ));
+    }
     let parsed = parse_call(rest).await?;
     if std::env::var("RUNMAT_DEBUG_MAX").is_ok() {
         let call_label = match &parsed {
@@ -519,6 +760,7 @@ enum ComparisonMethod {
 #[derive(Debug, Clone)]
 struct ElementwiseArgs {
     other: Value,
+    nan_mode: ReductionNaN,
     comparison: ComparisonMethod,
 }
 
@@ -529,9 +771,10 @@ async fn parse_call(rest: &[Value]) -> BuiltinResult<ParsedCall> {
 
     let first = &rest[0];
     if !is_empty_placeholder(first) {
-        let comparison = parse_elementwise_options(&rest[1..])?;
+        let (nan_mode, comparison) = parse_elementwise_options(&rest[1..])?;
         return Ok(ParsedCall::Elementwise(ElementwiseArgs {
             other: first.clone(),
+            nan_mode,
             comparison,
         }));
     }
@@ -547,7 +790,7 @@ fn debug_value_kind(value: &Value) -> &'static str {
         Value::Int(_) => "Int",
         Value::Bool(_) => "Bool",
         Value::Tensor(t) => {
-            if t.data.is_empty() {
+            if tensor::tensor_element_len(t) == 0 {
                 "Tensor(empty)"
             } else {
                 "Tensor"
@@ -583,7 +826,7 @@ fn debug_value_kind(value: &Value) -> &'static str {
 
 fn is_empty_placeholder(value: &Value) -> bool {
     match value {
-        Value::Tensor(t) => t.data.is_empty(),
+        Value::Tensor(t) => tensor_len(t) == 0,
         Value::LogicalArray(l) => l.data.is_empty(),
         Value::StringArray(sa) => sa.data.is_empty(),
         Value::CharArray(ca) => ca.data.is_empty(),
@@ -591,6 +834,10 @@ fn is_empty_placeholder(value: &Value) -> bool {
         Value::String(s) => s.is_empty(),
         _ => false,
     }
+}
+
+fn tensor_len(tensor: &Tensor) -> usize {
+    tensor::tensor_element_len(tensor)
 }
 
 async fn parse_reduction_options(args: &mut ReductionArgs, rest: &[Value]) -> BuiltinResult<()> {
@@ -697,13 +944,24 @@ async fn parse_reduction_options(args: &mut ReductionArgs, rest: &[Value]) -> Bu
     Ok(())
 }
 
-fn parse_elementwise_options(rest: &[Value]) -> BuiltinResult<ComparisonMethod> {
+fn parse_elementwise_options(rest: &[Value]) -> BuiltinResult<(ReductionNaN, ComparisonMethod)> {
+    let mut nan_mode = ReductionNaN::Include;
     let mut comparison = ComparisonMethod::Auto;
     let mut comparison_set = false;
     let mut idx = 0usize;
     while idx < rest.len() {
         if let Some(keyword) = keyword_of(&rest[idx]) {
             match keyword.as_str() {
+                "omitnan" => {
+                    nan_mode = ReductionNaN::Omit;
+                    idx += 1;
+                    continue;
+                }
+                "includenan" => {
+                    nan_mode = ReductionNaN::Include;
+                    idx += 1;
+                    continue;
+                }
                 "comparisonmethod" => {
                     let Some(value) = rest.get(idx + 1) else {
                         return Err(max_invalid_argument(
@@ -715,7 +973,7 @@ fn parse_elementwise_options(rest: &[Value]) -> BuiltinResult<ComparisonMethod> 
                     idx += 2;
                     continue;
                 }
-                "omitnan" | "includenan" | "all" | "linear" => {
+                "all" | "linear" => {
                     return Err(max_invalid_argument(format!(
                         "max: '{}' is only supported for reduction calls",
                         keyword
@@ -732,7 +990,7 @@ fn parse_elementwise_options(rest: &[Value]) -> BuiltinResult<ComparisonMethod> 
     if !comparison_set {
         comparison = ComparisonMethod::Auto;
     }
-    Ok(comparison)
+    Ok((nan_mode, comparison))
 }
 
 fn parse_comparison_method(value: &Value) -> BuiltinResult<ComparisonMethod> {
@@ -843,14 +1101,6 @@ async fn reduction_max_gpu(
     handle: GpuTensorHandle,
     args: &ReductionArgs,
 ) -> BuiltinResult<Option<MaxEvaluation>> {
-    #[cfg(all(test, feature = "wgpu"))]
-    {
-        if handle.device_id != 0 {
-            let _ = runmat_accelerate::backend::wgpu::provider::register_wgpu_provider(
-                runmat_accelerate::backend::wgpu::provider::WgpuProviderOptions::default(),
-            );
-        }
-    }
     if args.nan_mode == ReductionNaN::Omit {
         log::trace!("max: gpu path disabled (nan_mode=omit)");
         return Ok(None);
@@ -863,7 +1113,7 @@ async fn reduction_max_gpu(
         log::trace!("max: gpu path disabled (linear_index=true)");
         return Ok(None);
     }
-    let provider = match runmat_accelerate_api::provider() {
+    let provider = match runmat_accelerate_api::provider_for_handle(&handle) {
         Some(p) => p,
         None => {
             log::trace!(
@@ -915,15 +1165,100 @@ async fn reduction_max_gpu(
 }
 
 fn reduction_max_host(value: Value, args: &ReductionArgs) -> BuiltinResult<MaxEvaluation> {
+    if let Value::Int(value) = &value {
+        let storage = crate::builtins::math::reduction::integer_native::storage_from_scalar(value);
+        return reduce_integer_max(&storage, vec![1, 1], args);
+    }
+    if let Some((storage, shape)) = native_integer_input(&value) {
+        return reduce_integer_max(storage, shape, args);
+    }
     match materialize_for_max("max", value)? {
         InputData::Real(tensor) => reduce_real_tensor(tensor, args),
         InputData::Complex(tensor) => reduce_complex_tensor(tensor, args),
     }
 }
 
+fn native_integer_input(value: &Value) -> Option<(&runmat_value::IntegerStorage, Vec<usize>)> {
+    match value {
+        Value::Tensor(tensor) => tensor
+            .integer_storage()
+            .map(|storage| (storage, tensor.shape.clone())),
+        _ => None,
+    }
+}
+
+fn reduce_integer_max(
+    storage: &runmat_value::IntegerStorage,
+    shape: Vec<usize>,
+    args: &ReductionArgs,
+) -> BuiltinResult<MaxEvaluation> {
+    if storage.is_empty() {
+        // Integer extrema preserve the empty input shape for every reduction
+        // selector. A non-empty reduced shape cannot represent an empty typed
+        // payload, and MATLAB extrema of an empty array stay empty.
+        let output_shape = shape;
+        let values = crate::builtins::math::reduction::integer_native::empty_like(
+            storage,
+            output_shape.clone(),
+        )
+        .map_err(|error| max_internal_error(format!("max: {error}")))?;
+        let indices = Tensor::new(Vec::new(), output_shape)
+            .map_err(|error| max_internal_error(format!("max: {error}")))?;
+        return Ok(MaxEvaluation {
+            values,
+            indices: tensor::tensor_into_value(indices),
+        });
+    }
+
+    let resolved = resolve_reduction_dims(&shape, &args.selection)?;
+    let comparison = match args.comparison {
+        ComparisonMethod::Auto | ComparisonMethod::Real => {
+            crate::builtins::math::reduction::integer_native::ExtremaComparison::Natural
+        }
+        ComparisonMethod::Abs => {
+            crate::builtins::math::reduction::integer_native::ExtremaComparison::Absolute
+        }
+    };
+    let extrema = crate::builtins::math::reduction::integer_native::extrema(
+        storage,
+        &shape,
+        resolved.output_shape,
+        &resolved.reduced_dims,
+        &resolved.dims_mask,
+        &resolved.reduce_strides,
+        resolved.reduce_all,
+        args.linear_index,
+        crate::builtins::math::reduction::integer_native::ExtremaDirection::Max,
+        comparison,
+    )
+    .map_err(|error| max_internal_error(format!("max: {error}")))?;
+    Ok(MaxEvaluation {
+        values: extrema.values,
+        indices: extrema.indices,
+    })
+}
+
 enum InputData {
     Real(Tensor),
     Complex(ComplexTensor),
+}
+
+fn real_tensor_from_f64(
+    values: Vec<f64>,
+    shape: Vec<usize>,
+    dtype: NumericDType,
+) -> Result<Tensor, String> {
+    match dtype {
+        NumericDType::F64 => Tensor::new(values, shape),
+        NumericDType::F32 => Tensor::from_f32(
+            values.into_iter().map(|value| value as f32).collect(),
+            shape,
+        ),
+        dtype => Err(format!(
+            "max: unexpected {} storage in floating reduction",
+            dtype.class_name()
+        )),
+    }
 }
 
 fn materialize_for_max(name: &str, value: Value) -> BuiltinResult<InputData> {
@@ -959,15 +1294,19 @@ fn materialize_for_max(name: &str, value: Value) -> BuiltinResult<InputData> {
         | Value::CharArray(_)
         | Value::SparseTensor(_)
         | Value::Symbolic(_)
+        | Value::SymbolicArray(_)
         | Value::Cell(_) => Err(max_invalid_input(format!(
             "{name}: expected numeric or logical input, received non-numeric value"
         ))),
         Value::GpuTensor(_) => Err(max_internal_error(format!(
             "{name}: internal error – GPU tensors must be gathered before host execution"
         ))),
-        Value::Object(_) | Value::HandleObject(_) | Value::Struct(_) | Value::Listener(_) => {
-            Err(max_invalid_input(format!("{name}: unsupported input type")))
-        }
+        Value::ObjectArray(_)
+        | Value::Object(_)
+        | Value::HandleObject(_)
+        | Value::Struct(_)
+        | Value::StructArray(_)
+        | Value::Listener(_) => Err(max_invalid_input(format!("{name}: unsupported input type"))),
         Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
         | Value::MethodFunctionHandle(_)
@@ -975,15 +1314,27 @@ fn materialize_for_max(name: &str, value: Value) -> BuiltinResult<InputData> {
         | Value::Closure(_)
         | Value::ClassRef(_)
         | Value::MException(_)
+        | Value::Future(_)
+        | Value::Task(_)
+        | Value::Pool(_)
+        | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
+        | Value::Foreign(_)
         | Value::OutputList(_) => Err(max_invalid_input(format!("{name}: unsupported input type"))),
     }
 }
 
 fn reduce_real_tensor(tensor: Tensor, args: &ReductionArgs) -> BuiltinResult<MaxEvaluation> {
     let shape = tensor.shape.clone();
-    if tensor.data.is_empty() {
+    let dtype = tensor.numeric_dtype();
+    let storage = tensor
+        .into_numeric_storage()
+        .map_err(|e| max_internal_error(format!("max: {e}")))?;
+    let data = storage.materialize_f64();
+    if data.is_empty() {
         let output_shape = resolve_output_shape(&shape, &args.selection, &[])?;
-        let values = Tensor::new(Vec::new(), output_shape.clone())
+        let values = real_tensor_from_f64(Vec::new(), output_shape.clone(), dtype)
             .map_err(|e| max_internal_error(format!("max: {e}")))?;
         let indices = Tensor::new(Vec::new(), output_shape)
             .map_err(|e| max_internal_error(format!("max: {e}")))?;
@@ -997,7 +1348,7 @@ fn reduce_real_tensor(tensor: Tensor, args: &ReductionArgs) -> BuiltinResult<Max
     let output_len = tensor::element_count(&output_shape);
 
     if output_len == 0 {
-        let values = Tensor::new(Vec::new(), output_shape.clone())
+        let values = real_tensor_from_f64(Vec::new(), output_shape.clone(), dtype)
             .map_err(|e| max_internal_error(format!("max: {e}")))?;
         let indices = Tensor::new(Vec::new(), output_shape)
             .map_err(|e| max_internal_error(format!("max: {e}")))?;
@@ -1014,7 +1365,7 @@ fn reduce_real_tensor(tensor: Tensor, args: &ReductionArgs) -> BuiltinResult<Max
 
     let mut best = vec![BestReal::new(); output_len];
     let mut coords = vec![0usize; shape.len()];
-    for &value in &tensor.data {
+    for &value in &data {
         let out_idx = map_output_index(&coords, &output_strides, &dims_mask);
         let reduce_idx = map_reduce_index(
             &coords,
@@ -1065,7 +1416,7 @@ fn reduce_real_tensor(tensor: Tensor, args: &ReductionArgs) -> BuiltinResult<Max
         };
     }
 
-    let value_tensor = Tensor::new(values, output_shape.clone())
+    let value_tensor = real_tensor_from_f64(values, output_shape.clone(), dtype)
         .map_err(|e| max_internal_error(format!("max: {e}")))?;
     let index_tensor =
         Tensor::new(indices, output_shape).map_err(|e| max_internal_error(format!("max: {e}")))?;
@@ -1081,10 +1432,13 @@ fn reduce_complex_tensor(
     args: &ReductionArgs,
 ) -> BuiltinResult<MaxEvaluation> {
     let shape = tensor.shape.clone();
-    if tensor.data.is_empty() {
+    let dtype = tensor.numeric_dtype();
+    let data = tensor.materialize_f64();
+    if data.is_empty() {
         let output_shape = resolve_output_shape(&shape, &args.selection, &[])?;
-        let values = ComplexTensor::new(Vec::new(), output_shape.clone())
-            .map_err(|e| max_internal_error(format!("max: {e}")))?;
+        let values =
+            ComplexTensor::from_f64_values_with_dtype(Vec::new(), output_shape.clone(), dtype)
+                .map_err(|e| max_internal_error(format!("max: {e}")))?;
         let indices = Tensor::new(Vec::new(), output_shape)
             .map_err(|e| max_internal_error(format!("max: {e}")))?;
         return Ok(MaxEvaluation {
@@ -1098,8 +1452,9 @@ fn reduce_complex_tensor(
     let output_len = tensor::element_count(&output_shape);
 
     if output_len == 0 {
-        let values = ComplexTensor::new(Vec::new(), output_shape.clone())
-            .map_err(|e| max_internal_error(format!("max: {e}")))?;
+        let values =
+            ComplexTensor::from_f64_values_with_dtype(Vec::new(), output_shape.clone(), dtype)
+                .map_err(|e| max_internal_error(format!("max: {e}")))?;
         let indices = Tensor::new(Vec::new(), output_shape)
             .map_err(|e| max_internal_error(format!("max: {e}")))?;
         return Ok(MaxEvaluation {
@@ -1116,7 +1471,7 @@ fn reduce_complex_tensor(
     let mut best = vec![BestComplex::new(); output_len];
     let mut coords = vec![0usize; shape.len()];
 
-    for &(re, im) in &tensor.data {
+    for &(re, im) in &data {
         let out_idx = map_output_index(&coords, &output_strides, &dims_mask);
         let reduce_idx = map_reduce_index(
             &coords,
@@ -1166,8 +1521,9 @@ fn reduce_complex_tensor(
         };
     }
 
-    let value_tensor = ComplexTensor::new(values, output_shape.clone())
-        .map_err(|e| max_internal_error(format!("max: {e}")))?;
+    let value_tensor =
+        ComplexTensor::from_f64_values_with_dtype(values, output_shape.clone(), dtype)
+            .map_err(|e| max_internal_error(format!("max: {e}")))?;
     let index_tensor =
         Tensor::new(indices, output_shape).map_err(|e| max_internal_error(format!("max: {e}")))?;
     Ok(MaxEvaluation {
@@ -1603,21 +1959,57 @@ fn default_dimension_from_shape(shape: &[usize]) -> usize {
 }
 
 async fn elementwise_max(value: Value, args: ElementwiseArgs) -> BuiltinResult<MaxEvaluation> {
-    let ElementwiseArgs { other, comparison } = args;
+    let ElementwiseArgs {
+        other,
+        nan_mode,
+        comparison,
+    } = args;
+    let integer_comparison = match comparison {
+        ComparisonMethod::Auto | ComparisonMethod::Real => {
+            crate::builtins::math::reduction::integer_native::ExtremaComparison::Natural
+        }
+        ComparisonMethod::Abs => {
+            crate::builtins::math::reduction::integer_native::ExtremaComparison::Absolute
+        }
+    };
+    if let Some(eval) = crate::builtins::math::reduction::integer_native::elementwise_value_extrema(
+        &value,
+        &other,
+        crate::builtins::math::reduction::integer_native::ExtremaDirection::Max,
+        integer_comparison,
+        nan_mode == ReductionNaN::Omit,
+    )
+    .map_err(|error| max_size_mismatch(format!("max: {error}")))?
+    {
+        return Ok(MaxEvaluation {
+            values: eval.values,
+            indices: eval.indices,
+        });
+    }
+    if crate::builtins::math::reduction::integer_native::value_has_integer_storage(&value)
+        || crate::builtins::math::reduction::integer_native::value_has_integer_storage(&other)
+    {
+        return Err(max_invalid_input(
+            "max: integer pairwise inputs require the same integer class or a scalar double",
+        ));
+    }
     match (value, other) {
         (Value::GpuTensor(handle_a), Value::GpuTensor(handle_b)) => {
             if gpu_tensor_is_scalar(&handle_b) {
                 if let Some(num) = gpu_tensor_scalar_value(&handle_b).await {
                     let scalar = Value::Num(num);
-                    if let Some(eval) =
-                        elementwise_max_gpu_scalar_left(&handle_a, &scalar, comparison).await
-                    {
-                        return Ok(eval);
+                    if nan_mode == ReductionNaN::Include {
+                        if let Some(eval) =
+                            elementwise_max_gpu_scalar_left(&handle_a, &scalar, comparison).await
+                        {
+                            return Ok(eval);
+                        }
                     }
                     if let Ok(ta) = gpu_helpers::gather_tensor_async(&handle_a).await {
                         if let Ok(eval) = elementwise_real_or_complex(
                             Value::Tensor(ta),
                             scalar.clone(),
+                            nan_mode,
                             comparison,
                         ) {
                             return Ok(eval);
@@ -1631,15 +2023,18 @@ async fn elementwise_max(value: Value, args: ElementwiseArgs) -> BuiltinResult<M
             if gpu_tensor_is_scalar(&handle_a) {
                 if let Some(num) = gpu_tensor_scalar_value(&handle_a).await {
                     let scalar = Value::Num(num);
-                    if let Some(eval) =
-                        elementwise_max_gpu_scalar_right(&scalar, &handle_b, comparison).await
-                    {
-                        return Ok(eval);
+                    if nan_mode == ReductionNaN::Include {
+                        if let Some(eval) =
+                            elementwise_max_gpu_scalar_right(&scalar, &handle_b, comparison).await
+                        {
+                            return Ok(eval);
+                        }
                     }
                     if let Ok(tb) = gpu_helpers::gather_tensor_async(&handle_b).await {
                         if let Ok(eval) = elementwise_real_or_complex(
                             scalar.clone(),
                             Value::Tensor(tb),
+                            nan_mode,
                             comparison,
                         ) {
                             return Ok(eval);
@@ -1650,41 +2045,54 @@ async fn elementwise_max(value: Value, args: ElementwiseArgs) -> BuiltinResult<M
                     ));
                 }
             }
-            if let Some(eval) = elementwise_max_gpu_pair(&handle_a, &handle_b, comparison).await {
-                return Ok(eval);
+            if nan_mode == ReductionNaN::Include {
+                if let Some(eval) = elementwise_max_gpu_pair(&handle_a, &handle_b, comparison).await
+                {
+                    return Ok(eval);
+                }
             }
             if let (Ok(ta), Ok(tb)) = (
                 gpu_helpers::gather_tensor_async(&handle_a).await,
                 gpu_helpers::gather_tensor_async(&handle_b).await,
             ) {
-                if let Ok(eval) =
-                    elementwise_real_or_complex(Value::Tensor(ta), Value::Tensor(tb), comparison)
-                {
+                if let Ok(eval) = elementwise_real_or_complex(
+                    Value::Tensor(ta),
+                    Value::Tensor(tb),
+                    nan_mode,
+                    comparison,
+                ) {
                     return Ok(eval);
                 }
             }
             Err(max_internal_error("max: elementwise GPU path failed"))
         }
         (Value::GpuTensor(handle), other) => {
-            if let Some(eval) = elementwise_max_gpu_scalar_left(&handle, &other, comparison).await {
-                return Ok(eval);
+            if nan_mode == ReductionNaN::Include {
+                if let Some(eval) =
+                    elementwise_max_gpu_scalar_left(&handle, &other, comparison).await
+                {
+                    return Ok(eval);
+                }
             }
             let t = gpu_helpers::gather_tensor_async(&handle)
                 .await
                 .map_err(|_| max_internal_error("max: elementwise GPU scalar path failed"))?;
-            elementwise_real_or_complex(Value::Tensor(t), other, comparison)
+            elementwise_real_or_complex(Value::Tensor(t), other, nan_mode, comparison)
         }
         (other, Value::GpuTensor(handle)) => {
-            if let Some(eval) = elementwise_max_gpu_scalar_right(&other, &handle, comparison).await
-            {
-                return Ok(eval);
+            if nan_mode == ReductionNaN::Include {
+                if let Some(eval) =
+                    elementwise_max_gpu_scalar_right(&other, &handle, comparison).await
+                {
+                    return Ok(eval);
+                }
             }
             let t = gpu_helpers::gather_tensor_async(&handle)
                 .await
                 .map_err(|_| max_internal_error("max: elementwise GPU scalar path failed"))?;
-            elementwise_real_or_complex(other, Value::Tensor(t), comparison)
+            elementwise_real_or_complex(other, Value::Tensor(t), nan_mode, comparison)
         }
-        (lhs, rhs) => elementwise_real_or_complex(lhs, rhs, comparison),
+        (lhs, rhs) => elementwise_real_or_complex(lhs, rhs, nan_mode, comparison),
     }
 }
 
@@ -1696,7 +2104,10 @@ async fn elementwise_max_gpu_pair(
     if comparison != ComparisonMethod::Auto {
         return None;
     }
-    let provider = runmat_accelerate_api::provider()?;
+    if a.device_id != b.device_id {
+        return None;
+    }
+    let provider = runmat_accelerate_api::provider_for_handle(a)?;
     // Equal-shape fast path
     if a.shape == b.shape {
         let values = provider.elem_max(a, b).await.ok()?;
@@ -1712,9 +2123,11 @@ async fn elementwise_max_gpu_pair(
             // Host path for indices only
             let ta = gpu_helpers::gather_tensor_async(a).await.ok()?;
             let tb = gpu_helpers::gather_tensor_async(b).await.ok()?;
-            let mut indices = Vec::with_capacity(ta.data.len());
-            for i in 0..ta.data.len() {
-                indices.push(if ta.data[i] >= tb.data[i] { 1.0 } else { 2.0 });
+            let a_values = tensor::tensor_values_f64_cow(&ta);
+            let b_values = tensor::tensor_values_f64_cow(&tb);
+            let mut indices = Vec::with_capacity(a_values.len());
+            for (&a_value, &b_value) in a_values.iter().zip(b_values.iter()) {
+                indices.push(if a_value >= b_value { 1.0 } else { 2.0 });
             }
             let index_tensor = Tensor::new(indices, ta.shape.clone()).ok()?;
             return Some(MaxEvaluation {
@@ -1751,8 +2164,9 @@ async fn elementwise_max_gpu_pair(
     let index_tensor = if let Some(mask) = mask {
         let mask_host = gpu_helpers::gather_tensor_async(&mask).await.ok()?;
         let _ = provider.free(&mask);
-        let mut indices = Vec::with_capacity(mask_host.data.len());
-        for &m in &mask_host.data {
+        let mask_values = tensor::tensor_values_f64_cow(&mask_host);
+        let mut indices = Vec::with_capacity(mask_values.len());
+        for &m in mask_values.iter() {
             indices.push(if m != 0.0 { 1.0 } else { 2.0 });
         }
         Tensor::new(indices, out_shape).ok()?
@@ -1760,9 +2174,11 @@ async fn elementwise_max_gpu_pair(
         // Host indices fallback
         let ta = gpu_helpers::gather_tensor_async(&a_exp).await.ok()?;
         let tb = gpu_helpers::gather_tensor_async(&b_exp).await.ok()?;
-        let mut indices = Vec::with_capacity(ta.data.len());
-        for i in 0..ta.data.len() {
-            indices.push(if ta.data[i] >= tb.data[i] { 1.0 } else { 2.0 });
+        let a_values = tensor::tensor_values_f64_cow(&ta);
+        let b_values = tensor::tensor_values_f64_cow(&tb);
+        let mut indices = Vec::with_capacity(a_values.len());
+        for (&a_value, &b_value) in a_values.iter().zip(b_values.iter()) {
+            indices.push(if a_value >= b_value { 1.0 } else { 2.0 });
         }
         Tensor::new(indices, out_shape).ok()?
     };
@@ -1775,12 +2191,8 @@ async fn elementwise_max_gpu_pair(
 fn broadcast_reps(a: &[usize], b: &[usize]) -> Option<(Vec<usize>, Vec<usize>, Vec<usize>)> {
     let rank = a.len().max(b.len()).max(1);
     let mut out = vec![1usize; rank];
-    let mut aa = vec![1usize; rank];
-    let mut bb = vec![1usize; rank];
-    for i in 0..rank {
-        aa[i] = *a.get(i).unwrap_or(&1);
-        bb[i] = *b.get(i).unwrap_or(&1);
-    }
+    let aa = crate::builtins::common::broadcast::align_shape(a, rank);
+    let bb = crate::builtins::common::broadcast::align_shape(b, rank);
     for i in 0..rank {
         let (ad, bd) = (aa[i], bb[i]);
         if ad == bd {
@@ -1810,7 +2222,7 @@ async fn elementwise_max_gpu_scalar_left(
     if comparison != ComparisonMethod::Auto {
         return None;
     }
-    let provider = runmat_accelerate_api::provider()?;
+    let provider = runmat_accelerate_api::provider_for_handle(a)?;
     let scalar = extract_scalar(other)?;
     // Prefer tensorize + elem_max for broader provider compatibility
     let values = if let Ok(fill) = provider.fill_like(a, scalar) {
@@ -1833,16 +2245,18 @@ async fn elementwise_max_gpu_scalar_left(
         } else {
             let _ = provider.free(&fill);
             let ta = gpu_helpers::gather_tensor_async(a).await.ok()?;
-            let mut indices = Vec::with_capacity(ta.data.len());
-            for &v in &ta.data {
+            let values = tensor::tensor_values_f64_cow(&ta);
+            let mut indices = Vec::with_capacity(values.len());
+            for &v in values.iter() {
                 indices.push(if v >= scalar { 1.0 } else { 2.0 });
             }
             Tensor::new(indices, ta.shape.clone()).ok()?
         }
     } else {
         let ta = gpu_helpers::gather_tensor_async(a).await.ok()?;
-        let mut indices = Vec::with_capacity(ta.data.len());
-        for &v in &ta.data {
+        let values = tensor::tensor_values_f64_cow(&ta);
+        let mut indices = Vec::with_capacity(values.len());
+        for &v in values.iter() {
             indices.push(if v >= scalar { 1.0 } else { 2.0 });
         }
         Tensor::new(indices, ta.shape.clone()).ok()?
@@ -1861,7 +2275,7 @@ async fn elementwise_max_gpu_scalar_right(
     if comparison != ComparisonMethod::Auto {
         return None;
     }
-    let provider = runmat_accelerate_api::provider()?;
+    let provider = runmat_accelerate_api::provider_for_handle(b)?;
     let scalar = extract_scalar(other)?;
     let values = if let Ok(fill) = provider.fill_like(b, scalar) {
         let vals = provider.elem_max(&fill, b).await.ok();
@@ -1883,16 +2297,18 @@ async fn elementwise_max_gpu_scalar_right(
         } else {
             let _ = provider.free(&fill);
             let tb = gpu_helpers::gather_tensor_async(b).await.ok()?;
-            let mut indices = Vec::with_capacity(tb.data.len());
-            for &v in &tb.data {
+            let values = tensor::tensor_values_f64_cow(&tb);
+            let mut indices = Vec::with_capacity(values.len());
+            for &v in values.iter() {
                 indices.push(if scalar >= v { 1.0 } else { 2.0 });
             }
             Tensor::new(indices, tb.shape.clone()).ok()?
         }
     } else {
         let tb = gpu_helpers::gather_tensor_async(b).await.ok()?;
-        let mut indices = Vec::with_capacity(tb.data.len());
-        for &v in &tb.data {
+        let values = tensor::tensor_values_f64_cow(&tb);
+        let mut indices = Vec::with_capacity(values.len());
+        for &v in values.iter() {
             indices.push(if scalar >= v { 1.0 } else { 2.0 });
         }
         Tensor::new(indices, tb.shape.clone()).ok()?
@@ -1908,7 +2324,7 @@ fn extract_scalar(v: &Value) -> Option<f64> {
         Value::Num(n) => Some(*n),
         Value::Int(i) => Some(i.to_f64()),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-        Value::Tensor(t) if t.data.len() == 1 => t.data.first().copied(),
+        Value::Tensor(t) if tensor::is_scalar_tensor(t) => Some(tensor::tensor_value_f64(t, 0)),
         Value::LogicalArray(l) if l.data.len() == 1 => Some(if l.data[0] != 0 { 1.0 } else { 0.0 }),
         _ => None,
     }
@@ -1920,7 +2336,7 @@ fn gpu_tensor_is_scalar(handle: &GpuTensorHandle) -> bool {
 
 async fn gpu_tensor_scalar_value(handle: &GpuTensorHandle) -> Option<f64> {
     let tensor = gpu_helpers::gather_tensor_async(handle).await.ok()?;
-    tensor.data.first().copied()
+    tensor::tensor_values_f64(&tensor).first().copied()
 }
 
 fn gpu_mask_indices(
@@ -1936,25 +2352,30 @@ fn gpu_mask_indices(
 fn elementwise_real_or_complex(
     lhs: Value,
     rhs: Value,
+    nan_mode: ReductionNaN,
     comparison: ComparisonMethod,
 ) -> BuiltinResult<MaxEvaluation> {
-    if let Some(eval) = scalar_elementwise_max(&lhs, &rhs, comparison) {
+    if let Some(eval) = scalar_elementwise_max(&lhs, &rhs, nan_mode, comparison) {
         return Ok(eval);
     }
     match (
         materialize_for_max("max", lhs)?,
         materialize_for_max("max", rhs)?,
     ) {
-        (InputData::Complex(a), InputData::Complex(b)) => elementwise_complex_max(a, b, comparison),
+        (InputData::Complex(a), InputData::Complex(b)) => {
+            elementwise_complex_max(a, b, nan_mode, comparison)
+        }
         (InputData::Complex(a), InputData::Real(b)) => {
             let converted = promote_real_tensor_to_complex(b);
-            elementwise_complex_max(a, converted, comparison)
+            elementwise_complex_max(a, converted, nan_mode, comparison)
         }
         (InputData::Real(a), InputData::Complex(b)) => {
             let converted = promote_real_tensor_to_complex(a);
-            elementwise_complex_max(converted, b, comparison)
+            elementwise_complex_max(converted, b, nan_mode, comparison)
         }
-        (InputData::Real(a), InputData::Real(b)) => elementwise_real_max(a, b, comparison),
+        (InputData::Real(a), InputData::Real(b)) => {
+            elementwise_real_max(a, b, nan_mode, comparison)
+        }
     }
 }
 
@@ -1963,7 +2384,7 @@ fn scalar_real_value(value: &Value) -> Option<f64> {
         Value::Num(n) => Some(*n),
         Value::Int(i) => Some(i.to_f64()),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-        Value::Tensor(t) if t.data.len() == 1 => t.data.first().copied(),
+        Value::Tensor(t) if tensor::is_scalar_tensor(t) => Some(tensor::tensor_value_f64(t, 0)),
         Value::LogicalArray(l) if l.data.len() == 1 => Some(if l.data[0] != 0 { 1.0 } else { 0.0 }),
         _ => None,
     }
@@ -1972,7 +2393,10 @@ fn scalar_real_value(value: &Value) -> Option<f64> {
 fn scalar_complex_value(value: &Value) -> Option<(f64, f64)> {
     match value {
         Value::Complex(re, im) => Some((*re, *im)),
-        Value::ComplexTensor(ct) if ct.data.len() == 1 => ct.data.first().copied(),
+        Value::ComplexTensor(ct) if tensor::is_scalar_complex_tensor(ct) => {
+            let value = tensor::complex_tensor_value_complex64(ct, 0);
+            Some((value.re, value.im))
+        }
         _ => None,
     }
 }
@@ -1980,6 +2404,7 @@ fn scalar_complex_value(value: &Value) -> Option<(f64, f64)> {
 fn scalar_elementwise_max(
     lhs: &Value,
     rhs: &Value,
+    nan_mode: ReductionNaN,
     comparison: ComparisonMethod,
 ) -> Option<MaxEvaluation> {
     let left = scalar_complex_value(lhs).or_else(|| scalar_real_value(lhs).map(|v| (v, 0.0)))?;
@@ -1987,13 +2412,13 @@ fn scalar_elementwise_max(
     let (ar, ai) = left;
     let (br, bi) = right;
     if ai != 0.0 || bi != 0.0 {
-        let (value, origin) = choose_complex_elementwise((ar, ai), (br, bi), comparison);
+        let (value, origin) = choose_complex_elementwise((ar, ai), (br, bi), nan_mode, comparison);
         return Some(MaxEvaluation {
             values: Value::Complex(value.0, value.1),
             indices: Value::Num(origin),
         });
     }
-    let (value, origin) = choose_real_elementwise(ar, br, comparison);
+    let (value, origin) = choose_real_elementwise(ar, br, nan_mode, comparison);
     Some(MaxEvaluation {
         values: Value::Num(value),
         indices: Value::Num(origin),
@@ -2003,22 +2428,79 @@ fn scalar_elementwise_max(
 fn elementwise_real_max(
     lhs: Tensor,
     rhs: Tensor,
+    nan_mode: ReductionNaN,
     comparison: ComparisonMethod,
 ) -> BuiltinResult<MaxEvaluation> {
     let plan = BroadcastPlan::new(&lhs.shape, &rhs.shape)
         .map_err(|err| max_size_mismatch(format!("max: {err}")))?;
-    let mut values = vec![0.0f64; plan.len()];
     let mut indices = vec![0.0f64; plan.len()];
+    let lhs_storage = lhs
+        .into_numeric_storage()
+        .map_err(|e| max_internal_error(format!("max: {e}")))?;
+    let rhs_storage = rhs
+        .into_numeric_storage()
+        .map_err(|e| max_internal_error(format!("max: {e}")))?;
 
-    for (offset, index_a, index_b) in plan.iter() {
-        let a = lhs.data.get(index_a).copied().unwrap_or(f64::NAN);
-        let b = rhs.data.get(index_b).copied().unwrap_or(f64::NAN);
-        let (value, origin) = choose_real_elementwise(a, b, comparison);
-        values[offset] = value;
-        indices[offset] = origin;
+    macro_rules! select_same_class {
+        ($left:expr, $right:expr, $variant:ident) => {{
+            let mut values = Vec::with_capacity(plan.len());
+            for (offset, index_a, index_b) in plan.iter() {
+                let a = $left[index_a];
+                let b = $right[index_b];
+                let (_, origin) = choose_real_elementwise(a as f64, b as f64, nan_mode, comparison);
+                values.push(if origin == 1.0 { a } else { b });
+                indices[offset] = origin;
+            }
+            NumericStorage::$variant(values)
+        }};
     }
 
-    let value_tensor = Tensor::new(values, plan.output_shape().to_vec())
+    let values = match (lhs_storage, rhs_storage) {
+        (NumericStorage::F64(left), NumericStorage::F64(right)) => {
+            select_same_class!(left, right, F64)
+        }
+        (NumericStorage::F32(left), NumericStorage::F32(right)) => {
+            select_same_class!(left, right, F32)
+        }
+        (NumericStorage::I8(left), NumericStorage::I8(right)) => {
+            select_same_class!(left, right, I8)
+        }
+        (NumericStorage::I16(left), NumericStorage::I16(right)) => {
+            select_same_class!(left, right, I16)
+        }
+        (NumericStorage::I32(left), NumericStorage::I32(right)) => {
+            select_same_class!(left, right, I32)
+        }
+        (NumericStorage::I64(left), NumericStorage::I64(right)) => {
+            select_same_class!(left, right, I64)
+        }
+        (NumericStorage::U8(left), NumericStorage::U8(right)) => {
+            select_same_class!(left, right, U8)
+        }
+        (NumericStorage::U16(left), NumericStorage::U16(right)) => {
+            select_same_class!(left, right, U16)
+        }
+        (NumericStorage::U32(left), NumericStorage::U32(right)) => {
+            select_same_class!(left, right, U32)
+        }
+        (NumericStorage::U64(left), NumericStorage::U64(right)) => {
+            select_same_class!(left, right, U64)
+        }
+        (left, right) => {
+            let left = left.materialize_f64();
+            let right = right.materialize_f64();
+            let mut values = Vec::with_capacity(plan.len());
+            for (offset, index_a, index_b) in plan.iter() {
+                let (value, origin) =
+                    choose_real_elementwise(left[index_a], right[index_b], nan_mode, comparison);
+                values.push(value);
+                indices[offset] = origin;
+            }
+            NumericStorage::F64(values)
+        }
+    };
+
+    let value_tensor = Tensor::from_numeric_storage(values, plan.output_shape().to_vec())
         .map_err(|e| max_internal_error(format!("max: {e}")))?;
     let index_tensor = Tensor::new(indices, plan.output_shape().to_vec())
         .map_err(|e| max_internal_error(format!("max: {e}")))?;
@@ -2032,30 +2514,56 @@ fn elementwise_real_max(
 fn elementwise_complex_max(
     lhs: ComplexTensor,
     rhs: ComplexTensor,
+    nan_mode: ReductionNaN,
     comparison: ComparisonMethod,
 ) -> BuiltinResult<MaxEvaluation> {
     let plan = BroadcastPlan::new(&lhs.shape, &rhs.shape)
         .map_err(|err| max_size_mismatch(format!("max: {err}")))?;
-    let mut values = vec![(0.0f64, 0.0f64); plan.len()];
     let mut indices = vec![0.0f64; plan.len()];
+    let lhs_storage = lhs.into_complex_storage();
+    let rhs_storage = rhs.into_complex_storage();
 
-    for (offset, index_a, index_b) in plan.iter() {
-        let a = lhs
-            .data
-            .get(index_a)
-            .copied()
-            .unwrap_or((f64::NAN, f64::NAN));
-        let b = rhs
-            .data
-            .get(index_b)
-            .copied()
-            .unwrap_or((f64::NAN, f64::NAN));
-        let (value, origin) = choose_complex_elementwise(a, b, comparison);
-        values[offset] = value;
-        indices[offset] = origin;
+    macro_rules! select_same_class {
+        ($left:expr, $right:expr, $variant:ident) => {{
+            let mut values = Vec::with_capacity(plan.len());
+            for (offset, index_a, index_b) in plan.iter() {
+                let a = $left[index_a];
+                let b = $right[index_b];
+                let (_, origin) = choose_complex_elementwise(
+                    (f64::from(a.0), f64::from(a.1)),
+                    (f64::from(b.0), f64::from(b.1)),
+                    nan_mode,
+                    comparison,
+                );
+                values.push(if origin == 1.0 { a } else { b });
+                indices[offset] = origin;
+            }
+            ComplexStorage::$variant(values.into())
+        }};
     }
 
-    let value_tensor = ComplexTensor::new(values, plan.output_shape().to_vec())
+    let values = match (lhs_storage, rhs_storage) {
+        (ComplexStorage::F64(left), ComplexStorage::F64(right)) => {
+            select_same_class!(left, right, F64)
+        }
+        (ComplexStorage::F32(left), ComplexStorage::F32(right)) => {
+            select_same_class!(left, right, F32)
+        }
+        (left, right) => {
+            let left = left.materialize_f64();
+            let right = right.materialize_f64();
+            let mut values = Vec::with_capacity(plan.len());
+            for (offset, index_a, index_b) in plan.iter() {
+                let (value, origin) =
+                    choose_complex_elementwise(left[index_a], right[index_b], nan_mode, comparison);
+                values.push(value);
+                indices[offset] = origin;
+            }
+            ComplexStorage::F64(values.into())
+        }
+    };
+
+    let value_tensor = ComplexTensor::from_complex_storage(values, plan.output_shape().to_vec())
         .map_err(|e| max_internal_error(format!("max: {e}")))?;
     let index_tensor = Tensor::new(indices, plan.output_shape().to_vec())
         .map_err(|e| max_internal_error(format!("max: {e}")))?;
@@ -2067,23 +2575,36 @@ fn elementwise_complex_max(
 }
 
 fn promote_real_tensor_to_complex(tensor: Tensor) -> ComplexTensor {
-    let data = tensor
-        .data
-        .iter()
-        .copied()
-        .map(|re| (re, 0.0))
-        .collect::<Vec<_>>();
-    ComplexTensor {
-        data,
-        shape: tensor.shape.clone(),
-        rows: tensor.rows,
-        cols: tensor.cols,
-    }
+    let shape = tensor.shape.clone();
+    let storage = match tensor
+        .into_numeric_storage()
+        .expect("real extrema input has numeric storage")
+    {
+        NumericStorage::F32(values) => {
+            ComplexStorage::F32(values.into_iter().map(|re| (re, 0.0)).collect())
+        }
+        storage => ComplexStorage::F64(
+            storage
+                .materialize_f64()
+                .into_iter()
+                .map(|re| (re, 0.0))
+                .collect(),
+        ),
+    };
+    ComplexTensor::from_complex_storage(storage, shape)
+        .expect("real tensor shape remains valid after promotion")
 }
 
-fn choose_real_elementwise(a: f64, b: f64, comparison: ComparisonMethod) -> (f64, f64) {
+fn choose_real_elementwise(
+    a: f64,
+    b: f64,
+    nan_mode: ReductionNaN,
+    comparison: ComparisonMethod,
+) -> (f64, f64) {
     match (a.is_nan(), b.is_nan()) {
         (true, true) => (f64::NAN, 1.0),
+        (true, false) if nan_mode == ReductionNaN::Omit => (b, 2.0),
+        (false, true) if nan_mode == ReductionNaN::Omit => (a, 1.0),
         (true, false) => (f64::NAN, 1.0),
         (false, true) => (f64::NAN, 2.0),
         (false, false) => {
@@ -2099,12 +2620,15 @@ fn choose_real_elementwise(a: f64, b: f64, comparison: ComparisonMethod) -> (f64
 fn choose_complex_elementwise(
     a: (f64, f64),
     b: (f64, f64),
+    nan_mode: ReductionNaN,
     comparison: ComparisonMethod,
 ) -> ((f64, f64), f64) {
     let a_nan = a.0.is_nan() || a.1.is_nan();
     let b_nan = b.0.is_nan() || b.1.is_nan();
     match (a_nan, b_nan) {
         (true, true) => ((f64::NAN, f64::NAN), 1.0),
+        (true, false) if nan_mode == ReductionNaN::Omit => (b, 2.0),
+        (false, true) if nan_mode == ReductionNaN::Omit => (a, 1.0),
         (true, false) => ((f64::NAN, f64::NAN), 1.0),
         (false, true) => ((f64::NAN, f64::NAN), 2.0),
         (false, false) => {
@@ -2124,11 +2648,19 @@ pub(crate) mod tests {
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
     #[cfg(feature = "wgpu")]
-    use runmat_accelerate_api::HostTensorView;
-    use runmat_builtins::{IntValue, Tensor, Value};
+    use runmat_accelerate_api::{
+        HostIntegerDataView, HostIntegerTensorView, HostTensorView, IntegerElementType,
+    };
+    use runmat_value::{
+        ComplexTensor, IntValue, IntegerComplexStorage, IntegerStorage, Tensor, Value,
+    };
 
     fn max_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
         block_on(super::max_builtin(value, rest))
+    }
+
+    fn nanmax_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+        block_on(super::nanmax_builtin(value, rest))
     }
 
     #[test]
@@ -2150,11 +2682,31 @@ pub(crate) mod tests {
         assert!(labels.contains(&"M = max(A)"));
         assert!(labels.contains(&"[M, I] = max(A)"));
         assert!(labels.contains(&"M = max(A, B)"));
-        assert!(labels.contains(&"[M, I] = max(A, B)"));
+        assert!(!labels.contains(&"[M, I] = max(A, B)"));
         assert!(labels.contains(&"M = max(A, [], dim)"));
         assert!(labels.contains(&"M = max(A, [], \"all\")"));
         assert!(labels.contains(&"M = max(A, [], \"ComparisonMethod\", method)"));
         assert!(labels.contains(&"M = max(A, B, \"ComparisonMethod\", method)"));
+    }
+
+    #[test]
+    fn nanmax_descriptor_signatures_cover_core_forms() {
+        let labels: Vec<&str> = NANMAX_DESCRIPTOR
+            .signatures
+            .iter()
+            .map(|sig| sig.label)
+            .collect();
+        assert!(labels.contains(&"M = nanmax(A)"));
+        assert!(labels.contains(&"[M, I] = nanmax(A)"));
+        assert!(labels.contains(&"M = nanmax(A, B)"));
+        assert!(!labels.contains(&"[M, I] = nanmax(A, B)"));
+        assert!(labels.contains(&"M = nanmax(A, [], dim)"));
+        assert!(labels.contains(&"[M, I] = nanmax(A, [], dim)"));
+        assert!(labels.contains(&"M = nanmax(A, [], vecdim)"));
+        assert!(labels.contains(&"M = nanmax(A, [], \"all\")"));
+        assert!(labels.contains(&"M = nanmax(A, [], \"linear\")"));
+        assert!(labels.contains(&"M = nanmax(A, [], \"ComparisonMethod\", method)"));
+        assert!(labels.contains(&"M = nanmax(A, B, \"ComparisonMethod\", method)"));
     }
 
     #[test]
@@ -2203,6 +2755,155 @@ pub(crate) mod tests {
         assert_eq!(indices, Value::Num(3.0));
     }
 
+    #[test]
+    fn max_reduction_preserves_native_single_storage() {
+        let tensor = Tensor::from_f32(vec![3.0, 1.0, 4.0, 2.0], vec![2, 2]).unwrap();
+        let (values, _) = evaluate(Value::Tensor(tensor), &[])
+            .expect("max")
+            .into_pair();
+        let Value::Tensor(values) = values else {
+            panic!("expected tensor values");
+        };
+        assert_eq!(
+            values.into_numeric_storage().expect("single storage"),
+            runmat_value::NumericStorage::F32(vec![3.0, 4.0])
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_native_integer_reduction_preserves_uint64_values_and_indices() {
+        let input = Tensor::new_integer(
+            runmat_value::IntegerStorage::U64(vec![u64::MAX - 1, u64::MAX, 3, 2]),
+            vec![2, 2],
+        )
+        .expect("input");
+        let (values, indices) = evaluate(Value::Tensor(input), &[])
+            .expect("max")
+            .into_pair();
+        assert_eq!(
+            values,
+            Value::Tensor(
+                Tensor::new_integer(
+                    runmat_value::IntegerStorage::U64(vec![u64::MAX, 3]),
+                    vec![1, 2],
+                )
+                .expect("values"),
+            )
+        );
+        assert_eq!(
+            indices,
+            Value::Tensor(Tensor::new(vec![2.0, 1.0], vec![1, 2]).expect("indices")),
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_native_integer_abs_all_uses_exact_int64_minimum() {
+        let input = Tensor::new_integer(
+            runmat_value::IntegerStorage::I64(vec![i64::MIN, -3, 3]),
+            vec![3, 1],
+        )
+        .expect("input");
+        let args = vec![
+            placeholder(),
+            Value::from("all"),
+            Value::from("ComparisonMethod"),
+            Value::from("abs"),
+        ];
+        let (values, indices) = evaluate(Value::Tensor(input), &args)
+            .expect("max")
+            .into_pair();
+        assert_eq!(values, Value::Int(IntValue::I64(i64::MIN)));
+        assert_eq!(indices, Value::Num(1.0));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_native_integer_empty_array_retains_its_class() {
+        let input = Tensor::new_integer(runmat_value::IntegerStorage::U32(Vec::new()), vec![0, 0])
+            .expect("input");
+        let (values, indices) = evaluate(Value::Tensor(input), &[])
+            .expect("max")
+            .into_pair();
+        assert_eq!(
+            values,
+            Value::Tensor(
+                Tensor::new_integer(runmat_value::IntegerStorage::U32(Vec::new()), vec![0, 0])
+                    .expect("values"),
+            )
+        );
+        assert_eq!(
+            indices,
+            Value::Tensor(Tensor::new(Vec::new(), vec![0, 0]).expect("indices")),
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_native_integer_empty_all_reduction_remains_empty() {
+        let input = Tensor::new_integer(runmat_value::IntegerStorage::I16(Vec::new()), vec![0, 0])
+            .expect("input");
+        let values = evaluate(Value::Tensor(input), &[placeholder(), Value::from("all")])
+            .expect("max")
+            .into_value();
+        assert_eq!(
+            values,
+            Value::Tensor(
+                Tensor::new_integer(runmat_value::IntegerStorage::I16(Vec::new()), vec![0, 0])
+                    .expect("values"),
+            )
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_row_vector_reduces_across_columns() {
+        let tensor = Tensor::new(vec![3.0, 1.0, 5.0], vec![1, 3]).unwrap();
+        let eval = evaluate(Value::Tensor(tensor), &[]).expect("evaluate");
+        let (values, indices) = eval.into_pair();
+        assert_eq!(values, Value::Num(5.0));
+        assert_eq!(indices, Value::Num(3.0));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_single_row_vector_reduces_across_columns() {
+        let tensor = Tensor::from_f32(vec![3.0, 1.0, 5.0], vec![1, 3]).unwrap();
+        let eval = evaluate(Value::Tensor(tensor), &[]).expect("evaluate");
+        let (values, indices) = eval.into_pair();
+        assert_eq!(
+            values,
+            Value::Tensor(Tensor::from_f32(vec![5.0], vec![1, 1]).unwrap())
+        );
+        assert_eq!(indices, Value::Num(3.0));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_registered_single_row_vector_reduces_across_columns() {
+        let tensor = Tensor::from_f32(vec![3.0, 1.0, 5.0], vec![1, 3]).unwrap();
+        let value = block_on(crate::call_builtin_async_with_outputs(
+            "max",
+            &[Value::Tensor(tensor)],
+            1,
+        ))
+        .expect("dispatch max");
+        match value {
+            Value::OutputList(values) => {
+                assert_eq!(values.len(), 1);
+                assert_eq!(
+                    values[0],
+                    Value::Tensor(Tensor::from_f32(vec![5.0], vec![1, 1]).unwrap())
+                );
+            }
+            other => assert_eq!(
+                other,
+                Value::Tensor(Tensor::from_f32(vec![5.0], vec![1, 1]).unwrap())
+            ),
+        }
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn max_matrix_default_dimension() {
@@ -2212,13 +2913,13 @@ pub(crate) mod tests {
         match values {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 3]);
-                assert_eq!(t.data, vec![4.0, 2.0, 6.0]);
+                assert_eq!(t.materialize_f64(), vec![4.0, 2.0, 6.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
         match indices {
             Value::Tensor(t) => {
-                assert_eq!(t.data, vec![2.0, 2.0, 2.0]);
+                assert_eq!(t.materialize_f64(), vec![2.0, 2.0, 2.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
@@ -2276,6 +2977,86 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn nanmax_reduction_omits_nan_by_default() {
+        let tensor = Tensor::new(vec![f64::NAN, 4.0, 2.0, f64::NAN], vec![2, 2]).unwrap();
+        let result = nanmax_builtin(Value::Tensor(tensor), Vec::new()).expect("nanmax");
+        match result {
+            Value::Tensor(t) => {
+                assert_eq!(t.shape, vec![1, 2]);
+                assert_eq!(t.materialize_f64()[0], 4.0);
+                assert_eq!(t.materialize_f64()[1], 2.0);
+            }
+            other => panic!("expected tensor, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nanmax_typed_integer_data_follows_compatibility_mode() {
+        {
+            let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+            let error = nanmax_builtin(Value::Int(IntValue::U64(u64::MAX)), Vec::new())
+                .expect_err("strict nanmax typed-integer input");
+            assert_eq!(
+                error.identifier(),
+                Some("RunMat:compatibility:NanmaxTypedIntegerInputExtension")
+            );
+            let error = nanmax_builtin(
+                Value::Tensor(Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("floating input")),
+                vec![placeholder(), Value::Int(IntValue::U8(2))],
+            )
+            .expect_err("strict nanmax typed-integer dimension");
+            assert_eq!(
+                error.identifier(),
+                Some("RunMat:compatibility:NanmaxTypedIntegerInputExtension")
+            );
+        }
+        {
+            let _compat = crate::compatibility::push_runmat_extensions_enabled(true);
+            let result = nanmax_builtin(Value::Int(IntValue::U64(u64::MAX)), Vec::new())
+                .expect("RunMat nanmax typed-integer input");
+            assert_eq!(result, Value::Int(IntValue::U64(u64::MAX)));
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn nanmax_reduction_accepts_empty_placeholder_and_dim() {
+        let tensor = Tensor::new(vec![f64::NAN, 4.0, 2.0, f64::NAN], vec![2, 2]).unwrap();
+        let result = nanmax_builtin(Value::Tensor(tensor), vec![placeholder(), Value::Num(2.0)])
+            .expect("nanmax dim");
+        match result {
+            Value::Tensor(t) => {
+                assert_eq!(t.shape, vec![2, 1]);
+                assert_eq!(t.materialize_f64()[0], 2.0);
+                assert_eq!(t.materialize_f64()[1], 4.0);
+            }
+            other => panic!("expected tensor, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn nanmax_output_count_returns_indices_and_zero_output_list() {
+        let tensor = Tensor::new(vec![f64::NAN, 4.0, 2.0], vec![3, 1]).unwrap();
+        let _guard = crate::output_count::push_output_count(Some(2));
+        let result = nanmax_builtin(Value::Tensor(tensor), Vec::new()).expect("nanmax outputs");
+        match result {
+            Value::OutputList(values) => {
+                assert_eq!(values.len(), 2);
+                assert_eq!(values[0], Value::Num(4.0));
+                assert_eq!(values[1], Value::Num(2.0));
+            }
+            other => panic!("expected output list, got {other:?}"),
+        }
+        drop(_guard);
+
+        let _guard = crate::output_count::push_output_count(Some(0));
+        let result = nanmax_builtin(Value::Num(1.0), Vec::new()).expect("nanmax zero outputs");
+        assert_eq!(result, Value::OutputList(Vec::new()));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn max_reduction_abs_comparison() {
         let tensor = Tensor::new(vec![1.0, -3.0, -2.0, 4.0], vec![2, 2]).unwrap();
         let args = vec![
@@ -2288,13 +3069,13 @@ pub(crate) mod tests {
         match values {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 2]);
-                assert_eq!(t.data, vec![-3.0, 4.0]);
+                assert_eq!(t.materialize_f64(), vec![-3.0, 4.0]);
             }
             other => panic!("expected tensor result, got {other:?}"),
         }
         match indices {
             Value::Tensor(t) => {
-                assert_eq!(t.data, vec![2.0, 2.0]);
+                assert_eq!(t.materialize_f64(), vec![2.0, 2.0]);
             }
             other => panic!("expected tensor indices, got {other:?}"),
         }
@@ -2323,6 +3104,23 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn max_reduction_preserves_native_complex_single_storage() {
+        let tensor =
+            ComplexTensor::from_f32(vec![(1.0, 2.0), (0.5, 5.0)], vec![2, 1]).expect("tensor");
+        let values = evaluate(Value::ComplexTensor(tensor), &[])
+            .expect("evaluate")
+            .into_value();
+        let Value::ComplexTensor(values) = values else {
+            panic!("expected typed complex scalar tensor");
+        };
+        assert_eq!(
+            values.into_complex_storage(),
+            ComplexStorage::F32(vec![(0.5, 5.0)].into())
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn max_elementwise_broadcast() {
         let lhs = Tensor::new(vec![1.0, 4.0, 7.0], vec![1, 3]).unwrap();
         let rhs = Tensor::new(vec![2.0, 3.0, 5.0], vec![3, 1]).unwrap();
@@ -2331,21 +3129,203 @@ pub(crate) mod tests {
         match values {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![3, 3]);
-                assert_eq!([t.data[0], t.data[3], t.data[6]], [2.0, 4.0, 7.0]);
-                assert_eq!([t.data[1], t.data[4], t.data[7]], [3.0, 4.0, 7.0]);
-                assert_eq!([t.data[2], t.data[5], t.data[8]], [5.0, 5.0, 7.0]);
+                assert_eq!(
+                    [
+                        t.materialize_f64()[0],
+                        t.materialize_f64()[3],
+                        t.materialize_f64()[6]
+                    ],
+                    [2.0, 4.0, 7.0]
+                );
+                assert_eq!(
+                    [
+                        t.materialize_f64()[1],
+                        t.materialize_f64()[4],
+                        t.materialize_f64()[7]
+                    ],
+                    [3.0, 4.0, 7.0]
+                );
+                assert_eq!(
+                    [
+                        t.materialize_f64()[2],
+                        t.materialize_f64()[5],
+                        t.materialize_f64()[8]
+                    ],
+                    [5.0, 5.0, 7.0]
+                );
             }
             other => panic!("expected tensor, got {other:?}"),
         }
         match indices {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![3, 3]);
-                assert_eq!([t.data[0], t.data[3], t.data[6]], [2.0, 1.0, 1.0]);
-                assert_eq!([t.data[1], t.data[4], t.data[7]], [2.0, 1.0, 1.0]);
-                assert_eq!([t.data[2], t.data[5], t.data[8]], [2.0, 2.0, 1.0]);
+                assert_eq!(
+                    [
+                        t.materialize_f64()[0],
+                        t.materialize_f64()[3],
+                        t.materialize_f64()[6]
+                    ],
+                    [2.0, 1.0, 1.0]
+                );
+                assert_eq!(
+                    [
+                        t.materialize_f64()[1],
+                        t.materialize_f64()[4],
+                        t.materialize_f64()[7]
+                    ],
+                    [2.0, 1.0, 1.0]
+                );
+                assert_eq!(
+                    [
+                        t.materialize_f64()[2],
+                        t.materialize_f64()[5],
+                        t.materialize_f64()[8]
+                    ],
+                    [2.0, 2.0, 1.0]
+                );
             }
             other => panic!("expected tensor, got {other:?}"),
         }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_elementwise_preserves_native_single_storage() {
+        let lhs = Tensor::from_f32(vec![3.5, -2.0], vec![2, 1]).expect("lhs");
+        let rhs = Tensor::from_f32(vec![1.25, 4.0], vec![2, 1]).expect("rhs");
+        let (values, indices) = evaluate(Value::Tensor(lhs), &[Value::Tensor(rhs)])
+            .expect("evaluate")
+            .into_pair();
+        let Value::Tensor(values) = values else {
+            panic!("expected tensor values");
+        };
+        assert_eq!(
+            values.into_numeric_storage().expect("storage"),
+            NumericStorage::F32(vec![3.5, 4.0])
+        );
+        assert_eq!(
+            indices,
+            Value::Tensor(Tensor::new(vec![1.0, 2.0], vec![2, 1]).expect("indices"))
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_elementwise_preserves_native_complex_single_storage() {
+        let lhs = ComplexTensor::from_f32(vec![(3.0, 4.0), (1.0, 0.0)], vec![2, 1]).expect("lhs");
+        let rhs = ComplexTensor::from_f32(vec![(4.0, 0.0), (0.0, 2.0)], vec![2, 1]).expect("rhs");
+        let values = evaluate(Value::ComplexTensor(lhs), &[Value::ComplexTensor(rhs)])
+            .expect("evaluate")
+            .into_value();
+        let Value::ComplexTensor(values) = values else {
+            panic!("expected complex tensor values");
+        };
+        assert_eq!(
+            values.into_complex_storage(),
+            ComplexStorage::F32(vec![(3.0, 4.0), (0.0, 2.0)].into())
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_pairwise_public_form_rejects_second_output() {
+        let _guard = crate::output_count::push_output_count(Some(2));
+        let error = max_builtin(Value::Num(1.0), vec![Value::Num(2.0)])
+            .expect_err("pairwise max has one output");
+        assert_eq!(error.identifier(), MAX_ERROR_INVALID_ARGUMENT.identifier);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_elementwise_abs_keeps_uint64_comparison_exact() {
+        let lhs = Tensor::new_integer(IntegerStorage::U64(vec![9_007_199_254_740_993]), vec![1, 1])
+            .expect("lhs");
+        let rhs = Tensor::new_integer(IntegerStorage::U64(vec![9_007_199_254_740_992]), vec![1, 1])
+            .expect("rhs");
+        let args = vec![
+            Value::Tensor(rhs),
+            Value::from("ComparisonMethod"),
+            Value::from("abs"),
+        ];
+        let (values, indices) = evaluate(Value::Tensor(lhs), &args)
+            .expect("evaluate")
+            .into_pair();
+        assert_eq!(values, Value::Int(IntValue::U64(9_007_199_254_740_993)));
+        assert_eq!(indices, Value::Num(1.0));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_scalar_double_and_integer_compare_exactly_in_either_order() {
+        let rhs = Tensor::new_integer(
+            IntegerStorage::U64(vec![9_007_199_254_740_993, 4]),
+            vec![1, 2],
+        )
+        .expect("rhs");
+        let (values, indices) =
+            evaluate(Value::Num(9_007_199_254_740_992.0), &[Value::Tensor(rhs)])
+                .expect("evaluate")
+                .into_pair();
+        assert_eq!(
+            values,
+            Value::Tensor(
+                Tensor::new_integer(
+                    IntegerStorage::U64(vec![9_007_199_254_740_993, 9_007_199_254_740_992]),
+                    vec![1, 2],
+                )
+                .expect("values")
+            )
+        );
+        assert_eq!(
+            indices,
+            Value::Tensor(Tensor::new(vec![2.0, 1.0], vec![1, 2]).expect("indices"))
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_integer_scalar_nan_obeys_include_and_omit_modes() {
+        let integer =
+            Tensor::new_integer(IntegerStorage::I16(vec![7, -3]), vec![1, 2]).expect("integer");
+        let included = evaluate(Value::Tensor(integer.clone()), &[Value::Num(f64::NAN)])
+            .expect("include")
+            .into_value();
+        assert_eq!(
+            included,
+            Value::Tensor(
+                Tensor::new_integer(IntegerStorage::I16(vec![0, 0]), vec![1, 2]).expect("included")
+            )
+        );
+
+        let omitted = evaluate(
+            Value::Tensor(integer.clone()),
+            &[Value::Num(f64::NAN), Value::from("omitnan")],
+        )
+        .expect("omit")
+        .into_value();
+        assert_eq!(omitted, Value::Tensor(integer));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn max_integer_pairwise_rejects_incompatible_classes_and_float_shapes() {
+        let integer =
+            Tensor::new_integer(IntegerStorage::I16(vec![1, 2]), vec![1, 2]).expect("integer");
+        let mixed =
+            Tensor::new_integer(IntegerStorage::U16(vec![1, 2]), vec![1, 2]).expect("mixed");
+        let error = evaluate(Value::Tensor(integer.clone()), &[Value::Tensor(mixed)])
+            .expect_err("mixed integer classes reject");
+        assert_eq!(error.identifier(), MAX_ERROR_INVALID_INPUT.identifier);
+
+        let single = Tensor::from_f32(vec![1.0], vec![1, 1]).expect("single");
+        let error = evaluate(Value::Tensor(integer.clone()), &[Value::Tensor(single)])
+            .expect_err("scalar single rejects");
+        assert_eq!(error.identifier(), MAX_ERROR_INVALID_INPUT.identifier);
+
+        let doubles = Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("doubles");
+        let error = evaluate(Value::Tensor(integer), &[Value::Tensor(doubles)])
+            .expect_err("nonscalar double rejects");
+        assert_eq!(error.identifier(), MAX_ERROR_INVALID_INPUT.identifier);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -2362,13 +3342,13 @@ pub(crate) mod tests {
         let (values, indices) = eval.into_pair();
         match values {
             Value::Tensor(t) => {
-                assert_eq!(t.data, vec![-2.0, -3.0]);
+                assert_eq!(t.materialize_f64(), vec![-2.0, -3.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
         match indices {
             Value::Tensor(t) => {
-                assert_eq!(t.data, vec![1.0, 2.0]);
+                assert_eq!(t.materialize_f64(), vec![1.0, 2.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
@@ -2376,16 +3356,90 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn max_elementwise_rejects_reduction_only_keywords() {
-        let lhs = Tensor::new(vec![1.0, 2.0], vec![2, 1]).unwrap();
-        let rhs = Tensor::new(vec![3.0, 4.0], vec![2, 1]).unwrap();
-        let err = evaluate(
+    fn max_elementwise_omitnan_chooses_non_nan_side() {
+        let lhs = Tensor::new(vec![f64::NAN, 2.0, f64::NAN], vec![3, 1]).unwrap();
+        let rhs = Tensor::new(vec![3.0, f64::NAN, f64::NAN], vec![3, 1]).unwrap();
+        let eval = evaluate(
             Value::Tensor(lhs),
             &[Value::Tensor(rhs), Value::from("omitnan")],
         )
-        .expect_err("expected error");
-        assert_eq!(err.identifier(), MAX_ERROR_INVALID_ARGUMENT.identifier);
-        assert!(err.message().contains("only supported for reduction"));
+        .expect("evaluate");
+        let (values, indices) = eval.into_pair();
+        match values {
+            Value::Tensor(t) => {
+                assert_eq!(t.shape, vec![3, 1]);
+                assert_eq!(t.materialize_f64()[0], 3.0);
+                assert_eq!(t.materialize_f64()[1], 2.0);
+                assert!(t.materialize_f64()[2].is_nan());
+            }
+            other => panic!("expected tensor, got {other:?}"),
+        }
+        match indices {
+            Value::Tensor(t) => {
+                assert_eq!(t.materialize_f64()[0], 2.0);
+                assert_eq!(t.materialize_f64()[1], 1.0);
+                assert_eq!(t.materialize_f64()[2], 1.0);
+            }
+            other => panic!("expected tensor, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn nanmax_elementwise_omits_nan_by_default() {
+        let lhs = Tensor::new(vec![f64::NAN, 2.0], vec![2, 1]).unwrap();
+        let rhs = Tensor::new(vec![3.0, f64::NAN], vec![2, 1]).unwrap();
+        let result = nanmax_builtin(Value::Tensor(lhs), vec![Value::Tensor(rhs)]).expect("nanmax");
+        match result {
+            Value::Tensor(t) => assert_eq!(t.materialize_f64(), vec![3.0, 2.0]),
+            other => panic!("expected tensor, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    #[cfg(feature = "wgpu")]
+    fn nanmax_gpu_omitnan_gathers_to_host_result() {
+        let tensor = Tensor::new(vec![f64::NAN, 4.0, 2.0, f64::NAN], vec![2, 2]).unwrap();
+        test_support::with_test_provider(|provider| {
+            let view = HostTensorView {
+                data: &tensor.materialize_f64(),
+                shape: &tensor.shape,
+            };
+            let handle = provider.upload(&view).expect("upload");
+            let result = nanmax_builtin(Value::GpuTensor(handle), Vec::new()).expect("nanmax gpu");
+            match result {
+                Value::Tensor(t) => {
+                    assert_eq!(t.shape, vec![1, 2]);
+                    assert_eq!(t.materialize_f64(), vec![4.0, 2.0]);
+                }
+                other => panic!("expected host tensor fallback, got {other:?}"),
+            }
+        });
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    fn nanmax_integer_gpu_extension_gathers_exact_host_result() {
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(true);
+        let data = [u64::MAX - 1, u64::MAX, 7, 9];
+        test_support::with_test_provider(|provider| {
+            let handle = provider
+                .upload_integer(&HostIntegerTensorView {
+                    data: HostIntegerDataView::U64(&data),
+                    shape: &[2, 2],
+                })
+                .expect("integer upload");
+            let result =
+                nanmax_builtin(Value::GpuTensor(handle), Vec::new()).expect("integer nanmax");
+            let Value::Tensor(tensor) = result else {
+                panic!("expected gathered integer tensor");
+            };
+            assert_eq!(
+                tensor.integer_storage(),
+                Some(&IntegerStorage::U64(vec![u64::MAX, 9]))
+            );
+        });
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -2436,6 +3490,7 @@ pub(crate) mod tests {
             shape: vec![1, 1],
             device_id: 0,
             buffer_id: 42,
+            descriptor: Default::default(),
         });
         let err = evaluate(Value::Tensor(tensor), &[placeholder(), dim_handle])
             .expect_err("expected error");
@@ -2469,7 +3524,7 @@ pub(crate) mod tests {
 
         test_support::with_test_provider(|provider| {
             let view = HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");
@@ -2490,9 +3545,71 @@ pub(crate) mod tests {
                 other => panic!("expected tensor indices from cpu eval, got {other:?}"),
             };
             assert_eq!(gathered_vals.shape, expected_vals.shape);
-            assert_eq!(gathered_vals.data, expected_vals.data);
+            assert_eq!(
+                gathered_vals.materialize_f64(),
+                expected_vals.materialize_f64()
+            );
             assert_eq!(gathered_idx.shape, expected_idx.shape);
-            assert_eq!(gathered_idx.data, expected_idx.data);
+            assert_eq!(
+                gathered_idx.materialize_f64(),
+                expected_idx.materialize_f64()
+            );
+        });
+    }
+
+    #[test]
+    #[cfg(feature = "wgpu")]
+    fn max_gpu_uint64_reduction_matches_cpu_and_preserves_residency() {
+        let data = [u64::MAX, u64::MAX, 9, 9];
+        let tensor = Tensor::new_integer(IntegerStorage::U64(data.to_vec()), vec![2, 2])
+            .expect("uint64 tensor");
+        let (values_cpu, indices_cpu) = evaluate(Value::Tensor(tensor.clone()), &[])
+            .expect("cpu max")
+            .into_pair();
+        assert_eq!(
+            values_cpu,
+            Value::Tensor(
+                Tensor::new_integer(IntegerStorage::U64(vec![u64::MAX, 9]), vec![1, 2])
+                    .expect("expected values")
+            )
+        );
+        assert_eq!(
+            indices_cpu,
+            Value::Tensor(Tensor::new(vec![1.0, 1.0], vec![1, 2]).expect("expected indices"))
+        );
+
+        test_support::with_test_provider(|provider| {
+            let handle = provider
+                .upload_integer(&HostIntegerTensorView {
+                    data: HostIntegerDataView::U64(&data),
+                    shape: &[2, 2],
+                })
+                .expect("upload exact uint64");
+            let (values_gpu, indices_gpu) = evaluate(Value::GpuTensor(handle), &[])
+                .expect("gpu max")
+                .into_pair();
+            let Value::GpuTensor(values_handle) = &values_gpu else {
+                panic!("expected resident uint64 values, got {values_gpu:?}");
+            };
+            assert_eq!(
+                runmat_accelerate_api::handle_integer_type(values_handle),
+                Some(IntegerElementType::U64)
+            );
+            assert!(matches!(indices_gpu, Value::GpuTensor(_)));
+            assert_eq!(
+                test_support::gather(values_gpu).expect("gather values"),
+                match values_cpu {
+                    Value::Tensor(values) => values,
+                    other => panic!("expected CPU tensor values, got {other:?}"),
+                }
+            );
+            assert_eq!(
+                test_support::gather(indices_gpu).expect("gather indices"),
+                match indices_cpu {
+                    Value::Tensor(indices) => indices,
+                    other => panic!("expected CPU tensor indices, got {other:?}"),
+                }
+            );
         });
     }
 
@@ -2506,13 +3623,13 @@ pub(crate) mod tests {
         match values {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![2, 1]);
-                assert_eq!(t.data, vec![3.0, 4.0]);
+                assert_eq!(t.materialize_f64(), vec![3.0, 4.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
         match indices {
             Value::Tensor(t) => {
-                assert_eq!(t.data, vec![1.0, 1.0]);
+                assert_eq!(t.materialize_f64(), vec![1.0, 1.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
@@ -2536,6 +3653,19 @@ pub(crate) mod tests {
         let args = vec![Value::Num(2.0)];
         let result = max_builtin(Value::Num(3.0), args).expect("max");
         assert_eq!(result, Value::Num(3.0));
+    }
+
+    #[test]
+    fn max_scalar_complex_value_reads_typed_integer_complex_storage_without_mirror() {
+        let storage =
+            IntegerComplexStorage::new(IntegerStorage::I16(vec![-7]), IntegerStorage::I16(vec![2]))
+                .expect("complex integer storage");
+        let tensor = ComplexTensor::new_integer(storage, vec![1, 1]).expect("complex tensor");
+
+        assert_eq!(
+            scalar_complex_value(&Value::ComplexTensor(tensor)),
+            Some((-7.0, 2.0))
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

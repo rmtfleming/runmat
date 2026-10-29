@@ -1,9 +1,133 @@
 import type {
   RunMatFilesystemProvider
 } from "./fs/provider-types.js";
+import type {
+  FeaAnalysisProfile,
+  FeaAnalysisRunKind,
+  FeaCapabilities,
+  FeaCheckResult,
+  FeaDiagnosticsArtifactPayload,
+  FeaDocumentKind,
+  FeaFieldDescriptorsArtifactPayload,
+  FeaFieldKind,
+  FeaFieldDescriptor,
+  FeaFieldLocation,
+  FeaFieldPagingDescriptor,
+  FeaFieldRequestOptions,
+  FeaFieldResult,
+  FeaFieldStorage,
+  FeaFieldStorageRef,
+  FeaObjectArtifactMetadata,
+  FeaProgressEvent,
+  FeaProgressPhase,
+  FeaProgressStatus,
+  FeaRunDatasetFieldPagingPolicy,
+  FeaRunDatasetPayload,
+  FeaRunDatasetStudyRef,
+  FeaRunResult,
+  FeaStudyDocumentOperation,
+  FeaStudyDocumentOperationOutput
+} from "./fea-contracts.js";
+import {
+  FEA_ARTIFACT_MANIFEST_KIND,
+  FEA_DATASET_ARTIFACT_KIND,
+  FEA_DIAGNOSTICS_ARTIFACT_KIND,
+  FEA_DIAGNOSTICS_SCHEMA_VERSION,
+  FEA_FIELD_DEFAULT_MATERIALIZE_LIMIT,
+  FEA_FIELD_DEFAULT_PAGE_SIZE,
+  FEA_FIELD_DESCRIPTORS_ARTIFACT_KIND,
+  FEA_FIELD_DESCRIPTORS_SCHEMA_VERSION,
+  FEA_OBJECT_ARTIFACT_METADATA_SCHEMA_VERSION,
+  FEA_RUN_DATASET_KIND,
+  FEA_RUN_DATASET_SCHEMA_VERSION,
+} from "./fea-contracts.js";
 import { createDefaultFsProvider } from "./fs/default.js";
+import { createIndexedDbPackageCache } from "./package-cache/indexeddb.js";
+import { fetchGitTreeInventoryWire } from "./package-cache/git-gateway.js";
+import { BrowserProjectResolver } from "./package-cache/browser-resolver.js";
+import { BrowserProjectSession } from "./package-cache/project-session.js";
+import type {
+  BrowserProjectResolverConfig,
+  BrowserProjectSessionConfig,
+  IndexedDbPackageCacheOptions,
+  PackageCacheSnapshot,
+  PackageCacheGcPlan,
+  PackageCacheStatus,
+  RunMatPackageCacheProvider
+} from "./package-cache/index.js";
+import type {
+  GitAcquisitionPlan,
+  GitAcquisitionPlanRequest,
+  GitGatewayRequest,
+  GitSnapshotWire,
+  GitTreeInventoryWire,
+  ServerGitGatewayOptions
+} from "./package-cache/git-gateway.js";
 import { __internals as workspaceHoverInternals } from "./workspace-hover.js";
 import { installWebGpuCompatibilityShims } from "./webgpu-shims.js";
+export {
+  FEA_ANALYSIS_PROFILES,
+  FEA_ANALYSIS_RUN_KINDS,
+  FEA_ARTIFACT_MANIFEST_KIND,
+  FEA_DATASET_ARTIFACT_KIND,
+  FEA_DIAGNOSTICS_ARTIFACT_KIND,
+  FEA_DIAGNOSTICS_SCHEMA_VERSION,
+  FEA_FIELD_DEFAULT_MATERIALIZE_LIMIT,
+  FEA_FIELD_DEFAULT_PAGE_SIZE,
+  FEA_FIELD_DESCRIPTORS_ARTIFACT_KIND,
+  FEA_FIELD_DESCRIPTORS_SCHEMA_VERSION,
+  FEA_OBJECT_ARTIFACT_METADATA_SCHEMA_VERSION,
+  FEA_RUN_DATASET_KIND,
+  FEA_RUN_DATASET_SCHEMA_VERSION,
+  FEA_RUN_CELL_ID,
+  FEA_RUN_KIND,
+  FEA_RUN_MANIFEST_METADATA_SCHEMA_VERSION,
+  FEA_STUDY_DOCUMENT_OPERATIONS,
+  FEA_SUPPORTED_PHYSICS_FAMILIES,
+  FEA_SUPPORTED_PHYSICS_PROFILES,
+  feaRunArtifactRefId,
+} from "./fea-contracts.js";
+export type {
+  FeaAnalysisProfile,
+  FeaAnalysisRunKind,
+  FeaCapabilities,
+  FeaCheckResult,
+  FeaDiagnosticsArtifactPayload,
+  FeaDocumentKind,
+  FeaFieldDescriptorsArtifactPayload,
+  FeaFieldKind,
+  FeaFieldDescriptor,
+  FeaFieldLocation,
+  FeaFieldPagingDescriptor,
+  FeaFieldRequestOptions,
+  FeaFieldResult,
+  FeaFieldStorage,
+  FeaFieldStorageRef,
+  FeaObjectArtifactMetadata,
+  FeaPhysicsProfileCatalogEntry,
+  FeaProgressEvent,
+  FeaProgressPhase,
+  FeaProgressStatus,
+  FeaRunDatasetFieldPagingPolicy,
+  FeaRunDatasetPayload,
+  FeaRunDatasetStudyRef,
+  FeaRunResult,
+  FeaStudyBoundaryConditionEntry,
+  FeaStudyDocumentCounts,
+  FeaStudyDocumentDiff,
+  FeaStudyDocumentOperation,
+  FeaStudyDocumentOperationOutput,
+  FeaStudyDocumentOperationResult,
+  FeaStudyDrivingConditionEntry,
+  FeaStudyMaterialAssignmentEntry,
+  FeaStudyMaterialEntry,
+  FeaStudyOutputEntry,
+  FeaStudyReadiness,
+  FeaStudyRegionEntry,
+  FeaStudyStepEntry,
+  FeaStudySummary,
+  FeaRunArtifactRole
+} from "./fea-contracts.js";
 export {
   createInMemoryFsProvider,
   createIndexedDbFsHandle,
@@ -28,6 +152,57 @@ export type {
   RunMatOpenFileDialogRequest,
   RunMatOpenFileDialogSelection
 } from "./fs/provider-types.js";
+export {
+  BrowserPackageMountFilesystem,
+  createAndRegisterBrowserRecipientKey,
+  createBrowserPrivatePackageKeyStore,
+  createIndexedDbPackageCache,
+  generateBrowserRecipientKey,
+  invalidateBrowserPrivatePackageArtifacts,
+  ImmutableBrowserPackageMount,
+  revokeAndRemoveBrowserRecipientKey
+} from "./package-cache/index.js";
+export { BrowserProjectResolver, BrowserProjectSession };
+export type {
+  BrowserProjectResolveOptions,
+  BrowserProjectResolveRequest,
+  BrowserProjectResolverConfig,
+  BrowserProjectResolverNative,
+  BrowserResolvedProject,
+  BrowserProjectSessionConfig,
+  BrowserProjectSessionHandle,
+  BrowserProjectSessionNative,
+  BrowserProjectSessionResolution,
+  BrowserProjectSessionResolveRequest,
+  BrowserRecipientKeyRegistration,
+  BrowserPrivatePackageKeyStore,
+  GeneratedBrowserRecipientKey,
+  RegisterBrowserRecipientKey,
+  RevokeBrowserRecipientKey,
+  BrowserMountEntry,
+  BrowserTreeEntry,
+  BrowserTreeManifest,
+  IndexedDbPackageCacheHandle,
+  IndexedDbPackageCacheOptions,
+  PackageCacheCommitOutcome,
+  PackageCacheGcPlan,
+  PackageCacheFaultInjector,
+  PackageCacheRevision,
+  PackageCacheSnapshot,
+  PackageCacheStatus,
+  PackageCacheTransaction,
+  RunMatPackageCacheProvider,
+  GitGatewayRequest,
+  GitGatewaySelector,
+  GitAcquisitionIntent,
+  GitAcquisitionPlan,
+  GitAcquisitionPlanRequest,
+  GitAcquisitionPolicy,
+  GitSnapshotWire,
+  GitSourceWire,
+  GitTreeInventoryWire,
+  ServerGitGatewayOptions
+} from "./package-cache/index.js";
 export { createWorkspaceHoverProvider } from "./workspace-hover.js";
 export type {
   WorkspaceHoverOptions,
@@ -39,36 +214,79 @@ export type {
   FusionPlanAdapter,
   FusionPlanAdapterOptions
 } from "./fusion-plan.js";
-export type LanguageCompatMode = "matlab" | "strict";
+export type LanguageCompatMode = "runmat" | "matlab" | "strict";
 type RunMatPresetLogLevel = "trace" | "debug" | "info" | "warn" | "error";
 export type RunMatLogLevel = RunMatPresetLogLevel | (string & Record<never, never>);
 
+export type RunmatConfigFormat = "toml" | "json";
+export type DesktopRunHistoryMode = "off" | "budgeted" | "full";
+export type DesktopRunLogMode = "off" | "errors" | "all";
+export type DesktopNotebookOnError = "stop" | "continue";
+export type DesktopNotebookRerunAfterCancel = "remaining" | "all";
+
+export interface ResolvedDesktopConfig {
+  artifacts: {
+    root: string;
+  };
+  run_history: {
+    mode: DesktopRunHistoryMode;
+    trace: boolean;
+    logs: DesktopRunLogMode;
+  };
+  script: {
+    clear_workspace_before_run: boolean;
+    clear_figures_before_run: boolean;
+  };
+  notebook: {
+    on_error: DesktopNotebookOnError;
+    rerun_after_cancel: DesktopNotebookRerunAfterCancel;
+  };
+}
+
+export interface ResolvedRunmatConfig {
+  desktop: ResolvedDesktopConfig;
+  runtime: Record<string, unknown> & {
+    error_namespace: string;
+    language: Record<string, unknown> & { compat: LanguageCompatMode };
+    accelerate: Record<string, unknown> & { enabled: boolean };
+    plotting: Record<string, unknown> & {
+      export?: Record<string, unknown> & { scene_budget_bytes: number };
+    };
+  };
+}
+
+export interface RunmatConfigPatch {
+  desktop?: {
+    artifacts?: { root?: string };
+    run_history?: {
+      mode?: DesktopRunHistoryMode;
+      trace?: boolean;
+      logs?: DesktopRunLogMode;
+    };
+    script?: {
+      clear_workspace_before_run?: boolean;
+      clear_figures_before_run?: boolean;
+    };
+    notebook?: {
+      on_error?: DesktopNotebookOnError;
+      rerun_after_cancel?: DesktopNotebookRerunAfterCancel;
+    };
+  };
+  runtime?: {
+    accelerate_enabled?: boolean;
+    scene_budget_bytes?: number;
+  };
+}
+
+export interface LegacyRunmatConfigMigration {
+  source: string;
+  changed: boolean;
+  removedKeys: string[];
+}
+
 export type WasmInitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
-export interface RunMatSnapshotSource {
-  bytes?: Uint8Array | ArrayBuffer;
-  url?: string;
-  fetcher?: SnapshotFetcher;
-  stream?: ReadableStream<Uint8Array | ArrayBufferView | ArrayBuffer>;
-}
-
-export interface SnapshotFetcherContext {
-  url?: string;
-}
-
-export type SnapshotFetcher = (
-  ctx: SnapshotFetcherContext
-) => Promise<SnapshotFetcherResult>;
-
-export type SnapshotFetcherResult =
-  | Uint8Array
-  | ArrayBuffer
-  | ArrayBufferView
-  | Response
-  | ReadableStream<Uint8Array | ArrayBufferView | ArrayBuffer>;
-
 export interface RunMatInitOptions {
-  snapshot?: RunMatSnapshotSource;
   enableGpu?: boolean;
   enableJit?: boolean;
   verbose?: boolean;
@@ -82,6 +300,10 @@ export interface RunMatInitOptions {
   wgpuForceFallbackAdapter?: boolean;
   wasmModule?: WasmInitInput;
   fsProvider?: RunMatFilesystemProvider;
+  packageCache?: IndexedDbPackageCacheOptions & {
+    provider?: RunMatPackageCacheProvider;
+  };
+  executionHost?: RunMatExecutionHost;
   plotCanvas?: HTMLCanvasElement;
   scatterTargetPoints?: number;
   surfaceVertexBudget?: number;
@@ -91,6 +313,25 @@ export interface RunMatInitOptions {
   language?: {
     compat?: LanguageCompatMode;
   };
+}
+
+export type BrowserExecutionTopology = "coordinator" | "flat" | "serial";
+
+export interface BrowserExecutionHostCapabilities {
+  topology: BrowserExecutionTopology;
+  maxWorkers: number;
+}
+
+export interface BrowserProgramLaunchRequest {
+  taskId: string;
+  workerId: string;
+  program: Record<string, unknown>;
+}
+
+export interface RunMatExecutionHost {
+  capabilities: BrowserExecutionHostCapabilities;
+  launch(request: BrowserProgramLaunchRequest): Promise<Record<string, unknown>>;
+  cancel(taskId: string): void;
 }
 
 export type FigureEventKind = "created" | "updated" | "cleared" | "closed";
@@ -312,6 +553,25 @@ export interface GeometrySceneImageOptions {
   width?: number;
   height?: number;
   view?: string | null;
+  visibility?: GeometrySceneImageVisibilityState | null;
+  section?: GeometrySceneImageSectionState | null;
+}
+
+export interface GeometrySceneImageVisibilityState {
+  mode: "all" | "hidden" | "isolated" | string;
+  hidden_ids?: string[];
+  isolated_ids?: string[];
+}
+
+export interface GeometrySceneImageSectionState {
+  plane: GeometrySceneImageSectionPlane;
+}
+
+export interface GeometrySceneImageSectionPlane {
+  normal: [number, number, number];
+  origin?: [number, number, number] | null;
+  offset?: number | null;
+  label?: string | null;
 }
 
 export type FigureImageCameraProjectionState =
@@ -724,41 +984,6 @@ export interface GeometryPreviewResult extends GeometryInspectResult {
   previewMessage?: string | null;
 }
 
-export interface FeaCapabilities {
-  supportedDocumentExtensions: string[];
-  supportedGeometryExtensions: string[];
-  supportsCheck: boolean;
-  supportsRun: boolean;
-  supportsResults: boolean;
-  supportsLiveProgress: boolean;
-  visualizationBackend: "runmat-plot";
-}
-
-export interface FeaCheckResult {
-  path: string;
-  documentKind: "study" | "sweep";
-  valid: boolean;
-  validation: unknown;
-  plan?: unknown;
-  diagnostics: unknown[];
-  evidenceArtifactPaths: string[];
-}
-
-export interface FeaRunResult {
-  path: string;
-  documentKind: "study" | "sweep";
-  run: unknown;
-  results?: unknown;
-  figureHandles: number[];
-  artifactManifest?: unknown;
-  diagnostics: unknown[];
-}
-
-export interface FeaResultsResult {
-  runId: string;
-  results: unknown;
-}
-
 export interface RunMatSessionHandle {
   executeRequest(request: ExecuteRequest): Promise<ExecuteResult>;
   resetSession(): Promise<void>;
@@ -768,7 +993,6 @@ export interface RunMatSessionHandle {
   importWorkspaceState(state: Uint8Array): Promise<boolean>;
   workspaceSnapshot(): Promise<WorkspaceSnapshot>;
   inspectDataFile(path: string): Promise<WorkspaceEntry[]>;
-  inspectGeometry(path: string, budget?: GeometryPreviewBudget | null): Promise<GeometryInspectResult>;
   previewGeometry(path: string, budget?: GeometryPreviewBudget | null): Promise<GeometryPreviewResult>;
   disposeGeometryPreview?(
     figureHandle?: number | null,
@@ -776,8 +1000,14 @@ export interface RunMatSessionHandle {
   ): Promise<void> | void;
   feaCapabilities(): Promise<FeaCapabilities>;
   checkFeaStudy(path: string): Promise<FeaCheckResult>;
+  applyFeaStudyDocumentOperation(
+    operation: FeaStudyDocumentOperation,
+    path: string,
+    source: string | null,
+    input: Record<string, unknown>,
+  ): Promise<FeaStudyDocumentOperationOutput>;
   runFeaStudy(path: string, artifactRoot?: string | null): Promise<FeaRunResult>;
-  feaResults(runId: string): Promise<FeaResultsResult>;
+  feaField(runId: string, fieldId: string, options?: FeaFieldRequestOptions): Promise<FeaFieldResult>;
   materializeDataFileVariable(
     path: string,
     selector: WorkspaceMaterializeSelector,
@@ -802,14 +1032,34 @@ export interface RunMatSessionHandle {
   ): Promise<MaterializedVariable>;
   setFusionPlanEnabled(enabled: boolean): void;
   setLanguageCompat(mode: LanguageCompatMode): void;
+  setErrorNamespace(namespace: string): void;
   fusionPlanForSource?(source: string): Promise<FusionPlanSnapshot | null>;
   setFsProvider?(provider: RunMatFilesystemProvider): Promise<void>;
+  packageCacheSnapshot(): Promise<PackageCacheSnapshot | null>;
+  installProjectHandoff(handoff: unknown): Promise<unknown>;
+  clearProjectHandoff(): Promise<void>;
+  projectRevision(): Promise<unknown | null>;
+  prepareTests(
+    snapshot: Record<string, unknown>,
+    selector: Record<string, unknown>
+  ): Promise<{
+    snapshot: Record<string, unknown>;
+    discovery: Record<string, unknown>;
+    plan: Record<string, unknown>;
+  }>;
+  executeTestAttempt(input: {
+    plan: Record<string, unknown>;
+    snapshot: Record<string, unknown>;
+    testId: string;
+    attempt: number;
+  }): Promise<{
+    result: unknown;
+    events: unknown[];
+    coverage?: unknown[];
+  }>;
 }
 
 interface NativeInitOptions {
-  snapshotBytes?: Uint8Array;
-  snapshotStream?: ReadableStream<Uint8Array | ArrayBufferView | ArrayBuffer>;
-  snapshotUrl?: string;
   enableGpu?: boolean;
   enableJit?: boolean;
   verbose?: boolean;
@@ -828,6 +1078,8 @@ interface NativeInitOptions {
   errorNamespace?: string;
   languageCompat?: LanguageCompatMode;
   fsProvider?: RunMatFilesystemProvider;
+  packageCacheProvider?: RunMatPackageCacheProvider;
+  executionHost?: RunMatExecutionHost;
 }
 
 interface RunMatNativeSession {
@@ -839,7 +1091,6 @@ interface RunMatNativeSession {
   importWorkspaceState?: (state: Uint8Array) => boolean;
   workspaceSnapshot?: () => WorkspaceSnapshot;
   inspectDataFile?: (path: string) => WorkspaceEntry[] | Promise<WorkspaceEntry[]>;
-  inspectGeometry?: (path: string, budget?: GeometryPreviewBudget | null) => GeometryInspectResult | Promise<GeometryInspectResult>;
   previewGeometry?: (path: string, budget?: GeometryPreviewBudget | null) => GeometryPreviewResult | Promise<GeometryPreviewResult>;
   disposeGeometryPreview?: (
     figureHandle?: number | null,
@@ -847,8 +1098,18 @@ interface RunMatNativeSession {
   ) => void | Promise<void>;
   feaCapabilities?: () => FeaCapabilities | Promise<FeaCapabilities>;
   checkFeaStudy?: (path: string) => FeaCheckResult | Promise<FeaCheckResult>;
+  applyFeaStudyDocumentOperation?: (
+    operation: FeaStudyDocumentOperation,
+    path: string,
+    source: string | null,
+    input: Record<string, unknown>,
+  ) => FeaStudyDocumentOperationOutput | Promise<FeaStudyDocumentOperationOutput>;
   runFeaStudy?: (path: string, artifactRoot?: string | null) => FeaRunResult | Promise<FeaRunResult>;
-  feaResults?: (runId: string) => FeaResultsResult | Promise<FeaResultsResult>;
+  feaField?: (
+    runId: string,
+    fieldId: string,
+    options?: FeaFieldRequestOptions,
+  ) => FeaFieldResult | Promise<FeaFieldResult>;
   materializeDataFileVariable?: (
     path: string,
     array: string,
@@ -873,8 +1134,31 @@ interface RunMatNativeSession {
   ) => MaterializedVariable;
   setFusionPlanEnabled?: (enabled: boolean) => void;
   setLanguageCompat?: (mode: LanguageCompatMode) => void;
+  setErrorNamespace?: (namespace: string) => void;
   fusionPlanForSource?: (source: string) => FusionPlanSnapshot | null;
   setFsProvider?: (provider: RunMatFilesystemProvider) => void;
+  packageCacheSnapshot?: () => Promise<PackageCacheSnapshot | null>;
+  installProjectHandoff?: (handoff: unknown) => unknown;
+  clearProjectHandoff?: () => void;
+  projectRevision?: () => unknown | null;
+  prepareTests?: (
+    snapshot: Record<string, unknown>,
+    selector: Record<string, unknown>
+  ) => {
+    snapshot: Record<string, unknown>;
+    discovery: Record<string, unknown>;
+    plan: Record<string, unknown>;
+  };
+  executeTestAttempt?: (input: {
+    plan: Record<string, unknown>;
+    snapshot: Record<string, unknown>;
+    testId: string;
+    attempt: number;
+  }) => Promise<{
+    result: unknown;
+    events: unknown[];
+    coverage?: unknown[];
+  }>;
 }
 
 type WorkspaceMaterializeSelectorWire =
@@ -925,17 +1209,26 @@ export interface PlotSurfaceCameraState {
 }
 
 export type GeometrySceneDisplayMode = "shaded" | "edges" | "wireframe";
+export type GeometrySceneViewPreset =
+  | "perspective"
+  | "isometric"
+  | "front"
+  | "back"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom";
 
 export interface GeometrySceneRegionHighlightState {
   regionId: string;
-  color: [number, number, number, number];
+  color?: [number, number, number, number] | null;
   role?: string | null;
   label?: string | null;
 }
 
 export interface GeometrySceneRegionAnnotationState {
   regionId: string;
-  color: [number, number, number, number];
+  color?: [number, number, number, number] | null;
   role?: string | null;
   label?: string | null;
   direction?: [number, number, number] | null;
@@ -944,11 +1237,16 @@ export interface GeometrySceneRegionAnnotationState {
 
 export interface GeometryScenePresentationState {
   selectedRegionId?: string | null;
+  selectedRegionIds?: string[] | null;
   hoveredRegionId?: string | null;
   regionHighlights?: GeometrySceneRegionHighlightState[];
   regionAnnotations?: GeometrySceneRegionAnnotationState[];
   displayMode?: GeometrySceneDisplayMode;
   edgeOverlayEnabled?: boolean;
+  hiddenOwnerNodeIds?: string[] | null;
+  isolatedOwnerNodeIds?: string[] | null;
+  section?: GeometrySceneImageSectionState | null;
+  viewPreset?: GeometrySceneViewPreset | null;
 }
 
 export interface GeometryScenePickResult {
@@ -964,8 +1262,60 @@ export interface GeometryScenePickResult {
 
 
 interface RunMatNativeModule {
-  default: (module?: WasmInitInput | Promise<WasmInitInput>) => Promise<unknown>;
+  default: (
+    module?:
+      | { module_or_path: WasmInitInput | Promise<WasmInitInput> }
+      | WasmInitInput
+      | Promise<WasmInitInput>
+  ) => Promise<unknown>;
   initRunMat(options: NativeInitOptions): Promise<RunMatNativeSession>;
+  executeProgramArtifact?: (
+    request: Record<string, unknown>
+  ) => Promise<Record<string, unknown>>;
+  buildGitSnapshot?: (
+    repository: string,
+    subdir: string,
+    inventory: GitTreeInventoryWire
+  ) => GitSnapshotWire;
+  planGitAcquisition?: (request: GitAcquisitionPlanRequest) => GitAcquisitionPlan;
+  validateGitSnapshot?: (snapshot: GitSnapshotWire) => GitSnapshotWire;
+  projectTestLayout?: (input: unknown) => unknown;
+  freezeTestSnapshot?: (input: unknown) => Record<string, unknown>;
+  runTests?: (input: unknown, backend: unknown) => Promise<unknown>;
+  runTestsWithEvents?: (
+    input: unknown,
+    backend: unknown,
+    observer: (event: Record<string, unknown>) => void
+  ) => Promise<unknown>;
+  resolveRunmatConfig?: (source: string, format: RunmatConfigFormat) => ResolvedRunmatConfig;
+  patchRunmatConfig?: (
+    source: string,
+    format: RunmatConfigFormat,
+    patch: RunmatConfigPatch
+  ) => string;
+  migrateLegacyRunmatConfig?: (
+    source: string,
+    format: RunmatConfigFormat
+  ) => LegacyRunmatConfigMigration;
+  migrateLegacyRunmatConfigInto?: (
+    legacySource: string,
+    destinationSource: string,
+    format: RunmatConfigFormat
+  ) => LegacyRunmatConfigMigration;
+  decodePackageLock?: (input: string) => unknown;
+  encodePackageLock?: (value: unknown) => string;
+  handoffFromFrozenProject?: (project: unknown) => unknown;
+  resolveProject?: BrowserProjectResolverConfig["native"]["resolveProject"];
+  packageCacheStatus?: (
+    provider: RunMatPackageCacheProvider
+  ) => Promise<PackageCacheStatus>;
+  packageCacheGc?: (
+    provider: RunMatPackageCacheProvider,
+    targetBytes: bigint,
+    retainRecentMs: bigint
+  ) => Promise<PackageCacheGcPlan>;
+  packageCacheRenewLease?: BrowserProjectResolverConfig["native"]["packageCacheRenewLease"];
+  packageCacheReleaseLease?: BrowserProjectResolverConfig["native"]["packageCacheReleaseLease"];
   plotRendererReady?: () => boolean;
   renderCurrentFigureScene?: (handle: number) => void;
   exportFigureScene?: (handle: number) => Uint8Array | null | Promise<Uint8Array | null>;
@@ -1052,10 +1402,15 @@ async function loadNativeModule(wasmModule?: WasmInitInput): Promise<RunMatNativ
   }
   if (!loadPromise) {
     loadPromise = (async () => {
-      const wasmModuleUrl = new URL("./pkg/runmat_wasm.js", import.meta.url);
-      const native = (await import(wasmModuleUrl.href)) as unknown as RunMatNativeModule;
+      const moduleBaseUrl = import.meta.url;
+      const wasmModuleUrl = `${moduleBaseUrl.slice(0, moduleBaseUrl.lastIndexOf("/") + 1)}pkg-web/runmat_wasm_web.js`;
+      const native = (await import(
+        /* webpackIgnore: true */ wasmModuleUrl
+      )) as unknown as RunMatNativeModule;
       if (typeof native.default === "function") {
-        await native.default(wasmModule);
+        await native.default(
+          wasmModule === undefined ? undefined : { module_or_path: wasmModule }
+        );
       }
       return native;
     })();
@@ -1065,8 +1420,8 @@ async function loadNativeModule(wasmModule?: WasmInitInput): Promise<RunMatNativ
 
 export async function initRunMat(options: RunMatInitOptions = {}): Promise<RunMatSessionHandle> {
   const native = await loadNativeModule(options.wasmModule);
-  const snapshotResolution = await resolveSnapshotSource(options.snapshot);
   const fsProvider = await resolveFsProvider(options.fsProvider);
+  const packageCache = await resolvePackageCache(options.packageCache);
   if (options.plotCanvas) {
     if (typeof native.createPlotSurface === "function") {
       await native.createPlotSurface(options.plotCanvas);
@@ -1098,9 +1453,6 @@ export async function initRunMat(options: RunMatInitOptions = {}): Promise<RunMa
     }
   }
   const session = await native.initRunMat({
-    snapshotBytes: snapshotResolution.bytes,
-    snapshotStream: snapshotResolution.stream,
-    snapshotUrl: options.snapshot?.url,
     enableGpu: effectiveEnableGpu,
     enableJit: options.enableJit ?? false,
     verbose: options.verbose ?? false,
@@ -1118,9 +1470,195 @@ export async function initRunMat(options: RunMatInitOptions = {}): Promise<RunMa
     callstackLimit: options.callstackLimit,
     errorNamespace: options.errorNamespace,
     languageCompat: options.language?.compat,
-    fsProvider
+    fsProvider,
+    packageCacheProvider: packageCache.provider,
+    executionHost: options.executionHost
   });
-  return new WebRunMatSession(session);
+  return new WebRunMatSession(session, packageCache.close);
+}
+
+export async function executeProgramArtifact(
+  request: Record<string, unknown>,
+  wasmModule?: WasmInitInput
+): Promise<Record<string, unknown>> {
+  const native = await loadNativeModule(wasmModule);
+  if (typeof native.executeProgramArtifact !== "function") {
+    throw new Error("The loaded RunMat module does not support portable program execution.");
+  }
+  return native.executeProgramArtifact(request);
+}
+
+export async function fetchGitSnapshot(
+  request: GitGatewayRequest,
+  options: ServerGitGatewayOptions
+): Promise<GitSnapshotWire> {
+  const [inventory, native] = await Promise.all([
+    fetchGitTreeInventoryWire(request, options),
+    loadNativeModule()
+  ]);
+  requireNativeFunction(native, "buildGitSnapshot");
+  return native.buildGitSnapshot(request.repository, request.subdir ?? ".", inventory);
+}
+
+export async function planGitAcquisition(
+  request: GitAcquisitionPlanRequest
+): Promise<GitAcquisitionPlan> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "planGitAcquisition");
+  return native.planGitAcquisition(request);
+}
+
+export async function projectTestLayout(input: {
+  manifestPath: string;
+  manifestContent: string;
+}): Promise<unknown> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "projectTestLayout");
+  return native.projectTestLayout(input);
+}
+
+export async function freezeTestSnapshot(input: unknown): Promise<Record<string, unknown>> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "freezeTestSnapshot");
+  return native.freezeTestSnapshot(input);
+}
+
+export async function runTests(input: unknown, backend: unknown): Promise<unknown> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "runTests");
+  return native.runTests(input, backend);
+}
+
+export async function runTestsWithEvents(
+  input: unknown,
+  backend: unknown,
+  observer: (event: Record<string, unknown>) => void
+): Promise<unknown> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "runTestsWithEvents");
+  return native.runTestsWithEvents(input, backend, observer);
+}
+
+export async function resolveRunmatConfig(
+  source: string,
+  format: RunmatConfigFormat
+): Promise<ResolvedRunmatConfig> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "resolveRunmatConfig");
+  return native.resolveRunmatConfig(source, format);
+}
+
+export async function patchRunmatConfig(
+  source: string,
+  format: RunmatConfigFormat,
+  patch: RunmatConfigPatch
+): Promise<string> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "patchRunmatConfig");
+  return native.patchRunmatConfig(source, format, patch);
+}
+
+export async function migrateLegacyRunmatConfig(
+  source: string,
+  format: RunmatConfigFormat
+): Promise<LegacyRunmatConfigMigration> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "migrateLegacyRunmatConfig");
+  return native.migrateLegacyRunmatConfig(source, format);
+}
+
+export async function migrateLegacyRunmatConfigInto(
+  legacySource: string,
+  destinationSource: string,
+  format: RunmatConfigFormat
+): Promise<LegacyRunmatConfigMigration> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "migrateLegacyRunmatConfigInto");
+  return native.migrateLegacyRunmatConfigInto(
+    legacySource,
+    destinationSource,
+    format
+  );
+}
+
+export async function createBrowserProjectResolver(
+  config: Omit<BrowserProjectResolverConfig, "native">
+): Promise<BrowserProjectResolver> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "resolveProject");
+  requireNativeFunction(native, "packageCacheRenewLease");
+  requireNativeFunction(native, "packageCacheReleaseLease");
+  return new BrowserProjectResolver({
+    ...config,
+    native: {
+      resolveProject: native.resolveProject,
+      packageCacheRenewLease: native.packageCacheRenewLease,
+      packageCacheReleaseLease: native.packageCacheReleaseLease
+    }
+  });
+}
+
+export async function createBrowserProjectSession(
+  config: Omit<BrowserProjectSessionConfig, "native">
+): Promise<BrowserProjectSession> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "resolveProject");
+  requireNativeFunction(native, "packageCacheRenewLease");
+  requireNativeFunction(native, "packageCacheReleaseLease");
+  requireNativeFunction(native, "decodePackageLock");
+  requireNativeFunction(native, "encodePackageLock");
+  requireNativeFunction(native, "handoffFromFrozenProject");
+  requireNativeFunction(native, "packageCacheStatus");
+  requireNativeFunction(native, "packageCacheGc");
+  return new BrowserProjectSession({
+    ...config,
+    native: {
+      resolveProject: native.resolveProject,
+      packageCacheRenewLease: native.packageCacheRenewLease,
+      packageCacheReleaseLease: native.packageCacheReleaseLease,
+      decodePackageLock: native.decodePackageLock,
+      encodePackageLock: native.encodePackageLock,
+      handoffFromFrozenProject: native.handoffFromFrozenProject,
+      packageCacheStatus: native.packageCacheStatus,
+      packageCacheGc: native.packageCacheGc
+    }
+  });
+}
+
+export async function decodePackageLock(input: string): Promise<unknown> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "decodePackageLock");
+  return native.decodePackageLock(input);
+}
+
+export async function encodePackageLock(value: unknown): Promise<string> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "encodePackageLock");
+  return native.encodePackageLock(value);
+}
+
+export async function handoffFromFrozenProject(project: unknown): Promise<unknown> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "handoffFromFrozenProject");
+  return native.handoffFromFrozenProject(project);
+}
+
+export async function browserPackageCacheStatus(
+  provider: RunMatPackageCacheProvider
+): Promise<PackageCacheStatus> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "packageCacheStatus");
+  return native.packageCacheStatus(provider);
+}
+
+export async function browserPackageCacheGc(
+  provider: RunMatPackageCacheProvider,
+  targetBytes: bigint,
+  retainRecentMs = 0n
+): Promise<PackageCacheGcPlan> {
+  const native = await loadNativeModule();
+  requireNativeFunction(native, "packageCacheGc");
+  return native.packageCacheGc(provider, targetBytes, retainRecentMs);
 }
 
 export async function plotRendererReady(): Promise<boolean> {
@@ -1541,7 +2079,10 @@ export async function importWorkspaceState(state: Uint8Array): Promise<boolean> 
 class WebRunMatSession implements RunMatSessionHandle {
   private disposed = false;
 
-  constructor(private readonly native: RunMatNativeSession) {}
+  constructor(
+    private readonly native: RunMatNativeSession,
+    private readonly closePackageCache: () => void = () => {}
+  ) {}
 
   private ensureActive(): void {
     if (this.disposed) {
@@ -1610,14 +2151,6 @@ class WebRunMatSession implements RunMatSessionHandle {
     return Array.isArray(entries) ? entries : [];
   }
 
-  async inspectGeometry(path: string, budget?: GeometryPreviewBudget | null): Promise<GeometryInspectResult> {
-    this.ensureActive();
-    if (typeof this.native.inspectGeometry !== "function") {
-      throw new Error("The loaded runmat-wasm module does not expose inspectGeometry yet.");
-    }
-    return this.native.inspectGeometry(path, budget ?? null);
-  }
-
   async previewGeometry(path: string, budget?: GeometryPreviewBudget | null): Promise<GeometryPreviewResult> {
     this.ensureActive();
     if (typeof this.native.previewGeometry !== "function") {
@@ -1659,6 +2192,19 @@ class WebRunMatSession implements RunMatSessionHandle {
     return this.native.checkFeaStudy(path);
   }
 
+  async applyFeaStudyDocumentOperation(
+    operation: FeaStudyDocumentOperation,
+    path: string,
+    source: string | null,
+    input: Record<string, unknown>,
+  ): Promise<FeaStudyDocumentOperationOutput> {
+    this.ensureActive();
+    if (typeof this.native.applyFeaStudyDocumentOperation !== "function") {
+      throw new Error("The loaded runmat-wasm module does not expose applyFeaStudyDocumentOperation yet.");
+    }
+    return this.native.applyFeaStudyDocumentOperation(operation, path, source, input);
+  }
+
   async runFeaStudy(path: string, artifactRoot?: string | null): Promise<FeaRunResult> {
     this.ensureActive();
     if (typeof this.native.runFeaStudy !== "function") {
@@ -1667,12 +2213,12 @@ class WebRunMatSession implements RunMatSessionHandle {
     return this.native.runFeaStudy(path, artifactRoot ?? null);
   }
 
-  async feaResults(runId: string): Promise<FeaResultsResult> {
+  async feaField(runId: string, fieldId: string, options?: FeaFieldRequestOptions): Promise<FeaFieldResult> {
     this.ensureActive();
-    if (typeof this.native.feaResults !== "function") {
-      throw new Error("The loaded runmat-wasm module does not expose feaResults yet.");
+    if (typeof this.native.feaField !== "function") {
+      throw new Error("The loaded runmat-wasm module does not expose feaField yet.");
     }
-    return this.native.feaResults(runId);
+    return this.native.feaField(runId, fieldId, options);
   }
 
   async materializeDataFileVariable(
@@ -1774,6 +2320,7 @@ class WebRunMatSession implements RunMatSessionHandle {
     if (typeof this.native.dispose === "function") {
       this.native.dispose();
     }
+    this.closePackageCache();
     this.disposed = true;
   }
 
@@ -1846,6 +2393,12 @@ class WebRunMatSession implements RunMatSessionHandle {
     this.native.setLanguageCompat(mode);
   }
 
+  setErrorNamespace(namespace: string): void {
+    this.ensureActive();
+    requireNativeFunction(this.native, "setErrorNamespace");
+    this.native.setErrorNamespace(namespace);
+  }
+
   async fusionPlanForSource(source: string): Promise<FusionPlanSnapshot | null> {
     this.ensureActive();
     if (typeof this.native.fusionPlanForSource !== "function") {
@@ -1864,6 +2417,70 @@ class WebRunMatSession implements RunMatSessionHandle {
       throw new Error("The loaded runmat-wasm module does not expose setFsProvider yet.");
     }
     this.native.setFsProvider(provider);
+  }
+
+  async packageCacheSnapshot(): Promise<PackageCacheSnapshot | null> {
+    this.ensureActive();
+    if (typeof this.native.packageCacheSnapshot !== "function") {
+      return null;
+    }
+    return (await this.native.packageCacheSnapshot()) ?? null;
+  }
+
+  async installProjectHandoff(handoff: unknown): Promise<unknown> {
+    this.ensureActive();
+    if (typeof this.native.installProjectHandoff !== "function") {
+      throw new Error("The loaded runmat-wasm module does not expose installProjectHandoff yet.");
+    }
+    return this.native.installProjectHandoff(handoff);
+  }
+
+  async clearProjectHandoff(): Promise<void> {
+    this.ensureActive();
+    if (typeof this.native.clearProjectHandoff !== "function") {
+      throw new Error("The loaded runmat-wasm module does not expose clearProjectHandoff yet.");
+    }
+    this.native.clearProjectHandoff();
+  }
+
+  async projectRevision(): Promise<unknown | null> {
+    this.ensureActive();
+    if (typeof this.native.projectRevision !== "function") {
+      return null;
+    }
+    return this.native.projectRevision() ?? null;
+  }
+
+  async prepareTests(
+    snapshot: Record<string, unknown>,
+    selector: Record<string, unknown>
+  ): Promise<{
+    snapshot: Record<string, unknown>;
+    discovery: Record<string, unknown>;
+    plan: Record<string, unknown>;
+  }> {
+    this.ensureActive();
+    if (typeof this.native.prepareTests !== "function") {
+      throw new Error("The loaded runmat-wasm module does not expose prepareTests yet.");
+    }
+    return this.native.prepareTests(snapshot, selector);
+  }
+
+  async executeTestAttempt(input: {
+    plan: Record<string, unknown>;
+    snapshot: Record<string, unknown>;
+    testId: string;
+    attempt: number;
+  }): Promise<{
+    result: unknown;
+    events: unknown[];
+    coverage?: unknown[];
+  }> {
+    this.ensureActive();
+    if (typeof this.native.executeTestAttempt !== "function") {
+      throw new Error("The loaded runmat-wasm module does not expose executeTestAttempt yet.");
+    }
+    return this.native.executeTestAttempt(input);
   }
 }
 
@@ -2051,125 +2668,32 @@ async function resolveFsProvider(
   }
 }
 
-type SnapshotStream = ReadableStream<Uint8Array | ArrayBufferView | ArrayBuffer>;
-
-interface SnapshotResolution {
-  bytes?: Uint8Array;
-  stream?: SnapshotStream;
+async function resolvePackageCache(
+  options?: RunMatInitOptions["packageCache"]
+): Promise<{ provider?: RunMatPackageCacheProvider; close: () => void }> {
+  if (options?.provider) {
+    ensurePackageCacheProvider(options.provider);
+    return { provider: options.provider, close: () => {} };
+  }
+  if (typeof indexedDB === "undefined") {
+    return { close: () => {} };
+  }
+  try {
+    const handle = await createIndexedDbPackageCache(options);
+    ensurePackageCacheProvider(handle.provider);
+    return { provider: handle.provider, close: handle.close };
+  } catch (error) {
+    console.warn("[runmat] Unable to initialize the package cache.", error);
+    return { close: () => {} };
+  }
 }
 
-async function resolveSnapshotSource(source?: RunMatSnapshotSource): Promise<SnapshotResolution> {
-  if (!source) {
-    return {};
-  }
-  if (source.bytes) {
-    return { bytes: toUint8Array(source.bytes) };
-  }
-  if (source.stream) {
-    return { stream: source.stream };
-  }
-  if (source.fetcher) {
-    const fetched = await source.fetcher({ url: source.url });
-    return coerceSnapshotFetcherResult(fetched);
-  }
-  if (source.url) {
-    if (typeof fetch === "undefined") {
-      throw new Error(
-        "Global fetch API is unavailable; provide snapshot.bytes or snapshot.fetcher instead."
-      );
+function ensurePackageCacheProvider(provider: RunMatPackageCacheProvider): void {
+  for (const method of ["snapshot", "initialize", "commit", "readObjectBytes"] as const) {
+    if (typeof provider[method] !== "function") {
+      throw new Error(`packageCache.provider.${method} must be a function`);
     }
-    const response = await fetch(source.url);
-    return coerceResponseForSnapshot(response, source.url);
   }
-  return {};
-}
-
-async function coerceSnapshotFetcherResult(value: SnapshotFetcherResult): Promise<SnapshotResolution> {
-  if (value instanceof Uint8Array) {
-    return { bytes: value };
-  }
-  if (value instanceof ArrayBuffer) {
-    return { bytes: new Uint8Array(value) };
-  }
-  if (ArrayBuffer.isView(value)) {
-    return { bytes: toUint8Array(value) };
-  }
-  if (isReadableStream(value)) {
-    return { stream: value };
-  }
-  if (isResponse(value)) {
-    return coerceResponseForSnapshot(value);
-  }
-  throw new Error("Unsupported snapshot fetcher result");
-}
-
-async function coerceResponseForSnapshot(response: Response, origin?: string): Promise<SnapshotResolution> {
-  if (!response.ok) {
-    const suffix = origin ? ` from ${origin}` : "";
-    throw new Error(`Failed to fetch snapshot${suffix} (status ${response.status})`);
-  }
-  if (response.body) {
-    return { stream: response.body as SnapshotStream };
-  }
-  const buffer = await response.arrayBuffer();
-  return { bytes: new Uint8Array(buffer) };
-}
-
-function isReadableStream(value: unknown): value is SnapshotStream {
-  return typeof ReadableStream !== "undefined" && value instanceof ReadableStream;
-}
-
-function isResponse(value: unknown): value is Response {
-  return typeof Response !== "undefined" && value instanceof Response;
-}
-
-async function fetchSnapshotFromUrl(url: string): Promise<Uint8Array> {
-  if (typeof fetch === "undefined") {
-    throw new Error("Global fetch API is unavailable; provide snapshot.bytes or snapshot.fetcher instead.");
-  }
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch snapshot from ${url} (status ${response.status})`);
-  }
-  if (!response.body) {
-    const buffer = await response.arrayBuffer();
-    return new Uint8Array(buffer);
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-    if (!value) {
-      continue;
-    }
-    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
-    total += chunk.length;
-    chunks.push(chunk);
-  }
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-
-function toUint8Array(data: Uint8Array | ArrayBuffer | ArrayBufferView): Uint8Array {
-  if (data instanceof Uint8Array) {
-    return data;
-  }
-  if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data);
-  }
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
-  }
-  throw new Error("Unsupported snapshot buffer type");
 }
 
 function normalizeMaterializeSelector(
@@ -2265,8 +2789,6 @@ function normalizeResumeInputValue(value: ResumeInputValue): ResumeInputPayload 
 }
 
 export const __internals = {
-  resolveSnapshotSource,
-  fetchSnapshotFromUrl,
   coerceFigureError,
   normalizeResumeInputValue,
   workspaceHover: workspaceHoverInternals as unknown as Record<string, unknown>,

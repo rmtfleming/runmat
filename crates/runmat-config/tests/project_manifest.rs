@@ -1,11 +1,9 @@
 use runmat_config::project::{
-    build_project_composition_graph, build_project_source_index,
-    discover_known_project_symbols_from_source_name, discover_project_manifest_from,
-    discover_project_symbols_from, discover_project_symbols_from_source_name,
-    load_project_manifest, parse_project_manifest_toml, resolve_named_entrypoint_from,
-    resolve_project_entrypoint, resolve_project_source_input_from, ProjectCompositionError,
-    ProjectEntrypointResolveError, ProjectManifestLoadError, ProjectSourceIndexError,
-    ResolveProjectSourceInputError, ResolvedEntrypointTarget, PROJECT_MANIFEST_FILENAME,
+    build_project_source_index, discover_project_manifest_from, load_project_manifest,
+    parse_project_manifest_json, parse_project_manifest_toml, resolve_named_entrypoint_from,
+    resolve_project_entrypoint, resolve_project_source_input_from, ProjectEntrypointResolveError,
+    ProjectManifestLoadError, ProjectSourceIndexError, ResolveProjectSourceInputError,
+    ResolvedEntrypointTarget, PROJECT_MANIFEST_FILENAME,
 };
 use std::fs;
 use tempfile::TempDir;
@@ -47,6 +45,225 @@ path = "src/main"
 }
 
 #[test]
+fn validates_explicit_native_interface_artifacts() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::create_dir_all(tmp.path().join("native")).unwrap();
+    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+    fs::write(tmp.path().join("native/fixture.json"), "{}").unwrap();
+    fs::write(tmp.path().join("native/fixture.bin"), b"library").unwrap();
+    let manifest_path = write_manifest(
+        tmp.path(),
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[native-interfaces.fixture]
+manifest = "native/fixture.json"
+library = "native/fixture.bin"
+"#,
+    );
+
+    let loaded = load_project_manifest(&manifest_path).expect("native interface should validate");
+    let interface = loaded.native_interfaces.get("fixture").unwrap();
+    assert_eq!(
+        interface.manifest,
+        std::path::Path::new("native/fixture.json")
+    );
+    assert_eq!(
+        interface.library,
+        std::path::Path::new("native/fixture.bin")
+    );
+}
+
+#[test]
+fn rejects_native_interface_paths_outside_the_package() {
+    let parsed = parse_project_manifest_toml(
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[native-interfaces.fixture]
+manifest = "../fixture.json"
+library = "/tmp/fixture.bin"
+"#,
+    )
+    .unwrap();
+    let error = parsed.validate(std::path::Path::new(".")).unwrap_err();
+    assert!(error
+        .messages
+        .iter()
+        .any(|message| message.contains("must be project-relative")));
+}
+
+#[test]
+fn validates_explicit_mex_artifacts() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::create_dir_all(tmp.path().join("mex")).unwrap();
+    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+    fs::write(tmp.path().join("mex/fixture.mex.runmat.json"), "{}").unwrap();
+    fs::write(tmp.path().join("mex/fixture.mex"), b"module").unwrap();
+    let manifest_path = write_manifest(
+        tmp.path(),
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[mex-artifacts.fixture]
+manifest = "mex/fixture.mex.runmat.json"
+module = "mex/fixture.mex"
+"#,
+    );
+
+    let loaded = load_project_manifest(&manifest_path).expect("MEX artifact should validate");
+    let artifact = loaded.mex_artifacts.get("fixture").unwrap();
+    assert_eq!(
+        artifact.manifest,
+        std::path::Path::new("mex/fixture.mex.runmat.json")
+    );
+    assert_eq!(artifact.module, std::path::Path::new("mex/fixture.mex"));
+}
+
+#[test]
+fn rejects_mex_artifact_paths_outside_the_package() {
+    let parsed = parse_project_manifest_toml(
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[mex-artifacts.fixture]
+manifest = "../fixture.json"
+module = "/tmp/fixture.mex"
+"#,
+    )
+    .unwrap();
+    let error = parsed.validate(std::path::Path::new(".")).unwrap_err();
+    assert_eq!(
+        error
+            .messages
+            .iter()
+            .filter(|message| message.contains("must be project-relative"))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn validates_explicit_java_artifacts() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::create_dir_all(tmp.path().join("lib")).unwrap();
+    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+    fs::write(tmp.path().join("lib/fixture.jar"), b"jar").unwrap();
+    let manifest_path = write_manifest(
+        tmp.path(),
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[java-artifacts.fixture]
+path = "lib/fixture.jar"
+"#,
+    );
+    let loaded = load_project_manifest(&manifest_path).expect("Java artifact should validate");
+    assert_eq!(
+        loaded.java_artifacts["fixture"].path,
+        std::path::Path::new("lib/fixture.jar")
+    );
+}
+
+#[test]
+fn rejects_java_artifact_paths_outside_the_package() {
+    let parsed = parse_project_manifest_toml(
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[java-artifacts.fixture]
+path = "../fixture.jar"
+"#,
+    )
+    .unwrap();
+    let error = parsed.validate(std::path::Path::new(".")).unwrap_err();
+    assert!(error
+        .messages
+        .iter()
+        .any(|message| message.contains("must be project-relative")));
+}
+
+#[test]
+fn loads_project_relative_python_wheel_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(temp.path().join("python")).unwrap();
+    std::fs::write(temp.path().join("python/fixture.whl"), b"wheel").unwrap();
+    let manifest_path = temp.path().join("runmat.toml");
+    std::fs::write(
+        &manifest_path,
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[python-artifacts.fixture]
+path = "python/fixture.whl"
+module = "fixture.tools"
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir(temp.path().join("src")).unwrap();
+    let loaded = load_project_manifest(&manifest_path).expect("Python artifact should validate");
+    assert_eq!(loaded.python_artifacts["fixture"].module, "fixture.tools");
+}
+
+#[test]
+fn rejects_unsafe_python_artifact_declarations() {
+    let parsed = parse_project_manifest_toml(
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[python-artifacts.fixture]
+path = "../fixture.zip"
+module = "fixture-tools"
+"#,
+    )
+    .unwrap();
+    let error = parsed.validate(std::path::Path::new(".")).unwrap_err();
+    assert!(error
+        .messages
+        .iter()
+        .any(|message| message.contains("module `fixture-tools` is invalid")));
+    assert!(error
+        .messages
+        .iter()
+        .any(|message| message.contains("project-relative .whl")));
+}
+
+#[test]
 fn parses_manifest_with_runtime_section() {
     let parsed = parse_project_manifest_toml(
         r#"
@@ -78,15 +295,140 @@ version = "0.1.0"
 [sources]
 roots = ["src"]
 
-[desktop]
-artifact_root = ".artifacts"
-notebook_run_mode = "stop_on_error"
+[desktop.artifacts]
+root = ".artifacts"
+
+[desktop.notebook]
+on_error = "stop"
 "#,
     )
     .expect("manifest with desktop section should parse");
 
     assert_eq!(parsed.package.name, "demo");
     assert_eq!(parsed.sources.roots, vec![std::path::PathBuf::from("src")]);
+}
+
+#[test]
+fn parses_manifest_with_test_section() {
+    let parsed = parse_project_manifest_toml(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+
+[test]
+roots = ["tests", "integration"]
+jobs = 4
+isolation = "process"
+"#,
+    )
+    .expect("manifest with test section should parse");
+
+    assert_eq!(parsed.package.name, "demo");
+    assert_eq!(parsed.sources.roots, vec![std::path::PathBuf::from("src")]);
+}
+
+#[test]
+fn parses_json_manifest_with_runtime_test_and_desktop_sections() {
+    let parsed = runmat_config::project::parse_project_manifest_json(
+        r#"{
+            "package": { "name": "demo", "version": "0.1.0" },
+            "sources": { "roots": ["src"] },
+            "runtime": { "verbose": true },
+            "test": {
+                "roots": ["tests"],
+                "reports": ["junit"]
+            },
+            "desktop": { "artifacts": { "root": ".artifacts" } }
+        }"#,
+    )
+    .expect("JSON manifest with product-owned sections should parse");
+
+    assert_eq!(parsed.package.name, "demo");
+    assert_eq!(parsed.sources.roots, vec![std::path::PathBuf::from("src")]);
+}
+
+#[test]
+fn desktop_and_runtime_settings_do_not_change_the_static_project_manifest() {
+    let base = r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+"#;
+    let with_product_settings = format!(
+        r#"{base}
+[desktop.artifacts]
+root = "custom-artifacts"
+
+[desktop.run_history]
+mode = "full"
+trace = false
+logs = "errors"
+
+[runtime.accelerate]
+enabled = false
+
+[runtime.plotting.export]
+scene_budget_bytes = 4096
+"#
+    );
+    let base_manifest = parse_project_manifest_toml(base).expect("parse base project manifest");
+    let configured_manifest = parse_project_manifest_toml(&with_product_settings)
+        .expect("parse project manifest with product settings");
+    assert_eq!(configured_manifest, base_manifest);
+}
+
+#[test]
+fn project_manifest_round_trips_through_canonical_toml_and_json_shapes() {
+    let manifest = parse_project_manifest_toml(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+
+[dependencies]
+helper = { path = "deps/helper", version = "0.2.0" }
+
+[entrypoints.main]
+path = "src/main"
+
+[entrypoints.serve]
+module = "app.server"
+function = "start"
+
+[runtime]
+verbose = true
+
+[test]
+roots = ["tests"]
+
+[desktop]
+artifact_root = ".artifacts"
+"#,
+    )
+    .expect("mixed manifest parses");
+
+    let toml = toml::to_string(&manifest).expect("serialize canonical TOML");
+    let from_toml = parse_project_manifest_toml(&toml).expect("reparse canonical TOML");
+    assert_eq!(from_toml, manifest);
+    assert!(toml.contains("[entrypoints.main]"));
+    assert!(toml.contains("[entrypoints.serve]"));
+
+    let json = serde_json::to_string(&manifest).expect("serialize canonical JSON");
+    let from_json = parse_project_manifest_json(&json).expect("reparse canonical JSON");
+    assert_eq!(from_json, manifest);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&json).unwrap()["entrypoints"]["main"]["path"],
+        "src/main"
+    );
 }
 
 #[test]
@@ -167,7 +509,7 @@ path = "src/main"
 }
 
 #[test]
-fn validation_rejects_unsupported_dependency_fields() {
+fn validation_rejects_multiple_dependency_locators() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir_all(tmp.path().join("src")).unwrap();
     fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
@@ -187,8 +529,30 @@ dep_a = { path = "dep_a", git = "https://example.com/repo.git" }
 path = "src/main"
 "#,
     );
-    let err = load_project_manifest(&manifest_path).expect_err("unsupported fields should fail");
-    assert!(matches!(err, ProjectManifestLoadError::ParseToml { .. }));
+    let err = load_project_manifest(&manifest_path).expect_err("multiple locators should fail");
+    let ProjectManifestLoadError::Validation { source, .. } = err else {
+        panic!("expected validation error");
+    };
+    assert!(source.messages.iter().any(|message| {
+        message.contains("dependency `dep_a`")
+            && message.contains("must select exactly one locator")
+    }));
+}
+
+#[test]
+fn parsing_rejects_unknown_dependency_fields() {
+    let manifest = r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[dependencies]
+    dep_a = { path = "dep_a", unsupported = true }
+"#;
+    let err = parse_project_manifest_toml(manifest).expect_err("unknown fields should fail");
+    assert!(err.to_string().contains("unknown field"));
 }
 
 #[test]
@@ -261,153 +625,47 @@ roots = []
 }
 
 #[test]
-fn discover_project_symbols_includes_dependency_alias_qualified_names() {
+fn project_discovery_skips_runtime_only_configuration() {
     let tmp = TempDir::new().unwrap();
-    let dep_root = tmp.path().join("deps/statslib");
-    fs::create_dir_all(&dep_root).unwrap();
-    fs::write(
-        tmp.path().join(PROJECT_MANIFEST_FILENAME),
+    let root = tmp.path();
+    fs::create_dir_all(root.join("nested")).unwrap();
+    write_manifest(
+        root,
         r#"
-[package]
-name = "demo"
+[runtime]
+verbose = false
 
-[sources]
-roots = ["."]
-
-[dependencies]
-statsdep = { path = "deps/statslib" }
+[desktop]
+theme = "dark"
 "#,
-    )
-    .unwrap();
-    fs::write(
-        dep_root.join(PROJECT_MANIFEST_FILENAME),
-        r#"
-[package]
-name = "statslib"
+    );
 
-[sources]
-roots = ["."]
-"#,
-    )
-    .unwrap();
-    fs::write(
-        dep_root.join("summarize.m"),
-        "function y = summarize(x); y = x; end",
-    )
-    .unwrap();
-
-    let discovered = discover_project_symbols_from(&tmp.path().join("main.m"))
-        .expect("discover symbols")
-        .expect("symbols should be discovered");
-
-    assert!(discovered.symbols.contains("summarize"));
-    assert!(discovered.symbols.contains("statslib.summarize"));
-    assert!(discovered.symbols.contains("statsdep.summarize"));
-}
-
-#[test]
-fn discover_project_symbols_from_source_name_uses_cwd_for_plain_name() {
-    let tmp = TempDir::new().unwrap();
-    fs::write(
-        tmp.path().join(PROJECT_MANIFEST_FILENAME),
-        r#"
-[package]
-name = "demo"
-
-[sources]
-roots = ["."]
-"#,
-    )
-    .unwrap();
-    fs::write(tmp.path().join("main.m"), "x = 1;").unwrap();
-
-    let discovered = discover_project_symbols_from_source_name("main.m", tmp.path())
-        .expect("discover symbols")
-        .expect("symbols should be discovered");
-
-    assert_eq!(discovered.root_package, "demo");
-    assert!(discovered.symbols.contains("main"));
-}
-
-#[test]
-fn discover_project_symbols_from_source_name_rejects_nonexistent_path_like_name() {
-    let tmp = TempDir::new().unwrap();
-    fs::write(
-        tmp.path().join(PROJECT_MANIFEST_FILENAME),
-        r#"
-[package]
-name = "demo"
-
-[sources]
-roots = ["."]
-"#,
-    )
-    .unwrap();
-
-    let discovered = discover_project_symbols_from_source_name("scripts/main.m", tmp.path())
-        .expect("discover symbols");
-    assert!(
-        discovered.is_none(),
-        "nonexistent path-like names should not trigger local project symbol discovery"
+    assert_eq!(
+        discover_project_manifest_from(&root.join("nested/script.m")),
+        None,
+        "a runtime/desktop configuration must not opt the folder into project semantics"
     );
 }
 
 #[test]
-fn discover_project_symbols_from_source_name_rejects_colon_remote_name() {
+fn project_discovery_keeps_malformed_project_documents_visible() {
     let tmp = TempDir::new().unwrap();
-    fs::write(
-        tmp.path().join(PROJECT_MANIFEST_FILENAME),
+    let root = tmp.path();
+    let manifest_path = write_manifest(
+        root,
         r#"
 [package]
 name = "demo"
-
-[sources]
-roots = ["."]
 "#,
-    )
-    .unwrap();
-    fs::write(tmp.path().join("main.m"), "x = 1;").unwrap();
-
-    let discovered = discover_project_symbols_from_source_name("remote:main.m", tmp.path())
-        .expect("discover symbols");
-    assert!(
-        discovered.is_none(),
-        "colon-style remote names should not trigger local project symbol discovery"
-    );
-}
-
-#[test]
-fn discover_known_project_symbols_from_source_name_returns_symbols_or_empty() {
-    let tmp = TempDir::new().unwrap();
-    fs::write(
-        tmp.path().join(PROJECT_MANIFEST_FILENAME),
-        r#"
-[package]
-name = "demo"
-
-[sources]
-roots = ["."]
-"#,
-    )
-    .unwrap();
-    fs::write(tmp.path().join("main.m"), "x = 1;").unwrap();
-
-    let symbols = discover_known_project_symbols_from_source_name(Some("main.m"), tmp.path());
-    assert!(
-        symbols.contains("main"),
-        "known symbols should include local entry source symbol"
     );
 
-    let empty = discover_known_project_symbols_from_source_name(None, tmp.path());
-    assert!(
-        empty.is_empty(),
-        "missing source name should return empty symbols"
+    assert_eq!(
+        discover_project_manifest_from(&root.join("script.m")),
+        Some(manifest_path.clone())
     );
-
-    let remote = discover_known_project_symbols_from_source_name(Some("remote:main.m"), tmp.path());
     assert!(
-        remote.is_empty(),
-        "remote-style source names should return empty known symbols"
+        load_project_manifest(&manifest_path).is_err(),
+        "declaring a project section must retain strict project validation"
     );
 }
 
@@ -447,6 +705,39 @@ path = "src/main"
     assert_eq!(
         resolved.canonicalize().unwrap(),
         tmp.path().join("src/main.m").canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn root_entrypoint_resolution_does_not_traverse_dependencies() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("src")).unwrap();
+    fs::create_dir_all(tmp.path().join("deps/unavailable")).unwrap();
+    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+    fs::write(
+        tmp.path().join(PROJECT_MANIFEST_FILENAME),
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[dependencies]
+unavailable = { path = "deps/unavailable" }
+
+[entrypoints.main]
+path = "src/main"
+"#,
+    )
+    .unwrap();
+
+    let resolved = resolve_named_entrypoint_from(tmp.path(), "main")
+        .expect("entrypoint syntax is root-local")
+        .expect("entrypoint exists");
+    assert_eq!(
+        resolved.entrypoint.source_file,
+        tmp.path().join("src/main.m")
     );
 }
 
@@ -517,6 +808,11 @@ fn source_index_discovers_pkg_class_and_private_layout() {
     )
     .unwrap();
     fs::write(
+        tmp.path().join("src/+pkg/@Point/Point.m"),
+        "classdef Point; end",
+    )
+    .unwrap();
+    fs::write(
         tmp.path().join("src/+pkg/@Point/private/helper.m"),
         "function y=helper(); y=1; end",
     )
@@ -547,6 +843,7 @@ roots = ["src"]
     assert!(qualified.contains("main"));
     assert!(qualified.contains("pkg.value"));
     assert!(qualified.contains("pkg.Point.move"));
+    assert!(qualified.contains("pkg.Point.Point"));
     assert!(qualified.contains("pkg.Point.helper"));
     assert!(qualified.contains("utils.local"));
 
@@ -562,6 +859,69 @@ roots = ["src"]
         .private_dirs
         .iter()
         .any(|dir| dir == std::path::Path::new("src/+pkg/@Point/private")));
+    let constructor = index
+        .files
+        .iter()
+        .find(|file| file.relative_path == std::path::Path::new("+pkg/@Point/Point.m"))
+        .expect("class constructor should be indexed");
+    assert_eq!(constructor.qualified_name, "pkg.Point.Point");
+    assert_eq!(
+        constructor.class_qualified_name.as_deref(),
+        Some("pkg.Point")
+    );
+    assert_eq!(
+        constructor.class_definition_qualified_name(),
+        Some("pkg.Point")
+    );
+}
+
+#[test]
+fn source_index_distinguishes_root_class_constructor_from_member_identity() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("src/@Report")).unwrap();
+    fs::write(
+        tmp.path().join("src/@Report/Report.m"),
+        "classdef Report; end",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("src/@Report/title.m"),
+        "function out=title(); out=1; end",
+    )
+    .unwrap();
+    let manifest_path = write_manifest(
+        tmp.path(),
+        r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+"#,
+    );
+    let manifest = load_project_manifest(&manifest_path).expect("manifest should validate");
+    let index = build_project_source_index(tmp.path(), &manifest).expect("source index");
+
+    let constructor = index
+        .files
+        .iter()
+        .find(|file| file.relative_path == std::path::Path::new("@Report/Report.m"))
+        .expect("class constructor should be indexed");
+    assert_eq!(constructor.qualified_name, "Report.Report");
+    assert_eq!(constructor.class_qualified_name.as_deref(), Some("Report"));
+    assert_eq!(
+        constructor.class_definition_qualified_name(),
+        Some("Report")
+    );
+
+    let member = index
+        .files
+        .iter()
+        .find(|file| file.relative_path == std::path::Path::new("@Report/title.m"))
+        .expect("class member should be indexed");
+    assert_eq!(member.qualified_name, "Report.title");
+    assert_eq!(member.class_qualified_name.as_deref(), Some("Report"));
+    assert_eq!(member.function_qualified_name(), Some("Report.title"));
 }
 
 #[test]
@@ -747,136 +1107,6 @@ function = "main"
         source,
         ProjectSourceIndexError::InvalidSourceRoot { .. }
     ));
-}
-
-#[test]
-fn composition_graph_loads_root_and_local_path_dependency() {
-    let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join("src")).unwrap();
-    fs::create_dir_all(tmp.path().join("dep_a/src")).unwrap();
-    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
-    fs::write(
-        tmp.path().join("dep_a/src/fn_a.m"),
-        "function y = fn_a(); y = 1; end",
-    )
-    .unwrap();
-    write_manifest(
-        tmp.path(),
-        r#"
-[package]
-name = "root_pkg"
-
-[sources]
-roots = ["src"]
-
-[dependencies]
-dep_a = { path = "dep_a" }
-"#,
-    );
-    write_manifest(
-        &tmp.path().join("dep_a"),
-        r#"
-[package]
-name = "dep_pkg"
-
-[sources]
-roots = ["src"]
-"#,
-    );
-
-    let graph = build_project_composition_graph(&tmp.path().join("runmat.toml"))
-        .expect("composition graph should load");
-    assert_eq!(graph.root_package, "root_pkg");
-    assert_eq!(graph.packages.len(), 2);
-    let root = graph
-        .packages
-        .get("root_pkg")
-        .expect("root package should be present");
-    assert_eq!(root.dependencies.get("dep_a"), Some(&"dep_pkg".to_string()));
-    let dep = graph
-        .packages
-        .get("dep_pkg")
-        .expect("dependency package should be present");
-    assert!(dep
-        .source_index
-        .files
-        .iter()
-        .any(|file| file.qualified_name == "fn_a"));
-}
-
-#[test]
-fn composition_graph_reports_missing_dependency_manifest() {
-    let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join("src")).unwrap();
-    fs::create_dir_all(tmp.path().join("dep_missing")).unwrap();
-    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
-    write_manifest(
-        tmp.path(),
-        r#"
-[package]
-name = "root_pkg"
-
-[sources]
-roots = ["src"]
-
-[dependencies]
-dep_missing = { path = "dep_missing" }
-"#,
-    );
-
-    let err = build_project_composition_graph(&tmp.path().join("runmat.toml"))
-        .expect_err("missing dependency manifest should fail");
-    let ProjectCompositionError::MissingDependencyManifest {
-        dependency, path, ..
-    } = err
-    else {
-        panic!("expected missing dependency manifest error");
-    };
-    assert_eq!(dependency, "dep_missing");
-    assert!(path.ends_with(std::path::Path::new("dep_missing").join(PROJECT_MANIFEST_FILENAME)));
-}
-
-#[test]
-fn composition_graph_reports_duplicate_package_names() {
-    let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join("src")).unwrap();
-    fs::create_dir_all(tmp.path().join("dep_a/src")).unwrap();
-    fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
-    fs::write(
-        tmp.path().join("dep_a/src/fn_a.m"),
-        "function y = fn_a(); y = 1; end",
-    )
-    .unwrap();
-    write_manifest(
-        tmp.path(),
-        r#"
-[package]
-name = "dup_pkg"
-
-[sources]
-roots = ["src"]
-
-[dependencies]
-dep_a = { path = "dep_a" }
-"#,
-    );
-    write_manifest(
-        &tmp.path().join("dep_a"),
-        r#"
-[package]
-name = "dup_pkg"
-
-[sources]
-roots = ["src"]
-"#,
-    );
-
-    let err = build_project_composition_graph(&tmp.path().join("runmat.toml"))
-        .expect_err("duplicate package names should fail");
-    let ProjectCompositionError::DuplicatePackageName { package, .. } = err else {
-        panic!("expected duplicate package name error");
-    };
-    assert_eq!(package, "dup_pkg");
 }
 
 #[test]

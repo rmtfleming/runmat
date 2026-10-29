@@ -2,10 +2,8 @@ use runmat_builtins::Type;
 
 use crate::builtins::math::reduction::type_resolvers::reduce_first_nonsingleton;
 use crate::builtins::math::type_resolvers::numeric_unary_type;
+use runmat_builtins::shape_rules::left_divide_output_type;
 use runmat_builtins::shape_rules::{element_count_if_known, unknown_shape};
-use runmat_builtins::shape_rules::{
-    left_divide_output_type, matmul_output_type, right_divide_output_type,
-};
 use runmat_builtins::ResolveContext;
 
 pub fn numeric_scalar_type(args: &[Type], _context: &ResolveContext) -> Type {
@@ -16,6 +14,40 @@ pub fn numeric_scalar_type(args: &[Type], _context: &ResolveContext) -> Type {
         Type::Tensor { .. } | Type::Logical { .. } | Type::Num | Type::Int | Type::Bool => {
             Type::Num
         }
+        Type::Unknown => Type::Unknown,
+        _ => Type::Unknown,
+    }
+}
+
+pub fn vecnorm_type(args: &[Type], ctx: &ResolveContext) -> Type {
+    let Some(input) = args.first() else {
+        return Type::Unknown;
+    };
+    match input {
+        Type::Tensor { shape: Some(shape) } | Type::Logical { shape: Some(shape) } => {
+            let mut out = shape.clone();
+            let dim = if args.len() >= 3 {
+                match ctx.numeric_dims_from(2).first().and_then(|value| *value) {
+                    Some(0) => return Type::Unknown,
+                    Some(value) => Some(value - 1),
+                    None => {
+                        return Type::Tensor {
+                            shape: Some(unknown_shape(shape.len())),
+                        };
+                    }
+                }
+            } else {
+                first_nonsingleton_dim(shape)
+            };
+            if let Some(dim) = dim {
+                if dim < out.len() {
+                    out[dim] = Some(1);
+                }
+            }
+            Type::Tensor { shape: Some(out) }
+        }
+        Type::Tensor { shape: None } | Type::Logical { shape: None } => Type::tensor(),
+        Type::Num | Type::Int | Type::Bool => Type::Num,
         Type::Unknown => Type::Unknown,
         _ => Type::Unknown,
     }
@@ -41,6 +73,20 @@ pub fn matrix_unary_type(args: &[Type], ctx: &ResolveContext) -> Type {
     }
 }
 
+pub fn matrix_transpose_type(args: &[Type], context: &ResolveContext) -> Type {
+    match args.first() {
+        Some(Type::Tensor { shape: Some(shape) }) | Some(Type::Logical { shape: Some(shape) })
+            if shape
+                .iter()
+                .skip(2)
+                .any(|extent| !matches!(extent, Some(1))) =>
+        {
+            Type::Unknown
+        }
+        _ => transpose_type(args, context),
+    }
+}
+
 pub fn transpose_type(args: &[Type], _context: &ResolveContext) -> Type {
     let Some(input) = args.first() else {
         return Type::Unknown;
@@ -61,41 +107,22 @@ pub fn transpose_type(args: &[Type], _context: &ResolveContext) -> Type {
         },
         Type::Logical { shape: None } => Type::logical(),
         Type::Num | Type::Int | Type::Bool | Type::String => input.clone(),
+        Type::Struct { .. } => input.clone(),
         Type::Cell { .. } => input.clone(),
         Type::Unknown => Type::Unknown,
         _ => Type::Unknown,
     }
 }
 
-pub fn matmul_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    let lhs = args.get(0);
-    let rhs = args.get(1);
-    match (lhs, rhs) {
-        (Some(left), Some(right)) => matmul_output_type(left, right),
-        (Some(single), None) | (None, Some(single)) => {
-            numeric_unary_type(std::slice::from_ref(single), ctx)
-        }
-        (None, None) => Type::Unknown,
-    }
+pub fn page_transpose_type(args: &[Type], context: &ResolveContext) -> Type {
+    transpose_type(args, context)
 }
 
-pub fn left_divide_type(args: &[Type], ctx: &ResolveContext) -> Type {
+pub fn linsolve_type(args: &[Type], ctx: &ResolveContext) -> Type {
     let lhs = args.get(0);
     let rhs = args.get(1);
     match (lhs, rhs) {
         (Some(left), Some(right)) => left_divide_output_type(left, right),
-        (Some(single), None) | (None, Some(single)) => {
-            numeric_unary_type(std::slice::from_ref(single), ctx)
-        }
-        (None, None) => Type::Unknown,
-    }
-}
-
-pub fn right_divide_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    let lhs = args.get(0);
-    let rhs = args.get(1);
-    match (lhs, rhs) {
-        (Some(left), Some(right)) => right_divide_output_type(left, right),
         (Some(single), None) | (None, Some(single)) => {
             numeric_unary_type(std::slice::from_ref(single), ctx)
         }
@@ -275,12 +302,8 @@ pub fn symrcm_type(args: &[Type], _context: &ResolveContext) -> Type {
 }
 
 pub fn bandwidth_type(args: &[Type], _context: &ResolveContext) -> Type {
-    if args.len() > 1 {
-        return Type::Num;
-    }
-    Type::Tensor {
-        shape: Some(vec![Some(1), Some(2)]),
-    }
+    let _ = args;
+    Type::Num
 }
 
 pub fn numeric_tensor_from_shape(shape: Vec<Option<usize>>) -> Type {
@@ -331,6 +354,19 @@ fn is_vector_shape(shape: &[Option<usize>]) -> bool {
     }
 }
 
+fn first_nonsingleton_dim(shape: &[Option<usize>]) -> Option<usize> {
+    if shape.is_empty() {
+        return Some(0);
+    }
+    for (index, dim) in shape.iter().enumerate() {
+        match dim {
+            Some(1) => {}
+            Some(_) | None => return Some(index),
+        }
+    }
+    Some(0)
+}
+
 fn min_dim(lhs: Option<usize>, rhs: Option<usize>) -> Option<usize> {
     match (lhs, rhs) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -353,38 +389,6 @@ mod tests {
             out,
             Type::Tensor {
                 shape: Some(vec![Some(3), Some(2), Some(4)])
-            }
-        );
-    }
-
-    #[test]
-    fn matmul_shape_infers_rows_and_cols() {
-        let lhs = Type::Tensor {
-            shape: Some(vec![Some(2), Some(3)]),
-        };
-        let rhs = Type::Tensor {
-            shape: Some(vec![Some(3), Some(4)]),
-        };
-        let out = matmul_type(&[lhs, rhs], &ResolveContext::new(Vec::new()));
-        assert_eq!(
-            out,
-            Type::Tensor {
-                shape: Some(vec![Some(2), Some(4)])
-            }
-        );
-    }
-
-    #[test]
-    fn right_divide_scalar_by_matrix_returns_matrix_shape() {
-        let lhs = Type::Num;
-        let rhs = Type::Tensor {
-            shape: Some(vec![Some(2), Some(2)]),
-        };
-        let out = right_divide_type(&[lhs, rhs], &ResolveContext::new(Vec::new()));
-        assert_eq!(
-            out,
-            Type::Tensor {
-                shape: Some(vec![Some(2), Some(2)])
             }
         );
     }

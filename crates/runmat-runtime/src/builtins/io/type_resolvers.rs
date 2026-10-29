@@ -20,22 +20,31 @@ pub(crate) fn struct_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
     Type::Struct { known_fields: None }
 }
 
-pub(crate) fn cell_struct_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
-    Type::cell_of(Type::Struct { known_fields: None })
-}
-
 pub fn disp_type(args: &[Type], ctx: &ResolveContext) -> Type {
     tensor_type(args, ctx)
 }
 
 pub fn input_type(args: &[Type], _ctx: &ResolveContext) -> Type {
     let _ = args;
-    Type::Union(vec![Type::String, Type::Num, Type::tensor()])
+    Type::Unknown
 }
 
 pub fn importdata_type(args: &[Type], _ctx: &ResolveContext) -> Type {
     let _ = args;
     Type::Union(vec![Type::tensor(), Type::Struct { known_fields: None }])
+}
+
+pub fn open_type(args: &[Type], _ctx: &ResolveContext) -> Type {
+    let _ = args;
+    Type::Unknown
+}
+
+pub fn opentoline_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Void
+}
+
+pub fn pcode_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Void
 }
 
 pub fn audioread_type(args: &[Type], _ctx: &ResolveContext) -> Type {
@@ -95,8 +104,8 @@ pub fn fread_type(args: &[Type], _ctx: &ResolveContext) -> Type {
     Type::Union(vec![Type::String, Type::tensor(), Type::logical()])
 }
 
-pub fn frewind_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
+pub fn frewind_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Void
 }
 
 pub fn fwrite_type(args: &[Type], ctx: &ResolveContext) -> Type {
@@ -158,6 +167,14 @@ pub fn save_type(args: &[Type], ctx: &ResolveContext) -> Type {
     num_type(args, ctx)
 }
 
+pub fn matfile_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Unknown
+}
+
+pub fn matfile_subsref_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Unknown
+}
+
 pub fn accept_type(args: &[Type], ctx: &ResolveContext) -> Type {
     struct_type(args, ctx)
 }
@@ -188,36 +205,34 @@ pub fn write_type(args: &[Type], ctx: &ResolveContext) -> Type {
     num_type(args, ctx)
 }
 
-pub fn addpath_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
-pub fn cd_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
-pub fn copyfile_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn delete_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn dir_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    cell_struct_type(args, ctx)
+pub fn delete_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Void
 }
 
 pub fn exist_type(args: &[Type], ctx: &ResolveContext) -> Type {
     num_type(args, ctx)
 }
 
-pub fn genpath_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
+pub fn fileattrib_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Union(vec![
+        Type::Num,
+        Type::OutputList(vec![Type::Num, Type::Struct { known_fields: None }]),
+    ])
 }
 
-pub fn fullfile_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
+pub fn system_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Union(vec![
+        Type::Num,
+        Type::OutputList(vec![Type::Num, Type::String]),
+    ])
+}
+
+pub fn getpref_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::Unknown
+}
+
+pub fn readlines_type(_args: &[Type], _ctx: &ResolveContext) -> Type {
+    Type::String
 }
 
 pub fn uigetfile_type(args: &[Type], _ctx: &ResolveContext) -> Type {
@@ -225,70 +240,19 @@ pub fn uigetfile_type(args: &[Type], _ctx: &ResolveContext) -> Type {
     Type::Union(vec![Type::String, Type::Num, Type::cell_of(Type::String)])
 }
 
+pub fn uigetdir_type(args: &[Type], _ctx: &ResolveContext) -> Type {
+    let _ = args;
+    Type::Union(vec![Type::String, Type::Num])
+}
+
 pub fn uiputfile_type(args: &[Type], _ctx: &ResolveContext) -> Type {
     let _ = args;
     Type::Union(vec![Type::String, Type::Num])
 }
 
-pub fn getenv_type(args: &[Type], _ctx: &ResolveContext) -> Type {
-    if args.is_empty() {
-        return struct_type(args, _ctx);
-    }
-    match args.first() {
-        Some(Type::Cell { .. }) => Type::cell_of(Type::String),
-        Some(Type::String) => Type::String,
-        Some(Type::Unknown) => Type::Unknown,
-        _ => Type::Unknown,
-    }
-}
-
-pub fn ls_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
-pub fn mkdir_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn movefile_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn path_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
-pub fn pwd_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
-pub fn rmdir_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn rmpath_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
 pub fn run_type(args: &[Type], _ctx: &ResolveContext) -> Type {
     let _ = args;
     Type::Unknown
-}
-
-pub fn savepath_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn setenv_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    num_type(args, ctx)
-}
-
-pub fn tempdir_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
-}
-
-pub fn tempname_type(args: &[Type], ctx: &ResolveContext) -> Type {
-    string_type(args, ctx)
 }
 
 pub fn unzip_type(args: &[Type], _ctx: &ResolveContext) -> Type {
@@ -307,6 +271,15 @@ pub fn xlsread_type(args: &[Type], _ctx: &ResolveContext) -> Type {
         Type::tensor(),
         Type::OutputList(vec![Type::tensor(), Type::cell()]),
         Type::OutputList(vec![Type::tensor(), Type::cell(), Type::cell()]),
+    ])
+}
+
+pub fn xlswrite_type(args: &[Type], _ctx: &ResolveContext) -> Type {
+    let _ = args;
+    Type::Union(vec![
+        Type::Bool,
+        Type::OutputList(vec![Type::Bool]),
+        Type::OutputList(vec![Type::Bool, Type::Struct { known_fields: None }]),
     ])
 }
 
@@ -372,12 +345,7 @@ mod tests {
     }
 
     assert_resolver!(disp_type_resolver, disp_type, &[], Type::tensor());
-    assert_resolver!(
-        input_type_resolver,
-        input_type,
-        &[],
-        Type::Union(vec![Type::String, Type::Num, Type::tensor()])
-    );
+    assert_resolver!(input_type_resolver, input_type, &[], Type::Unknown);
 
     assert_resolver!(fclose_type_resolver, fclose_type, &[], Type::Num);
     assert_resolver!(feof_type_resolver, feof_type, &[], Type::Bool);
@@ -503,19 +471,8 @@ mod tests {
     );
     assert_resolver!(write_type_resolver, write_type, &[], Type::Num);
 
-    assert_resolver!(addpath_type_resolver, addpath_type, &[], Type::String);
-    assert_resolver!(cd_type_resolver, cd_type, &[], Type::String);
-    assert_resolver!(copyfile_type_resolver, copyfile_type, &[], Type::Num);
-    assert_resolver!(delete_type_resolver, delete_type, &[], Type::Num);
-    assert_resolver!(
-        dir_type_resolver,
-        dir_type,
-        &[],
-        Type::cell_of(Type::Struct { known_fields: None })
-    );
+    assert_resolver!(delete_type_resolver, delete_type, &[], Type::Void);
     assert_resolver!(exist_type_resolver, exist_type, &[], Type::Num);
-    assert_resolver!(genpath_type_resolver, genpath_type, &[], Type::String);
-    assert_resolver!(fullfile_type_resolver, fullfile_type, &[], Type::String);
     assert_resolver!(
         uigetfile_type_resolver,
         uigetfile_type,
@@ -523,29 +480,17 @@ mod tests {
         Type::Union(vec![Type::String, Type::Num, Type::cell_of(Type::String)])
     );
     assert_resolver!(
+        uigetdir_type_resolver,
+        uigetdir_type,
+        &[],
+        Type::Union(vec![Type::String, Type::Num])
+    );
+    assert_resolver!(
         uiputfile_type_resolver,
         uiputfile_type,
         &[],
         Type::Union(vec![Type::String, Type::Num])
     );
-    assert_resolver!(
-        getenv_type_resolver,
-        getenv_type,
-        &[],
-        Type::Struct { known_fields: None }
-    );
-    assert_resolver!(ls_type_resolver, ls_type, &[], Type::String);
-    assert_resolver!(mkdir_type_resolver, mkdir_type, &[], Type::Num);
-    assert_resolver!(movefile_type_resolver, movefile_type, &[], Type::Num);
-    assert_resolver!(path_type_resolver, path_type, &[], Type::String);
-    assert_resolver!(pwd_type_resolver, pwd_type, &[], Type::String);
-    assert_resolver!(rmdir_type_resolver, rmdir_type, &[], Type::Num);
-    assert_resolver!(rmpath_type_resolver, rmpath_type, &[], Type::String);
-    assert_resolver!(savepath_type_resolver, savepath_type, &[], Type::Num);
-    assert_resolver!(setenv_type_resolver, setenv_type, &[], Type::Num);
-    assert_resolver!(tempdir_type_resolver, tempdir_type, &[], Type::String);
-    assert_resolver!(tempname_type_resolver, tempname_type, &[], Type::String);
-
     assert_resolver!(
         audioinfo_type_resolver,
         struct_type,
@@ -573,6 +518,16 @@ mod tests {
     );
     assert_resolver!(writecell_type_resolver, num_type, &[], Type::Num);
     assert_resolver!(writematrix_type_resolver, num_type, &[], Type::Num);
+    assert_resolver!(
+        xlswrite_type_resolver,
+        xlswrite_type,
+        &[],
+        Type::Union(vec![
+            Type::Bool,
+            Type::OutputList(vec![Type::Bool]),
+            Type::OutputList(vec![Type::Bool, Type::Struct { known_fields: None },]),
+        ])
+    );
 
     assert_resolver!(
         data_dataset_type_resolver,

@@ -3,7 +3,11 @@
 //! This module provides language-compatible matrix concatenation operations.
 //! Supports both horizontal concatenation [A, B] and vertical concatenation [A; B].
 
-use runmat_builtins::{CharArray, Tensor, Value};
+use crate::builtins::common::integer_conversion::{integer_values, IntegerClass, IntegerClassExt};
+use runmat_value::{
+    CharArray, IntValue, NumericDType, NumericScalar, NumericStorage, SymbolicArray, SymbolicExpr,
+    Tensor, Value,
+};
 
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
@@ -37,6 +41,287 @@ fn char_array_from_f64(value: f64) -> BuiltinResult<CharArray> {
     char_array_from_f64_with_prefix(value, "char concat")
 }
 
+fn has_symbolic_operand(values: &[Value]) -> bool {
+    values
+        .iter()
+        .any(|value| matches!(value, Value::Symbolic(_) | Value::SymbolicArray(_)))
+}
+
+fn numeric_scalar_to_symbolic(value: &Value) -> Option<SymbolicExpr> {
+    match value {
+        Value::Symbolic(expr) => Some(expr.clone()),
+        Value::Num(n) => Some(SymbolicExpr::constant(*n)),
+        Value::Int(i) => Some(SymbolicExpr::constant(i.to_f64())),
+        Value::Bool(flag) => Some(SymbolicExpr::constant(if *flag { 1.0 } else { 0.0 })),
+        _ => None,
+    }
+}
+
+fn normalize_symbolic_concat_shape(shape: &[usize]) -> Vec<usize> {
+    if shape.len() == 1 && shape[0] != 1 {
+        vec![1, shape[0]]
+    } else if crate::builtins::common::shape::is_scalar_shape(shape) {
+        vec![1, 1]
+    } else {
+        shape.to_vec()
+    }
+}
+
+#[derive(Clone)]
+struct SymbolicConcatBlock {
+    data: Vec<SymbolicExpr>,
+    shape: Vec<usize>,
+}
+
+impl SymbolicConcatBlock {
+    fn new(data: Vec<SymbolicExpr>, shape: Vec<usize>) -> BuiltinResult<Self> {
+        let expected_len = checked_shape_len(&shape)?;
+        if data.len() != expected_len {
+            return Err(concat_error(format!(
+                "Symbolic array data length {} does not match shape {:?} (expected {} elements)",
+                data.len(),
+                shape,
+                expected_len
+            )));
+        }
+        Ok(Self { data, shape })
+    }
+
+    fn rows(&self) -> usize {
+        self.shape[0]
+    }
+
+    fn cols(&self) -> usize {
+        self.shape[1]
+    }
+}
+
+fn checked_shape_len(shape: &[usize]) -> BuiltinResult<usize> {
+    shape.iter().try_fold(1usize, |acc, dim| {
+        acc.checked_mul(*dim)
+            .ok_or_else(|| concat_error("Symbolic array dimensions overflow"))
+    })
+}
+
+fn dim_or_one(shape: &[usize], dim: usize) -> usize {
+    shape.get(dim).copied().unwrap_or(1)
+}
+
+fn symbolic_block_from_value(value: &Value) -> BuiltinResult<Option<SymbolicConcatBlock>> {
+    match value {
+        Value::SymbolicArray(array) => {
+            let shape = normalize_symbolic_concat_shape(&array.shape);
+            if shape[0] == 0 && shape[1] == 0 {
+                return Ok(None);
+            }
+            SymbolicConcatBlock::new(array.data.clone(), shape).map(Some)
+        }
+        Value::Tensor(tensor) => {
+            let shape = normalize_symbolic_concat_shape(&tensor.shape);
+            if shape[0] == 0 && shape[1] == 0 {
+                return Ok(None);
+            }
+            let data = tensor
+                .materialize_f64()
+                .iter()
+                .map(|value| SymbolicExpr::constant(*value))
+                .collect();
+            SymbolicConcatBlock::new(data, shape).map(Some)
+        }
+        Value::LogicalArray(array) => {
+            let shape = normalize_symbolic_concat_shape(&array.shape);
+            if shape[0] == 0 && shape[1] == 0 {
+                return Ok(None);
+            }
+            let data = array
+                .data
+                .iter()
+                .map(|value| SymbolicExpr::constant(if *value == 0 { 0.0 } else { 1.0 }))
+                .collect();
+            SymbolicConcatBlock::new(data, shape).map(Some)
+        }
+        _ => {
+            if let Some(expr) = numeric_scalar_to_symbolic(value) {
+                SymbolicConcatBlock::new(vec![expr], vec![1, 1]).map(Some)
+            } else {
+                Err(concat_error(format!(
+                    "Cannot concatenate value of type {value:?} with symbolic array"
+                )))
+            }
+        }
+    }
+}
+
+fn hcat_symbolic_values(values: &[Value]) -> BuiltinResult<Value> {
+    let mut blocks = Vec::new();
+
+    for value in values {
+        let Some(block) = symbolic_block_from_value(value)? else {
+            continue;
+        };
+        blocks.push(block);
+    }
+
+    if blocks.is_empty() {
+        return SymbolicArray::new(Vec::new(), vec![0, 0])
+            .map(Value::SymbolicArray)
+            .map_err(concat_error);
+    }
+
+    let rank = blocks
+        .iter()
+        .map(|block| block.shape.len())
+        .max()
+        .unwrap_or(2)
+        .max(2);
+    let rows = dim_or_one(&blocks[0].shape, 0);
+    let mut cols_total = 0usize;
+    let mut output_shape = vec![1; rank];
+    output_shape[0] = rows;
+    for dim in 2..rank {
+        output_shape[dim] = dim_or_one(&blocks[0].shape, dim);
+    }
+
+    for block in &blocks {
+        if dim_or_one(&block.shape, 0) != rows {
+            return Err(concat_error(format!(
+                "Cannot horizontally concatenate symbolic arrays with different row counts: {} vs {}",
+                rows,
+                block.rows()
+            )));
+        }
+        for (dim, expected) in output_shape.iter().enumerate().skip(2) {
+            let actual = dim_or_one(&block.shape, dim);
+            if actual != *expected {
+                return Err(concat_error(format!(
+                    "Cannot horizontally concatenate symbolic arrays with different dimension {} sizes: {} vs {}",
+                    dim + 1,
+                    expected,
+                    actual
+                )));
+            }
+        }
+        cols_total = cols_total
+            .checked_add(block.cols())
+            .ok_or_else(|| concat_error("Symbolic array dimensions overflow"))?;
+    }
+    output_shape[1] = cols_total;
+
+    let output_len = checked_shape_len(&output_shape)?;
+    let tail_len = output_shape.iter().skip(2).try_fold(1usize, |acc, dim| {
+        acc.checked_mul(*dim)
+            .ok_or_else(|| concat_error("Symbolic array dimensions overflow"))
+    })?;
+    let mut data = Vec::with_capacity(output_len);
+    for tail in 0..tail_len {
+        for block in &blocks {
+            let block_plane_len = block.rows() * block.cols();
+            let block_tail_offset = tail * block_plane_len;
+            for c in 0..block.cols() {
+                for r in 0..rows {
+                    data.push(block.data[block_tail_offset + r + c * block.rows()].clone());
+                }
+            }
+        }
+    }
+    SymbolicArray::new(data, output_shape)
+        .map(Value::SymbolicArray)
+        .map_err(concat_error)
+}
+
+fn vcat_symbolic_values(values: &[Value]) -> BuiltinResult<Value> {
+    let mut blocks = Vec::new();
+
+    for value in values {
+        let Some(block) = symbolic_block_from_value(value)? else {
+            continue;
+        };
+        blocks.push(block);
+    }
+
+    if blocks.is_empty() {
+        return SymbolicArray::new(Vec::new(), vec![0, 0])
+            .map(Value::SymbolicArray)
+            .map_err(concat_error);
+    }
+
+    let rank = blocks
+        .iter()
+        .map(|block| block.shape.len())
+        .max()
+        .unwrap_or(2)
+        .max(2);
+    let cols = dim_or_one(&blocks[0].shape, 1);
+    let mut rows_total = 0usize;
+    let mut output_shape = vec![1; rank];
+    output_shape[1] = cols;
+    for dim in 2..rank {
+        output_shape[dim] = dim_or_one(&blocks[0].shape, dim);
+    }
+
+    for block in &blocks {
+        if dim_or_one(&block.shape, 1) != cols {
+            return Err(concat_error(format!(
+                "Cannot vertically concatenate symbolic arrays with different column counts: {} vs {}",
+                cols,
+                block.cols()
+            )));
+        }
+        for (dim, expected) in output_shape.iter().enumerate().skip(2) {
+            let actual = dim_or_one(&block.shape, dim);
+            if actual != *expected {
+                return Err(concat_error(format!(
+                    "Cannot vertically concatenate symbolic arrays with different dimension {} sizes: {} vs {}",
+                    dim + 1,
+                    expected,
+                    actual
+                )));
+            }
+        }
+        rows_total = rows_total
+            .checked_add(block.rows())
+            .ok_or_else(|| concat_error("Symbolic array dimensions overflow"))?;
+    }
+    output_shape[0] = rows_total;
+
+    let output_len = checked_shape_len(&output_shape)?;
+    let tail_len = output_shape.iter().skip(2).try_fold(1usize, |acc, dim| {
+        acc.checked_mul(*dim)
+            .ok_or_else(|| concat_error("Symbolic array dimensions overflow"))
+    })?;
+    let mut data = Vec::with_capacity(output_len);
+    for tail in 0..tail_len {
+        for c in 0..cols {
+            for block in &blocks {
+                let block_plane_len = block.rows() * block.cols();
+                let block_tail_offset = tail * block_plane_len;
+                for r in 0..block.rows() {
+                    data.push(block.data[block_tail_offset + r + c * block.rows()].clone());
+                }
+            }
+        }
+    }
+    SymbolicArray::new(data, output_shape)
+        .map(Value::SymbolicArray)
+        .map_err(concat_error)
+}
+
+fn char_array_from_int(value: &IntValue) -> BuiltinResult<CharArray> {
+    let code = match value {
+        IntValue::I8(value) => u32::try_from(*value),
+        IntValue::I16(value) => u32::try_from(*value),
+        IntValue::I32(value) => u32::try_from(*value),
+        IntValue::I64(value) => u32::try_from(*value),
+        IntValue::U8(value) => Ok(u32::from(*value)),
+        IntValue::U16(value) => Ok(u32::from(*value)),
+        IntValue::U32(value) => Ok(*value),
+        IntValue::U64(value) => u32::try_from(*value),
+    };
+    let code = code.map_err(|_| concat_error("char concat: code point out of range"))?;
+    let ch = char::from_u32(code).ok_or_else(|| concat_error("char concat: invalid code point"))?;
+    CharArray::new(vec![ch], 1, 1).map_err(concat_error)
+}
+
 /// Horizontally concatenate two matrices [A, B]
 /// In language: C = [A, B] creates a matrix with A and B side by side
 pub fn hcat_matrices(a: &Tensor, b: &Tensor) -> BuiltinResult<Tensor> {
@@ -54,25 +339,30 @@ pub fn hcat_matrices(a: &Tensor, b: &Tensor) -> BuiltinResult<Tensor> {
         )));
     }
 
+    if a.integer_storage().is_some() || b.integer_storage().is_some() {
+        return hcat_integer_matrices(a, b);
+    }
+
     let new_rows = a.rows();
     let new_cols = a.cols() + b.cols();
-    let mut new_data = Vec::with_capacity(new_rows * new_cols);
+    let target = floating_concat_dtype(a, b)?;
+    let mut indices = Vec::with_capacity(new_rows * new_cols);
 
     // Column-major layout: build column-by-column
     for col in 0..new_cols {
         if col < a.cols() {
             for row in 0..a.rows() {
-                new_data.push(a.data[row + col * a.rows()]);
+                indices.push((a, row + col * a.rows()));
             }
         } else {
             let bcol = col - a.cols();
             for row in 0..b.rows() {
-                new_data.push(b.data[row + bcol * b.rows()]);
+                indices.push((b, row + bcol * b.rows()));
             }
         }
     }
 
-    Tensor::new_2d(new_data, new_rows, new_cols).map_err(concat_error)
+    floating_concat_tensor(indices, vec![new_rows, new_cols], target)
 }
 
 /// Vertically concatenate two matrices [A; B]
@@ -92,23 +382,147 @@ pub fn vcat_matrices(a: &Tensor, b: &Tensor) -> BuiltinResult<Tensor> {
         )));
     }
 
+    if a.integer_storage().is_some() || b.integer_storage().is_some() {
+        return vcat_integer_matrices(a, b);
+    }
+
     let new_rows = a.rows() + b.rows();
     let new_cols = a.cols();
-    let mut new_data = Vec::with_capacity(new_rows * new_cols);
+    let target = floating_concat_dtype(a, b)?;
+    let mut indices = Vec::with_capacity(new_rows * new_cols);
 
-    // Column-major: copy columns of A then columns of B
+    // Column-major: each output column contains A's rows followed by B's rows.
     for col in 0..a.cols() {
         for row in 0..a.rows() {
-            new_data.push(a.data[row + col * a.rows()]);
+            indices.push((a, row + col * a.rows()));
         }
-    }
-    for col in 0..b.cols() {
         for row in 0..b.rows() {
-            new_data.push(b.data[row + col * b.rows()]);
+            indices.push((b, row + col * b.rows()));
         }
     }
 
-    Tensor::new_2d(new_data, new_rows, new_cols).map_err(concat_error)
+    floating_concat_tensor(indices, vec![new_rows, new_cols], target)
+}
+
+fn floating_concat_dtype(a: &Tensor, b: &Tensor) -> BuiltinResult<NumericDType> {
+    match (a.numeric_dtype(), b.numeric_dtype()) {
+        (NumericDType::F64, NumericDType::F64) => Ok(NumericDType::F64),
+        (NumericDType::F32, NumericDType::F32)
+        | (NumericDType::F32, NumericDType::F64)
+        | (NumericDType::F64, NumericDType::F32) => Ok(NumericDType::F32),
+        (left, right) => Err(concat_error(format!(
+            "floating concatenation received unexpected {} and {} storage",
+            left.class_name(),
+            right.class_name()
+        ))),
+    }
+}
+
+fn floating_concat_tensor(
+    indices: Vec<(&Tensor, usize)>,
+    shape: Vec<usize>,
+    target: NumericDType,
+) -> BuiltinResult<Tensor> {
+    let storage = match target {
+        NumericDType::F64 => NumericStorage::F64(
+            indices
+                .into_iter()
+                .map(|(tensor, index)| floating_value_f64(tensor, index))
+                .collect::<BuiltinResult<Vec<_>>>()?,
+        ),
+        NumericDType::F32 => NumericStorage::F32(
+            indices
+                .into_iter()
+                .map(|(tensor, index)| floating_value_f64(tensor, index).map(|value| value as f32))
+                .collect::<BuiltinResult<Vec<_>>>()?,
+        ),
+        NumericDType::I8
+        | NumericDType::I16
+        | NumericDType::I32
+        | NumericDType::I64
+        | NumericDType::U8
+        | NumericDType::U16
+        | NumericDType::U32
+        | NumericDType::U64 => unreachable!("floating concat target is validated"),
+    };
+    Tensor::from_numeric_storage(storage, shape).map_err(concat_error)
+}
+
+fn floating_value_f64(tensor: &Tensor, index: usize) -> BuiltinResult<f64> {
+    match tensor.numeric_value_at(index) {
+        Some(NumericScalar::F64(value)) => Ok(value),
+        Some(NumericScalar::F32(value)) => Ok(f64::from(value)),
+        Some(value) => Err(concat_error(format!(
+            "floating concatenation received unexpected {} sample",
+            value.class_name()
+        ))),
+        None => Err(concat_error(format!(
+            "floating concatenation could not read {} element {index}",
+            tensor.numeric_dtype().class_name()
+        ))),
+    }
+}
+
+fn hcat_integer_matrices(a: &Tensor, b: &Tensor) -> BuiltinResult<Tensor> {
+    let target = leftmost_tensor_integer_target(a, b)
+        .expect("integer hcat path requires at least one integer tensor");
+    let new_rows = a.rows();
+    let new_cols = a.cols() + b.cols();
+    let mut values = Vec::with_capacity(new_rows * new_cols);
+
+    for col in 0..new_cols {
+        if col < a.cols() {
+            for row in 0..a.rows() {
+                values.push(integer_value_at(target, a, row + col * a.rows()));
+            }
+        } else {
+            let bcol = col - a.cols();
+            for row in 0..b.rows() {
+                values.push(integer_value_at(target, b, row + bcol * b.rows()));
+            }
+        }
+    }
+
+    Tensor::new_integer(target.storage(values), vec![new_rows, new_cols]).map_err(concat_error)
+}
+
+fn vcat_integer_matrices(a: &Tensor, b: &Tensor) -> BuiltinResult<Tensor> {
+    let target = leftmost_tensor_integer_target(a, b)
+        .expect("integer vcat path requires at least one integer tensor");
+    let new_rows = a.rows() + b.rows();
+    let new_cols = a.cols();
+    let mut values = Vec::with_capacity(new_rows * new_cols);
+
+    for col in 0..new_cols {
+        for row in 0..a.rows() {
+            values.push(integer_value_at(target, a, row + col * a.rows()));
+        }
+        for row in 0..b.rows() {
+            values.push(integer_value_at(target, b, row + col * b.rows()));
+        }
+    }
+
+    Tensor::new_integer(target.storage(values), vec![new_rows, new_cols]).map_err(concat_error)
+}
+
+fn leftmost_tensor_integer_target(a: &Tensor, b: &Tensor) -> Option<IntegerClass> {
+    a.integer_storage()
+        .map(IntegerClass::from_storage)
+        .or_else(|| b.integer_storage().map(IntegerClass::from_storage))
+}
+
+fn integer_value_at(target: IntegerClass, tensor: &Tensor, index: usize) -> IntValue {
+    match tensor.integer_storage() {
+        Some(storage) => target.cast_int(
+            &storage
+                .value_at(index)
+                .expect("integer tensor storage length matches tensor shape"),
+        ),
+        None => target.cast_scalar(
+            floating_value_f64(tensor, index)
+                .expect("noninteger concat operand has floating storage"),
+        ),
+    }
 }
 
 /// Concatenate values horizontally - handles mixed scalars and matrices
@@ -129,7 +543,7 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
         // Determine row count: if any is string array, its rows; if string scalar or numeric scalar, rows=1
         let mut rows: Option<usize> = None;
         let mut cols_total = 0usize;
-        let mut blocks: Vec<runmat_builtins::StringArray> = Vec::new();
+        let mut blocks: Vec<runmat_value::StringArray> = Vec::new();
         for v in values {
             match v {
                 Value::StringArray(sa) => {
@@ -142,8 +556,7 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(sa.clone());
                 }
                 Value::String(s) => {
-                    let sa =
-                        runmat_builtins::StringArray::new(vec![s.clone()], vec![1, 1]).unwrap();
+                    let sa = runmat_value::StringArray::new(vec![s.clone()], vec![1, 1]).unwrap();
                     if rows.is_none() {
                         rows = Some(1);
                     } else if rows != Some(1) {
@@ -170,13 +583,13 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
                         }
                         out.push(s);
                     }
-                    let sa = runmat_builtins::StringArray::new(out, vec![ca.rows, 1]).unwrap();
+                    let sa = runmat_value::StringArray::new(out, vec![ca.rows, 1]).unwrap();
                     cols_total += 1;
                     blocks.push(sa);
                 }
                 Value::Num(n) => {
                     let sa =
-                        runmat_builtins::StringArray::new(vec![n.to_string()], vec![1, 1]).unwrap();
+                        runmat_value::StringArray::new(vec![n.to_string()], vec![1, 1]).unwrap();
                     if rows.is_none() {
                         rows = Some(1);
                     } else if rows != Some(1) {
@@ -186,8 +599,8 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(sa);
                 }
                 Value::Complex(re, im) => {
-                    let sa = runmat_builtins::StringArray::new(
-                        vec![runmat_builtins::Value::Complex(*re, *im).to_string()],
+                    let sa = runmat_value::StringArray::new(
+                        vec![runmat_value::Value::Complex(*re, *im).to_string()],
                         vec![1, 1],
                     )
                     .unwrap();
@@ -200,9 +613,8 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(sa);
                 }
                 Value::Int(i) => {
-                    let sa =
-                        runmat_builtins::StringArray::new(vec![i.to_i64().to_string()], vec![1, 1])
-                            .unwrap();
+                    let sa = runmat_value::StringArray::new(vec![i.decimal_string()], vec![1, 1])
+                        .unwrap();
                     if rows.is_none() {
                         rows = Some(1);
                     } else if rows != Some(1) {
@@ -237,7 +649,7 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
                 }
             }
         }
-        let sa = runmat_builtins::StringArray::new(data, vec![rows, cols_total])
+        let sa = runmat_value::StringArray::new(data, vec![rows, cols_total])
             .map_err(|e| concat_error(format!("string hcat: {e}")))?;
         return Ok(Value::StringArray(sa));
     }
@@ -271,7 +683,7 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(ca);
                 }
                 Value::Int(i) => {
-                    let ca = char_array_from_f64(i.to_f64())?;
+                    let ca = char_array_from_int(i)?;
                     if rows.is_none() {
                         rows = Some(1);
                     } else if rows != Some(1) {
@@ -309,6 +721,13 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
         let ca = CharArray::new(data, rows, cols_total)
             .map_err(|e| concat_error(format!("char hcat: {e}")))?;
         return Ok(Value::CharArray(ca));
+    }
+
+    if has_symbolic_operand(values) {
+        return hcat_symbolic_values(values);
+    }
+    if let Some(target) = leftmost_value_integer_target(values) {
+        return hcat_integer_values(target, values);
     }
 
     // Convert all scalars to 1x1 matrices for uniform processing
@@ -380,6 +799,11 @@ pub fn hcat_values(values: &[Value]) -> BuiltinResult<Value> {
     }
 
     // Now concatenate all matrices horizontally
+    if matrices.is_empty() {
+        return Ok(Value::Tensor(
+            Tensor::new(Vec::new(), vec![0, 0]).map_err(concat_error)?,
+        ));
+    }
     let mut result = matrices[0].clone();
     for matrix in &matrices[1..] {
         result = hcat_matrices(&result, matrix)?;
@@ -405,7 +829,7 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
         // Normalize to string-arrays; for scalars, treat as 1x1
         let mut cols: Option<usize> = None;
         let mut rows_total = 0usize;
-        let mut blocks: Vec<runmat_builtins::StringArray> = Vec::new();
+        let mut blocks: Vec<runmat_value::StringArray> = Vec::new();
         for v in values {
             match v {
                 Value::StringArray(sa) => {
@@ -418,8 +842,7 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(sa.clone());
                 }
                 Value::String(s) => {
-                    let sa =
-                        runmat_builtins::StringArray::new(vec![s.clone()], vec![1, 1]).unwrap();
+                    let sa = runmat_value::StringArray::new(vec![s.clone()], vec![1, 1]).unwrap();
                     rows_total += 1;
                     if cols.is_none() {
                         cols = Some(1);
@@ -433,7 +856,7 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                         continue;
                     }
                     let out: String = ca.data.iter().collect();
-                    let sa = runmat_builtins::StringArray::new(vec![out], vec![1, 1]).unwrap();
+                    let sa = runmat_value::StringArray::new(vec![out], vec![1, 1]).unwrap();
                     rows_total += 1;
                     if cols.is_none() {
                         cols = Some(1);
@@ -444,7 +867,7 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                 }
                 Value::Num(n) => {
                     let sa =
-                        runmat_builtins::StringArray::new(vec![n.to_string()], vec![1, 1]).unwrap();
+                        runmat_value::StringArray::new(vec![n.to_string()], vec![1, 1]).unwrap();
                     rows_total += 1;
                     if cols.is_none() {
                         cols = Some(1);
@@ -454,8 +877,8 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(sa);
                 }
                 Value::Complex(re, im) => {
-                    let sa = runmat_builtins::StringArray::new(
-                        vec![runmat_builtins::Value::Complex(*re, *im).to_string()],
+                    let sa = runmat_value::StringArray::new(
+                        vec![runmat_value::Value::Complex(*re, *im).to_string()],
                         vec![1, 1],
                     )
                     .unwrap();
@@ -468,9 +891,8 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(sa);
                 }
                 Value::Int(i) => {
-                    let sa =
-                        runmat_builtins::StringArray::new(vec![i.to_i64().to_string()], vec![1, 1])
-                            .unwrap();
+                    let sa = runmat_value::StringArray::new(vec![i.decimal_string()], vec![1, 1])
+                        .unwrap();
                     rows_total += 1;
                     if cols.is_none() {
                         cols = Some(1);
@@ -497,7 +919,7 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                 }
             }
         }
-        let sa = runmat_builtins::StringArray::new(data, vec![rows_total, cols])
+        let sa = runmat_value::StringArray::new(data, vec![rows_total, cols])
             .map_err(|e| concat_error(format!("string vcat: {e}")))?;
         return Ok(Value::StringArray(sa));
     }
@@ -531,7 +953,7 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
                     blocks.push(ca);
                 }
                 Value::Int(i) => {
-                    let ca = char_array_from_f64(i.to_f64())?;
+                    let ca = char_array_from_int(i)?;
                     if cols.is_none() {
                         cols = Some(1);
                     } else if cols != Some(1) {
@@ -569,6 +991,13 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
         let ca = CharArray::new(data, rows_total, cols)
             .map_err(|e| concat_error(format!("char vcat: {e}")))?;
         return Ok(Value::CharArray(ca));
+    }
+
+    if has_symbolic_operand(values) {
+        return vcat_symbolic_values(values);
+    }
+    if let Some(target) = leftmost_value_integer_target(values) {
+        return vcat_integer_values(target, values);
     }
 
     // Convert all scalars to 1x1 matrices for uniform processing
@@ -640,12 +1069,135 @@ pub fn vcat_values(values: &[Value]) -> BuiltinResult<Value> {
     }
 
     // Now concatenate all matrices vertically
+    if matrices.is_empty() {
+        return Ok(Value::Tensor(
+            Tensor::new(Vec::new(), vec![0, 0]).map_err(concat_error)?,
+        ));
+    }
     let mut result = matrices[0].clone();
     for matrix in &matrices[1..] {
         result = vcat_matrices(&result, matrix)?;
     }
 
     Ok(Value::Tensor(result))
+}
+
+fn leftmost_value_integer_target(values: &[Value]) -> Option<IntegerClass> {
+    let mut empty_target = None;
+    for value in values {
+        match value {
+            Value::Int(value) => return Some(IntegerClass::from_int_value(value)),
+            Value::Tensor(tensor) => {
+                if let Some(storage) = tensor.integer_storage() {
+                    let target = IntegerClass::from_storage(storage);
+                    if !(tensor.rows() == 0 && tensor.cols() == 0) {
+                        return Some(target);
+                    }
+                    empty_target.get_or_insert(target);
+                }
+            }
+            _ => {}
+        }
+    }
+    empty_target
+}
+
+fn hcat_integer_values(target: IntegerClass, values: &[Value]) -> BuiltinResult<Value> {
+    let mut matrices = Vec::new();
+    let mut rows = 0;
+
+    for value in values {
+        let matrix = integer_matrix_from_value(target, value)?;
+        if matrix.rows() == 0 && matrix.cols() == 0 {
+            continue;
+        }
+        if rows == 0 {
+            rows = matrix.rows();
+        } else if rows != matrix.rows() {
+            return Err(concat_error(format!(
+                "Cannot concatenate matrices with different row counts: {} vs {}",
+                rows,
+                matrix.rows()
+            )));
+        }
+        matrices.push(matrix);
+    }
+
+    if matrices.is_empty() {
+        return Ok(Value::Tensor(
+            Tensor::new_integer(target.storage(Vec::new()), vec![0, 0]).map_err(concat_error)?,
+        ));
+    }
+
+    let mut result = matrices[0].clone();
+    for matrix in &matrices[1..] {
+        result = hcat_matrices(&result, matrix)?;
+    }
+    Ok(Value::Tensor(result))
+}
+
+fn vcat_integer_values(target: IntegerClass, values: &[Value]) -> BuiltinResult<Value> {
+    let mut matrices = Vec::new();
+    let mut cols = 0;
+
+    for value in values {
+        let matrix = integer_matrix_from_value(target, value)?;
+        if matrix.rows() == 0 && matrix.cols() == 0 {
+            continue;
+        }
+        if cols == 0 {
+            cols = matrix.cols();
+        } else if cols != matrix.cols() {
+            return Err(concat_error(format!(
+                "Cannot concatenate matrices with different column counts: {} vs {}",
+                cols,
+                matrix.cols()
+            )));
+        }
+        matrices.push(matrix);
+    }
+
+    if matrices.is_empty() {
+        return Ok(Value::Tensor(
+            Tensor::new_integer(target.storage(Vec::new()), vec![0, 0]).map_err(concat_error)?,
+        ));
+    }
+
+    let mut result = matrices[0].clone();
+    for matrix in &matrices[1..] {
+        result = vcat_matrices(&result, matrix)?;
+    }
+    Ok(Value::Tensor(result))
+}
+
+fn integer_matrix_from_value(target: IntegerClass, value: &Value) -> BuiltinResult<Tensor> {
+    match value {
+        Value::Int(value) => {
+            Tensor::new_integer(target.storage(vec![target.cast_int(value)]), vec![1, 1])
+                .map_err(concat_error)
+        }
+        Value::Num(value) => {
+            Tensor::new_integer(target.storage(vec![target.cast_scalar(*value)]), vec![1, 1])
+                .map_err(concat_error)
+        }
+        Value::Tensor(tensor) => {
+            let values = match tensor.integer_storage() {
+                Some(storage) => integer_values(storage.clone())
+                    .iter()
+                    .map(|value| target.cast_int(value))
+                    .collect(),
+                None => (0..tensor.len())
+                    .map(|index| {
+                        floating_value_f64(tensor, index).map(|value| target.cast_scalar(value))
+                    })
+                    .collect::<BuiltinResult<Vec<_>>>()?,
+            };
+            Tensor::new_integer(target.storage(values), tensor.shape.clone()).map_err(concat_error)
+        }
+        other => Err(concat_error(format!(
+            "Cannot concatenate integer value with type {other:?}"
+        ))),
+    }
 }
 
 /// Create a matrix from a 2D array of Values with proper concatenation semantics
@@ -694,7 +1246,10 @@ mod tests {
         assert_eq!(result.rows(), 2);
         assert_eq!(result.cols(), 3);
         // Column-major result: [ [1 3 5]; [2 4 6] ] data
-        assert_eq!(result.data, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(
+            result.as_f64_slice().expect("double result"),
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -706,10 +1261,11 @@ mod tests {
         let result = vcat_matrices(&a, &b).unwrap();
         assert_eq!(result.rows(), 2);
         assert_eq!(result.cols(), 2);
-        // Column-major: columns preserved
-        // With our current vcat implementation, data appends column-wise preserving row order within each input
-        // For 1x2 stacked over 1x2, result data is [1,2,3,4]
-        assert_eq!(result.data, vec![1.0, 2.0, 3.0, 4.0]);
+        // [1 2; 3 4] in column-major storage.
+        assert_eq!(
+            result.as_f64_slice().expect("double result"),
+            &[1.0, 3.0, 2.0, 4.0]
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -722,10 +1278,291 @@ mod tests {
             assert_eq!(m.rows(), 1);
             assert_eq!(m.cols(), 3);
             // Column-major: 1x3 row vector still row-major visually, data order follows cols
-            assert_eq!(m.data, vec![1.0, 2.0, 3.0]);
+            assert_eq!(m.as_f64_slice().expect("double result"), &[1.0, 2.0, 3.0]);
         } else {
             panic!("Expected matrix result");
         }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_mixed_symbolic_numeric() {
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("dA")),
+            Value::Num(95.0),
+            Value::Num(0.0),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 3]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["dA", "95", "0"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_promotes_numeric_and_logical_arrays() {
+        let numeric = Tensor::new_2d(vec![1.0, 2.0], 2, 1).unwrap();
+        let logical = runmat_value::LogicalArray::new(vec![1, 0], vec![2, 1]).unwrap();
+        let values = vec![
+            Value::SymbolicArray(
+                SymbolicArray::new_2d(
+                    vec![SymbolicExpr::variable("x"), SymbolicExpr::variable("y")],
+                    2,
+                    1,
+                )
+                .unwrap(),
+            ),
+            Value::Tensor(numeric),
+            Value::LogicalArray(logical),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![2, 3]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["x", "y", "1", "2", "1", "0"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_promotes_one_dimensional_logical_array() {
+        let logical = runmat_value::LogicalArray::new(vec![1], vec![1]).unwrap();
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("x")),
+            Value::LogicalArray(logical),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 2]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["x", "1"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_promotes_non_scalar_one_dimensional_logical_array() {
+        let logical = runmat_value::LogicalArray::new(vec![1, 0], vec![2]).unwrap();
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("x")),
+            Value::LogicalArray(logical),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 3]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["x", "1", "0"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_promotes_one_dimensional_empty_numeric_tensor_as_empty_row() {
+        let empty = Tensor::new(vec![], vec![0]).unwrap();
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("x")),
+            Value::Tensor(empty),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 1]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["x"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_normalizes_one_dimensional_symbolic_array_as_row() {
+        let array = SymbolicArray::new(
+            vec![SymbolicExpr::variable("y"), SymbolicExpr::variable("z")],
+            vec![2],
+        )
+        .unwrap();
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("x")),
+            Value::SymbolicArray(array),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 3]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["x", "y", "z"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_normalizes_one_dimensional_empty_symbolic_array_as_empty_row() {
+        let empty = SymbolicArray::new(vec![], vec![0]).unwrap();
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("x")),
+            Value::SymbolicArray(empty),
+        ];
+        let result = hcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 1]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["x"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_preserves_trailing_symbolic_dimensions() {
+        let left = SymbolicArray::new(
+            vec![SymbolicExpr::variable("a1"), SymbolicExpr::variable("a2")],
+            vec![1, 1, 2],
+        )
+        .unwrap();
+        let right = SymbolicArray::new(
+            vec![SymbolicExpr::variable("b1"), SymbolicExpr::variable("b2")],
+            vec![1, 1, 2],
+        )
+        .unwrap();
+        let result = hcat_values(&[Value::SymbolicArray(left), Value::SymbolicArray(right)])
+            .expect("symbolic hcat");
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![1, 2, 2]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["a1", "b1", "a2", "b2"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_preserves_nd_column_major_order_with_multiple_rows() {
+        let left = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("a1"),
+                SymbolicExpr::variable("a2"),
+                SymbolicExpr::variable("a3"),
+                SymbolicExpr::variable("a4"),
+            ],
+            vec![2, 1, 2],
+        )
+        .unwrap();
+        let right = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("b1"),
+                SymbolicExpr::variable("b2"),
+                SymbolicExpr::variable("b3"),
+                SymbolicExpr::variable("b4"),
+            ],
+            vec![2, 1, 2],
+        )
+        .unwrap();
+        let result = hcat_values(&[Value::SymbolicArray(left), Value::SymbolicArray(right)])
+            .expect("symbolic hcat");
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![2, 2, 2]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["a1", "a2", "b1", "b2", "a3", "a4", "b3", "b4"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_hcat_values_rejects_trailing_symbolic_dimension_mismatch() {
+        let left = SymbolicArray::new(
+            vec![SymbolicExpr::variable("a1"), SymbolicExpr::variable("a2")],
+            vec![1, 1, 2],
+        )
+        .unwrap();
+        let right = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("b1"),
+                SymbolicExpr::variable("b2"),
+                SymbolicExpr::variable("b3"),
+            ],
+            vec![1, 1, 3],
+        )
+        .unwrap();
+
+        assert!(hcat_values(&[Value::SymbolicArray(left), Value::SymbolicArray(right)]).is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -737,9 +1574,271 @@ mod tests {
         if let Value::Tensor(m) = result {
             assert_eq!(m.rows(), 2);
             assert_eq!(m.cols(), 1);
-            assert_eq!(m.data, vec![1.0, 2.0]);
+            assert_eq!(m.as_f64_slice().expect("double result"), &[1.0, 2.0]);
         } else {
             panic!("Expected matrix result");
         }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_vcat_values_mixed_symbolic_numeric() {
+        let values = vec![
+            Value::Symbolic(SymbolicExpr::variable("dA")),
+            Value::Num(95.0),
+            Value::Num(0.0),
+        ];
+        let result = vcat_values(&values).unwrap();
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![3, 1]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["dA", "95", "0"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[test]
+    fn floating_concatenation_preserves_native_single_and_layout() {
+        let single_row = Tensor::from_f32(vec![1.0, 2.0], vec![1, 2]).unwrap();
+        let double_row = Tensor::new(vec![3.25, 4.5], vec![1, 2]).unwrap();
+        let vertical = vcat_matrices(&single_row, &double_row).unwrap();
+        assert_eq!(vertical.shape, vec![2, 2]);
+        assert_eq!(
+            vertical.into_numeric_storage().unwrap(),
+            NumericStorage::F32(vec![1.0, 3.25, 2.0, 4.5])
+        );
+
+        let single_column = Tensor::from_f32(vec![1.0, 2.0], vec![2, 1]).unwrap();
+        let double_column = Tensor::new(vec![3.25, 4.5], vec![2, 1]).unwrap();
+        let horizontal = hcat_matrices(&single_column, &double_column).unwrap();
+        assert_eq!(horizontal.shape, vec![2, 2]);
+        assert_eq!(
+            horizontal.into_numeric_storage().unwrap(),
+            NumericStorage::F32(vec![1.0, 2.0, 3.25, 4.5])
+        );
+    }
+
+    #[test]
+    fn all_neutral_double_operands_return_empty_matrix() {
+        let empty = Value::Tensor(Tensor::new(Vec::new(), vec![0, 0]).unwrap());
+        let Value::Tensor(horizontal) = hcat_values(&[empty.clone(), empty.clone()]).unwrap()
+        else {
+            panic!("expected horizontal empty tensor");
+        };
+        let Value::Tensor(vertical) = vcat_values(&[empty.clone(), empty]).unwrap() else {
+            panic!("expected vertical empty tensor");
+        };
+        assert_eq!(horizontal.shape, vec![0, 0]);
+        assert_eq!(vertical.shape, vec![0, 0]);
+        assert!(horizontal.is_empty());
+        assert!(vertical.is_empty());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_vcat_values_preserves_trailing_symbolic_dimensions() {
+        let top = SymbolicArray::new(
+            vec![SymbolicExpr::variable("a1"), SymbolicExpr::variable("a2")],
+            vec![1, 1, 2],
+        )
+        .unwrap();
+        let bottom = SymbolicArray::new(
+            vec![SymbolicExpr::variable("b1"), SymbolicExpr::variable("b2")],
+            vec![1, 1, 2],
+        )
+        .unwrap();
+        let result = vcat_values(&[Value::SymbolicArray(top), Value::SymbolicArray(bottom)])
+            .expect("symbolic vcat");
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![2, 1, 2]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["a1", "b1", "a2", "b2"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn direct_matrix_concatenation_preserves_leftmost_integer_storage() {
+        let left = Tensor::new_integer(
+            runmat_value::IntegerStorage::U64(vec![u64::MAX, 9_223_372_036_854_775_808]),
+            vec![2, 1],
+        )
+        .expect("left integer tensor");
+        let right = Tensor::new(vec![3.5, 4.5], vec![2, 1]).expect("right double tensor");
+
+        let horizontal = hcat_matrices(&left, &right).expect("integer hcat");
+        assert_eq!(horizontal.shape, vec![2, 2]);
+        assert_eq!(
+            horizontal.integer_storage(),
+            Some(&runmat_value::IntegerStorage::U64(vec![
+                u64::MAX,
+                9_223_372_036_854_775_808,
+                4,
+                5,
+            ]))
+        );
+
+        let top = Tensor::new_integer(runmat_value::IntegerStorage::I8(vec![12, -8]), vec![1, 2])
+            .expect("top integer tensor");
+        let bottom = Tensor::new_integer(
+            runmat_value::IntegerStorage::U64(vec![u64::MAX, 2]),
+            vec![1, 2],
+        )
+        .expect("bottom integer tensor");
+        let vertical = vcat_matrices(&top, &bottom).expect("integer vcat");
+        assert_eq!(vertical.shape, vec![2, 2]);
+        assert_eq!(
+            vertical.integer_storage(),
+            Some(&runmat_value::IntegerStorage::I8(vec![12, i8::MAX, -8, 2,]))
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn test_vcat_values_preserves_nd_column_major_order_with_multiple_columns() {
+        let top = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("a1"),
+                SymbolicExpr::variable("a2"),
+                SymbolicExpr::variable("a3"),
+                SymbolicExpr::variable("a4"),
+            ],
+            vec![1, 2, 2],
+        )
+        .unwrap();
+        let bottom = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("b1"),
+                SymbolicExpr::variable("b2"),
+                SymbolicExpr::variable("b3"),
+                SymbolicExpr::variable("b4"),
+            ],
+            vec![1, 2, 2],
+        )
+        .unwrap();
+        let result = vcat_values(&[Value::SymbolicArray(top), Value::SymbolicArray(bottom)])
+            .expect("symbolic vcat");
+
+        if let Value::SymbolicArray(array) = result {
+            assert_eq!(array.shape, vec![2, 2, 2]);
+            assert_eq!(
+                array
+                    .data
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                vec!["a1", "b1", "a2", "b2", "a3", "b3", "a4", "b4"]
+            );
+        } else {
+            panic!("Expected symbolic array result");
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn direct_value_concatenation_preserves_exact_integer_scalars() {
+        let row = hcat_values(&[
+            Value::Int(runmat_value::IntValue::U64(9_223_372_036_854_775_808)),
+            Value::Num(2.5),
+            Value::Int(runmat_value::IntValue::U64(u64::MAX)),
+        ])
+        .expect("integer hcat values");
+        let Value::Tensor(row) = row else {
+            panic!("expected integer tensor row");
+        };
+        assert_eq!(row.shape, vec![1, 3]);
+        assert_eq!(
+            row.integer_storage(),
+            Some(&runmat_value::IntegerStorage::U64(vec![
+                9_223_372_036_854_775_808,
+                3,
+                u64::MAX,
+            ]))
+        );
+
+        let column = vcat_values(&[
+            Value::Int(runmat_value::IntValue::I16(-7)),
+            Value::Num(40000.0),
+            Value::Int(runmat_value::IntValue::U64(u64::MAX)),
+        ])
+        .expect("integer vcat values");
+        let Value::Tensor(column) = column else {
+            panic!("expected integer tensor column");
+        };
+        assert_eq!(column.shape, vec![3, 1]);
+        assert_eq!(
+            column.integer_storage(),
+            Some(&runmat_value::IntegerStorage::I16(vec![
+                -7,
+                i16::MAX,
+                i16::MAX,
+            ]))
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn direct_value_concatenation_preserves_empty_integer_class() {
+        let empty = Tensor::new_integer(runmat_value::IntegerStorage::U32(Vec::new()), vec![0, 0])
+            .expect("empty integer tensor");
+
+        let Value::Tensor(row) = hcat_values(&[Value::Tensor(empty.clone())]).expect("hcat empty")
+        else {
+            panic!("expected tensor");
+        };
+        assert_eq!(row.shape, vec![0, 0]);
+        assert_eq!(
+            row.integer_storage(),
+            Some(&runmat_value::IntegerStorage::U32(Vec::new()))
+        );
+
+        let Value::Tensor(column) = vcat_values(&[Value::Tensor(empty)]).expect("vcat empty")
+        else {
+            panic!("expected tensor");
+        };
+        assert_eq!(column.shape, vec![0, 0]);
+        assert_eq!(
+            column.integer_storage(),
+            Some(&runmat_value::IntegerStorage::U32(Vec::new()))
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn string_concatenation_preserves_exact_uint64_scalar_text() {
+        let maximum = Value::Int(runmat_value::IntValue::U64(u64::MAX));
+
+        let Value::StringArray(horizontal) =
+            hcat_values(&[Value::String("id".to_string()), maximum.clone()]).expect("hcat")
+        else {
+            panic!("expected string array");
+        };
+        assert_eq!(horizontal.shape, vec![1, 2]);
+        assert_eq!(horizontal.data, vec!["id", "18446744073709551615"]);
+
+        let Value::StringArray(vertical) =
+            vcat_values(&[Value::String("id".to_string()), maximum]).expect("vcat")
+        else {
+            panic!("expected string array");
+        };
+        assert_eq!(vertical.shape, vec![2, 1]);
+        assert_eq!(vertical.data, vec!["id", "18446744073709551615"]);
     }
 }

@@ -14,7 +14,7 @@
     "reduction": false,
     "precisions": [],
     "broadcasting": "none",
-    "notes": "Frequency-response analysis is host-side. GPU coefficient inputs are gathered automatically."
+    "notes": "Interactive resident inputs are a RunMat-only extension. They are compatibility-gated before provider access, then gathered for host analysis and return host outputs."
   },
   "fusion": {
     "elementwise": false,
@@ -29,6 +29,8 @@
   "description": "`freqz(b, a, n)` evaluates the complex frequency response of a digital filter at `n` points between 0 and Nyquist. With `fs`, returned frequencies are in Hz instead of radians/sample.",
   "behaviors": [
     "Default response length is 512 samples.",
+    "An explicit numeric point count must be at least 2; an empty point-count argument selects the default.",
+    "Single-precision coefficients produce a single-precision complex response.",
     "`[H, w] = freqz(...)` returns complex response `H` and frequency vector `w` as column vectors.",
     "Without `fs`, `w` is in radians/sample over `[0, pi)`.",
     "With `fs`, `w` is in Hz over `[0, fs/2)`."
@@ -43,6 +45,11 @@
       "description": "Evaluate a response in Hz",
       "input": "b = fir1(20, 0.25);\n[H, f] = freqz(b, 1, 8, 1000);\nfprintf('%.1f %.1f\\n', f(1), f(end));",
       "output": "0.0 437.5"
+    },
+    {
+      "description": "Inspect a Butterworth low-pass response",
+      "input": "[b, a] = butter(2, 0.25, 'low');\n[H, w] = freqz(b, a, 8);\nfprintf('%d %.4f %.4f\\n', length(H), abs(H(1)), w(end));",
+      "output": "8 1.0000 2.7489"
     }
   ],
   "faqs": [
@@ -56,6 +63,10 @@
     }
   ],
   "links": [
+    {
+      "label": "butter",
+      "url": "./butter"
+    },
     {
       "label": "filter",
       "url": "./filter"
@@ -74,7 +85,7 @@
     "url": "https://github.com/runmat-org/runmat/blob/main/crates/runmat-runtime/src/builtins/math/signal/freqz.rs"
   },
   "gpu_behavior": [
-    "Host-side analysis only.",
-    "GPU coefficient inputs are gathered before evaluation."
+    "Interactive resident input is a RunMat-only extension.",
+    "The extension is checked before provider access, then inputs are gathered and outputs remain on the host."
   ]
 }

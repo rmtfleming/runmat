@@ -10,10 +10,11 @@ use std::path::Path;
 use runmat_builtins::{
     builtin_functions, BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor,
     BuiltinOutputMode, BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType,
-    BuiltinSignatureDescriptor, CharArray, Value,
+    BuiltinSignatureDescriptor,
 };
 use runmat_filesystem as vfs;
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Value};
 
 use crate::builtins::common::fs::path_to_string;
 use crate::builtins::common::path_search::{
@@ -571,8 +572,8 @@ pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
     use once_cell::sync::Lazy;
-    use runmat_builtins::{CharArray, StringArray, Value};
     use runmat_thread_local::runmat_thread_local;
+    use runmat_value::{CharArray, StringArray, Value};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::fs::File;
@@ -663,6 +664,9 @@ pub(crate) mod tests {
     #[test]
     fn which_finds_files() {
         let (_guard, _lock) = test_guard();
+        let _fs_lock = crate::builtins::io::repl_fs::REPL_FS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let temp = tempdir().expect("tempdir");
         let script_path = temp.path().join("script.m");
         File::create(&script_path)
@@ -817,6 +821,9 @@ pub(crate) mod tests {
     #[test]
     fn which_file_option_finds_directories() {
         let (_guard, _lock) = test_guard();
+        let _fs_lock = crate::builtins::io::repl_fs::REPL_FS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let temp = tempdir().expect("tempdir");
         let subdir = temp.path().join("helpers");
         std::fs::create_dir_all(&subdir).expect("create dir");

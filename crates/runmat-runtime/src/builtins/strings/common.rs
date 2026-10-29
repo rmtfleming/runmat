@@ -1,6 +1,7 @@
 //! Shared helpers for string builtins.
-use runmat_builtins::CharArray;
+use runmat_value::CharArray;
 
+use runmat_value::Value;
 /// Canonical display for missing string scalars in MATLAB-compatible output.
 const MISSING_SENTINEL: &str = "<missing>";
 
@@ -44,6 +45,44 @@ pub(crate) fn char_row_to_string_slice(data: &[char], cols: usize, row: usize) -
     data[start..end].iter().collect()
 }
 
+/// Return `true` for a direct numeric text operand or a recursively nested resident value.
+///
+/// Text builtins use this before any gather so unsupported resident values cannot trigger provider
+/// access merely to discover that their class is not part of the public text contract. Host cell
+/// elements remain for each builtin's container validator so it can report the precise argument or
+/// element error instead of collapsing every malformed cell into a top-level type error.
+pub(crate) fn contains_numeric_or_resident_text_input(value: &Value) -> bool {
+    match value {
+        Value::Num(_)
+        | Value::Int(_)
+        | Value::Bool(_)
+        | Value::Tensor(_)
+        | Value::SparseTensor(_)
+        | Value::LogicalArray(_)
+        | Value::Complex(_, _)
+        | Value::ComplexTensor(_)
+        | Value::Symbolic(_)
+        | Value::GpuTensor(_) => true,
+        Value::Cell(cell) => cell.data.iter().any(contains_resident_text_input),
+        Value::StructArray(array) => array.any_value(contains_resident_text_input),
+        _ => false,
+    }
+}
+
+/// Return `true` when a value or supported aggregate contains provider-resident data.
+pub(crate) fn contains_resident_text_input(value: &Value) -> bool {
+    match value {
+        Value::GpuTensor(_) => true,
+        Value::Cell(cell) => cell.data.iter().any(contains_resident_text_input),
+        Value::Struct(value) => value.fields.values().any(contains_resident_text_input),
+        Value::StructArray(array) => array.any_value(contains_resident_text_input),
+        Value::Object(value) => value.properties.values().any(contains_resident_text_input),
+        Value::Closure(value) => value.captures.iter().any(contains_resident_text_input),
+        Value::OutputList(values) => values.iter().any(contains_resident_text_input),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -82,5 +121,37 @@ pub(crate) mod tests {
         let chars: Vec<char> = vec!['A', 'B', 'C', 'D', 'E', 'F'];
         assert_eq!(char_row_to_string_slice(&chars, 3, 0), "ABC");
         assert_eq!(char_row_to_string_slice(&chars, 3, 1), "DEF");
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn text_admission_leaves_host_cell_elements_to_container_validation() {
+        let numeric = Value::Int(runmat_value::IntValue::U64(u64::MAX));
+        assert!(contains_numeric_or_resident_text_input(&numeric));
+        let nested = Value::Cell(
+            runmat_value::CellArray::new(vec![Value::String("ok".into()), numeric], 1, 2).unwrap(),
+        );
+        assert!(!contains_numeric_or_resident_text_input(&nested));
+        assert!(!contains_numeric_or_resident_text_input(&Value::String(
+            "text".into()
+        )));
+    }
+
+    #[test]
+    fn text_admission_detects_residency_nested_in_typed_struct_arrays() {
+        let resident = Value::GpuTensor(runmat_accelerate_api::GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: 0,
+            buffer_id: 41,
+            descriptor: Default::default(),
+        });
+        let mut first = runmat_value::StructValue::new();
+        first.insert("payload", resident);
+        let mut second = runmat_value::StructValue::new();
+        second.insert("payload", Value::String("host".into()));
+        let array = runmat_value::StructArray::new(vec![first, second], vec![2, 1]).unwrap();
+        let value = Value::StructArray(array);
+        assert!(contains_resident_text_input(&value));
+        assert!(contains_numeric_or_resident_text_input(&value));
     }
 }

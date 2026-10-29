@@ -1,6 +1,6 @@
-use runmat_builtins::Value;
 use runmat_gc::{gc_allocate, gc_collect_major, gc_collect_minor};
 use runmat_gc::{gc_configure, gc_stats, gc_test_context, GcConfig};
+use runmat_value::Value;
 
 #[test]
 fn test_default_gc_config() {
@@ -206,6 +206,12 @@ fn test_preset_performance_characteristics() {
             let value = Value::Num(42.0);
             let ptr = gc_allocate(value);
             assert!(ptr.is_ok(), "Failed to allocate with preset {name}");
+
+            // Each iteration changes the heap topology. Release the unrooted
+            // probe allocation before applying the next preset so the test
+            // exercises a valid empty-heap reconfiguration rather than asking
+            // the collector to discard a live allocation.
+            gc_collect_major().expect("collect preset probe allocation");
         }
     });
 }
@@ -325,7 +331,7 @@ fn test_write_barriers_config() {
         assert!(result.is_ok());
 
         // Test allocation with write barriers enabled
-        let tensor = runmat_builtins::Tensor::new_2d(vec![1.0, 2.0, 3.0, 4.0], 2, 2).unwrap();
+        let tensor = runmat_value::Tensor::new_2d(vec![1.0, 2.0, 3.0, 4.0], 2, 2).unwrap();
         let value = Value::Tensor(tensor);
         let ptr = gc_allocate(value);
         assert!(ptr.is_ok());

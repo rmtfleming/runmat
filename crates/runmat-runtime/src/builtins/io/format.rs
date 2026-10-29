@@ -1,11 +1,11 @@
 //! MATLAB-compatible `format` builtin for controlling numeric display precision.
 
 use runmat_builtins::{
-    set_display_format, BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor,
-    BuiltinOutputMode, BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType,
-    BuiltinSignatureDescriptor, FormatMode, Tensor, Value,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{set_display_format, FormatMode, Tensor, Value};
 
 use crate::{build_runtime_error, BuiltinResult};
 
@@ -86,7 +86,10 @@ async fn format_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
             return Ok(empty_value());
         }
         [Value::String(s)] => s.to_lowercase(),
-        [Value::CharArray(ca)] => ca.to_string().to_lowercase(),
+        [Value::CharArray(chars)] if chars.rows == 1 => chars
+            .row_string()
+            .expect("row-validated character array")
+            .to_lowercase(),
         _ => {
             return Err(format_error_with(
                 &FORMAT_ERROR_ARG_CONFIG,
@@ -130,7 +133,7 @@ fn empty_value() -> Value {
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{format_number, get_display_format, FormatMode};
+    use runmat_value::{format_number, get_display_format, FormatMode};
     use std::f64::consts::PI;
 
     fn with_format<F: FnOnce()>(mode: FormatMode, f: F) {

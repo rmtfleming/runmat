@@ -17,7 +17,35 @@ use runmat_geometry_core::{
 use std::collections::BTreeMap;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+pub(crate) mod evaluator;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod evaluator_bindings;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod evaluator_mass;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod evaluator_pcurve;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod evaluator_surface;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod evaluator_trim;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_healing_projection;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_persistent_names;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_projection;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_projection_evaluators;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_projection_identity;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_projection_interfaces;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod exact_projection_occurrence;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
 mod ffi;
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+mod import_validation;
 #[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
 mod native;
 #[cfg(all(target_arch = "wasm32", feature = "occt-wasm-host"))]
@@ -66,6 +94,7 @@ pub(crate) struct OcctCadTopology {
     pub triangles: Vec<[u32; 3]>,
     pub triangle_face_ids: Vec<u64>,
     pub faces: Vec<OcctCadFace>,
+    pub face_evaluation_samples: Vec<OcctRawFaceEvaluationSample>,
     pub assembly: Option<AssemblyNode>,
     pub warnings: Vec<String>,
 }
@@ -100,6 +129,7 @@ pub(crate) struct OcctRawTopology {
     pub face_ids: Vec<u64>,
     pub face_names: Vec<String>,
     pub face_semantics: Vec<OcctRawFaceSemantic>,
+    pub face_evaluation_samples: Vec<OcctRawFaceEvaluationSample>,
     pub assembly_nodes: Vec<OcctRawAssemblyNode>,
     pub warnings: Vec<String>,
 }
@@ -127,6 +157,16 @@ pub(crate) struct OcctRawFaceSemantic {
     pub material_density_value_type: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OcctRawFaceEvaluationSample {
+    pub face_id: u64,
+    pub u: f64,
+    pub v: f64,
+    pub point_m: [f64; 3],
+    pub unit_normal: [f64; 3],
+    pub projection_error_m: f64,
+}
+
 #[cfg(any(
     all(not(target_arch = "wasm32"), feature = "occt-native"),
     all(target_arch = "wasm32", feature = "occt-wasm-host")
@@ -138,6 +178,11 @@ pub(crate) struct OcctRawAssemblyNode {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+pub(crate) fn native_cad_backend_was_used() -> bool {
+    native::native_cad_backend_was_used()
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
 pub(crate) fn import_cad_topology(
     path: &str,
     bytes: &[u8],
@@ -146,6 +191,31 @@ pub(crate) fn import_cad_topology(
     context: &GeometryImportContext,
 ) -> Result<Option<OcctCadTopology>, GeometryImportError> {
     native::import_cad_topology(path, bytes, format, options, context).map(Some)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "occt-native"))]
+pub(crate) fn import_exact_cad_shape(
+    path: &str,
+    bytes: &[u8],
+    format: OcctCadFormat,
+    options: &crate::exact::ExactCadImportOptions,
+    context: &GeometryImportContext,
+) -> Result<crate::exact::ImportedExactCad, GeometryImportError> {
+    native::import_exact_cad_shape(path, bytes, format, options, context)
+}
+
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "occt-native")))]
+pub(crate) fn import_exact_cad_shape(
+    path: &str,
+    bytes: &[u8],
+    format: OcctCadFormat,
+    options: &crate::exact::ExactCadImportOptions,
+    context: &GeometryImportContext,
+) -> Result<crate::exact::ImportedExactCad, GeometryImportError> {
+    let _ = (path, bytes, format, options, context);
+    Err(GeometryImportError::BackendUnavailable(
+        "exact CAD import requires a native OCCT host".into(),
+    ))
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "occt-wasm-host"))]
@@ -381,6 +451,7 @@ pub(crate) fn topology_from_raw(
         vertices,
         triangles,
         triangle_face_ids: payload.triangle_face_ids,
+        face_evaluation_samples: payload.face_evaluation_samples,
         faces,
         assembly,
         warnings: payload.warnings,
@@ -431,6 +502,7 @@ fn face_ownership_by_id(
 
         let entry = CadRegionOwnership {
             face_id: Some(row.face_id),
+            curve_id: None,
             label,
             owner_path,
             layers: row.layer_names.into_iter().filter_map(non_empty).collect(),

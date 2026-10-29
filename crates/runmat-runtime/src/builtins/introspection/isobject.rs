@@ -1,22 +1,17 @@
-//! MATLAB-compatible `isobject` builtin with GPU-aware semantics for RunMat.
-//!
-//! Clean-room provenance: specs/022-legacy-predicates (spec `isobject` 0.2.0,
-//! claims isobject.signature-primary, isobject.output-class,
-//! isobject.logical-object-test). Object/handle-object value kinds report
-//! true; all fundamental (numeric/char/cell/…) kinds report false.
+//! MATLAB-compatible `isobject` builtin.
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
+use crate::builtins::introspection::type_resolvers::isobject_type;
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
 };
+use runmat_builtins::{BuiltinIntegerAuditDescriptor, BuiltinIntegerAuditKind};
 use runmat_macros::runtime_builtin;
-
-use crate::BuiltinResult;
+use runmat_value::Value;
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::introspection::isobject")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -31,8 +26,7 @@ pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     two_pass_threshold: None,
     workgroup_size: None,
     accepts_nan_mode: false,
-    notes:
-        "Runs entirely on the host and inspects value kind; gpuArray inputs return logical false.",
+    notes: "Metadata predicate; explicit gpuArray inputs stay resident and return logical true, while internal automatic residency remains an invisible numeric implementation detail.",
 };
 
 #[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::introspection::isobject")]
@@ -43,7 +37,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     elementwise: None,
     reduction: None,
     emits_nan: false,
-    notes: "Metadata-only predicate that does not participate in fusion planning.",
+    notes: "Object/type predicate that does not participate in fusion planning.",
 };
 
 const ISOBJECT_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
@@ -51,7 +45,7 @@ const ISOBJECT_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     ty: BuiltinParamType::LogicalArray,
     arity: BuiltinParamArity::Required,
     default: None,
-    description: "True when the input is an object instance.",
+    description: "True when input is a MATLAB object.",
 }];
 
 const ISOBJECT_INPUTS: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
@@ -59,7 +53,7 @@ const ISOBJECT_INPUTS: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     ty: BuiltinParamType::Any,
     arity: BuiltinParamArity::Required,
     default: None,
-    description: "Value to test.",
+    description: "Input value to inspect.",
 }];
 
 const ISOBJECT_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
@@ -76,158 +70,152 @@ pub const ISOBJECT_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &ISOBJECT_ERRORS,
 };
+pub const ISOBJECT_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor =
+    BuiltinIntegerAuditDescriptor {
+        kind: BuiltinIntegerAuditKind::NotApplicable,
+        canonical_builtin: None,
+        notes: "isobject is a universal object-type predicate; host integers and internally auto-resident integers return scalar false, while an explicitly constructed integer gpuArray returns true without payload access.",
+    };
 
 #[runtime_builtin(
     name = "isobject",
     category = "introspection",
-    summary = "Return true when a value is an object instance (not a fundamental type).",
-    keywords = "isobject,object,class,type checking,introspection",
+    summary = "Return true when a value is a MATLAB object.",
+    keywords = "isobject,object,handle,metaclass,type checking",
     accel = "metadata",
-    type_resolver(bool_scalar_type),
+    type_resolver(isobject_type),
     descriptor(crate::builtins::introspection::isobject::ISOBJECT_DESCRIPTOR),
+    integer_audit(crate::builtins::introspection::isobject::ISOBJECT_INTEGER_AUDIT),
     builtin_path = "crate::builtins::introspection::isobject"
 )]
-fn isobject_builtin(value: Value) -> BuiltinResult<Value> {
+fn isobject_builtin(value: Value) -> crate::BuiltinResult<Value> {
     Ok(Value::Bool(isobject_value(&value)))
 }
 
-fn bool_scalar_type(_: &[Type], _context: &ResolveContext) -> Type {
-    Type::Bool
-}
-
-/// True for object-instance value kinds. `Value::Object` (value-class
-/// instance) and `Value::HandleObject` (handle-class instance, e.g. the
-/// feature-015 `inputParser`) are objects; every fundamental kind
-/// (numeric/char/cell/struct/string/logical/function-handle/GPU) is not.
-///
-/// Other object-adjacent kinds (`Value::Listener`, `Value::MException`,
-/// `Value::ClassRef`) are unobserved in the approved export; they
-/// conservatively report `false` as a documented independent choice rather
-/// than an invented MATLAB-conformance claim (see isobject.q-fundamental).
-fn isobject_value(value: &Value) -> bool {
-    matches!(value, Value::Object(_) | Value::HandleObject(_))
+pub(crate) fn isobject_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::ObjectArray(_)
+            | Value::Object(_)
+            | Value::HandleObject(_)
+            | Value::Listener(_)
+            | Value::ClassRef(_)
+            | Value::MException(_)
+            | Value::Future(_)
+            | Value::Task(_)
+            | Value::Pool(_)
+            | Value::Job(_)
+    ) || matches!(value, Value::GpuTensor(handle) if runmat_accelerate_api::handle_is_explicit(handle))
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use crate::builtins::common::test_support;
-    #[cfg(feature = "wgpu")]
-    use runmat_accelerate::backend::wgpu::provider::{register_wgpu_provider, WgpuProviderOptions};
-    use runmat_accelerate_api::HostTensorView;
-    use runmat_builtins::{CellArray, CharArray, HandleRef, ObjectInstance, StructValue, Tensor};
+    use runmat_value::{
+        CellArray, CharArray, Closure, HandleRef, IntValue, IntegerStorage, Listener, MException,
+        ObjectInstance, StructValue, Tensor,
+    };
 
-    fn handle_object(class_name: &str) -> Value {
-        let target = runmat_gc::gc_allocate(Value::Num(0.0)).expect("gc allocation");
-        Value::HandleObject(HandleRef {
-            class_name: class_name.to_string(),
-            target,
+    fn handle_target() -> runmat_gc::GcHandle {
+        runmat_gc::gc_allocate(Value::Num(0.0)).expect("gc allocation")
+    }
+
+    #[test]
+    fn runmat_object_variants_report_true() {
+        let object = Value::Object(ObjectInstance::new("pkg.Point".to_string()));
+        let handle = Value::HandleObject(HandleRef {
+            class_name: "pkg.PointHandle".into(),
+            target: handle_target(),
             valid: true,
-        })
-    }
-
-    // Normative [FR-022-01; isobject.logical-object-test, isobject.output-class]
-    // Observed case `object`: isobject(inputParser) => true. RunMat's
-    // inputParser (feature 015) is a Value::HandleObject.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn observed_object_instance_is_true() {
-        let result = isobject_builtin(handle_object("inputParser")).expect("isobject");
-        assert_eq!(result, Value::Bool(true));
-    }
-
-    // Normative — observed case `numeric`: isobject(5) => false.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn observed_numeric_is_false() {
-        assert_eq!(
-            isobject_builtin(Value::Num(5.0)).expect("isobject"),
-            Value::Bool(false)
-        );
-    }
-
-    // Normative — observed case `char`: isobject('a') => false.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn observed_char_is_false() {
-        assert_eq!(
-            isobject_builtin(Value::CharArray(CharArray::new_row("a"))).expect("isobject"),
-            Value::Bool(false)
-        );
-    }
-
-    // Normative — observed case `cell`: isobject({1}) => false.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn observed_cell_is_false() {
-        let cell = CellArray::new(vec![Value::Num(1.0)], 1, 1).expect("cell");
-        assert_eq!(
-            isobject_builtin(Value::Cell(cell)).expect("isobject"),
-            Value::Bool(false)
-        );
-    }
-
-    // unresolved_choice [isobject.q-fundamental]: a value-class instance
-    // (Value::Object) is an object kind too; reports true. Unobserved input
-    // class in the approved export.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn unresolved_choice_value_object_is_true() {
-        let obj = Value::Object(ObjectInstance::new("Point".to_string()));
-        assert_eq!(isobject_builtin(obj).expect("isobject"), Value::Bool(true));
-    }
-
-    // unresolved_choice [isobject.q-fundamental]: struct, string and
-    // function-handle fundamental kinds report false (unobserved).
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn unresolved_choice_fundamental_kinds_are_false() {
-        let mut st = StructValue::new();
-        st.insert("field", Value::Num(1.0));
-        assert_eq!(
-            isobject_builtin(Value::Struct(st)).expect("isobject"),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            isobject_builtin(Value::String("hi".to_string())).expect("isobject"),
-            Value::Bool(false)
-        );
-        assert_eq!(
-            isobject_builtin(Value::FunctionHandle("sin".to_string())).expect("isobject"),
-            Value::Bool(false)
-        );
-    }
-
-    // unresolved_choice: GPU tensors are numeric, not objects → false.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[test]
-    fn unresolved_choice_gpu_tensor_is_false() {
-        test_support::with_test_provider(|provider| {
-            let tensor = Tensor::new(vec![1.0, 2.0], vec![2, 1]).expect("tensor");
-            let view = HostTensorView {
-                data: &tensor.data,
-                shape: &tensor.shape,
-            };
-            let handle = provider.upload(&view).expect("upload");
-            let result = isobject_builtin(Value::GpuTensor(handle)).expect("isobject");
-            assert_eq!(result, Value::Bool(false));
         });
+        let listener = Value::Listener(Listener {
+            id: 1,
+            target: handle_target(),
+            target_class_name: "pkg.Target".into(),
+            event_name: "Changed".into(),
+            callback: handle_target(),
+            enabled: true,
+            valid: true,
+        });
+        let class_ref = Value::ClassRef("pkg.Point".into());
+        let exception = Value::MException(MException::new(
+            "RunMat:Test".to_string(),
+            "failure".to_string(),
+        ));
+
+        for value in [object, handle, listener, class_ref, exception] {
+            assert_eq!(
+                isobject_builtin(value).expect("isobject"),
+                Value::Bool(true)
+            );
+        }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    #[cfg(feature = "wgpu")]
-    fn isobject_wgpu_numeric_returns_false() {
-        let _ = register_wgpu_provider(WgpuProviderOptions::default());
-        let provider = runmat_accelerate_api::provider().expect("wgpu provider");
-        let data = vec![0.0, 1.0];
-        let shape = vec![2, 1];
-        let view = HostTensorView {
-            data: &data,
-            shape: &shape,
-        };
-        let handle = provider.upload(&view).expect("upload to GPU");
-        let result = isobject_builtin(Value::GpuTensor(handle)).expect("isobject");
-        assert_eq!(result, Value::Bool(false));
+    fn non_object_values_report_false() {
+        let mut st = StructValue::new();
+        st.insert("x", Value::Num(1.0));
+        let values = vec![
+            Value::Num(1.0),
+            Value::Tensor(Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("tensor")),
+            Value::Bool(true),
+            Value::String("text".to_string()),
+            Value::CharArray(CharArray::new_row("text")),
+            Value::Cell(CellArray::new(vec![Value::Num(1.0)], 1, 1).expect("cell")),
+            Value::Struct(st),
+            Value::FunctionHandle("sin".to_string()),
+            Value::Closure(Closure {
+                function_name: "anon".into(),
+                bound_function: None,
+                captures: Vec::new(),
+            }),
+        ];
+
+        for value in values {
+            assert_eq!(
+                isobject_builtin(value).expect("isobject"),
+                Value::Bool(false)
+            );
+        }
+    }
+
+    #[test]
+    fn all_integer_classes_report_false() {
+        for value in [
+            IntValue::I8(-1),
+            IntValue::I16(-2),
+            IntValue::I32(-3),
+            IntValue::I64(i64::MIN),
+            IntValue::U8(1),
+            IntValue::U16(2),
+            IntValue::U32(3),
+            IntValue::U64(u64::MAX),
+        ] {
+            assert_eq!(
+                isobject_builtin(Value::Int(value)).expect("isobject"),
+                Value::Bool(false)
+            );
+        }
+    }
+
+    #[test]
+    fn only_explicit_resident_integer_reports_as_gpuarray_object() {
+        test_support::with_test_provider(|provider| {
+            let tensor = Tensor::new_integer(IntegerStorage::U64(vec![u64::MAX]), vec![1, 1])
+                .expect("integer tensor");
+            let handle = crate::builtins::common::gpu_helpers::upload_tensor(provider, &tensor)
+                .expect("upload integer");
+            assert_eq!(
+                isobject_builtin(Value::GpuTensor(handle.clone())).unwrap(),
+                Value::Bool(false)
+            );
+            let handle =
+                handle.with_provenance(runmat_accelerate_api::GpuHandleProvenance::Explicit);
+            assert_eq!(
+                isobject_builtin(Value::GpuTensor(handle)).unwrap(),
+                Value::Bool(true)
+            );
+        });
     }
 }

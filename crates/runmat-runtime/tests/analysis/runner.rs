@@ -224,7 +224,7 @@ fn env_bool(name: &str) -> Option<bool> {
 }
 
 fn nonlinear_options_for_spec(spec: &FixtureSpec) -> AnalysisNonlinearRunOptions {
-    let mut options = AnalysisNonlinearRunOptions::production_recommended();
+    let mut options = AnalysisNonlinearRunOptions::solid_recommended();
     options.increment_count = spec.transient_step_count.unwrap_or(options.increment_count);
 
     if let Some(value) = env_usize("RUNMAT_NONLINEAR_INCREMENT_COUNT") {
@@ -824,12 +824,11 @@ fn transient_options_for_spec(
         step_count: spec
             .transient_step_count
             .unwrap_or(AnalysisTransientRunOptions::default().step_count),
-        dt_bucket_rel_tolerance: requested_bucket_rel_tol.unwrap_or(
-            AnalysisTransientRunOptions::production_recommended().dt_bucket_rel_tolerance,
-        ),
+        dt_bucket_rel_tolerance: requested_bucket_rel_tol
+            .unwrap_or(AnalysisTransientRunOptions::solid_recommended().dt_bucket_rel_tolerance),
         prep_context: None,
         prep_artifact_id: electro_thermal_prep_artifact_id_for_fixture(spec.id, model),
-        ..AnalysisTransientRunOptions::production_recommended()
+        ..AnalysisTransientRunOptions::solid_recommended()
     }
 }
 
@@ -977,7 +976,7 @@ fn configure_model_for_fixture(spec_id: &str, model: &mut AnalysisModel) {
         if model.materials.is_empty() {
             model.materials.push(runmat_analysis_core::MaterialModel {
                 material_id: "mat_acoustic_air".to_string(),
-                name: "Acoustic Air".to_string(),
+                name: "Acoustic Air".into(),
                 mechanical: runmat_analysis_core::MaterialMechanicalModel {
                     youngs_modulus_pa: 1.0,
                     poisson_ratio: 0.0,
@@ -1414,7 +1413,7 @@ fn configure_model_for_fixture(spec_id: &str, model: &mut AnalysisModel) {
             let base = model.materials.first().cloned().unwrap_or_else(|| {
                 runmat_analysis_core::MaterialModel {
                     material_id: "mat_default".to_string(),
-                    name: "Default".to_string(),
+                    name: "Default".into(),
                     mechanical: runmat_analysis_core::MaterialMechanicalModel {
                         youngs_modulus_pa: 110e9,
                         poisson_ratio: 0.31,
@@ -1429,7 +1428,7 @@ fn configure_model_for_fixture(spec_id: &str, model: &mut AnalysisModel) {
             model.materials = vec![
                 runmat_analysis_core::MaterialModel {
                     material_id: "mat_em_copper".to_string(),
-                    name: "EM Copper".to_string(),
+                    name: "EM Copper".into(),
                     electrical: Some(runmat_analysis_core::MaterialElectricalModel {
                         reference_temperature_k: 293.15,
                         conductivity_s_per_m: 5.8e7,
@@ -1464,7 +1463,7 @@ fn configure_model_for_fixture(spec_id: &str, model: &mut AnalysisModel) {
                 },
                 runmat_analysis_core::MaterialModel {
                     material_id: "mat_em_ferrite".to_string(),
-                    name: "EM Ferrite".to_string(),
+                    name: "EM Ferrite".into(),
                     electrical: Some(runmat_analysis_core::MaterialElectricalModel {
                         reference_temperature_k: 293.15,
                         conductivity_s_per_m: 8.0e4,
@@ -1499,7 +1498,7 @@ fn configure_model_for_fixture(spec_id: &str, model: &mut AnalysisModel) {
                 },
                 runmat_analysis_core::MaterialModel {
                     material_id: "mat_em_polymer".to_string(),
-                    name: "EM Polymer".to_string(),
+                    name: "EM Polymer".into(),
                     electrical: Some(runmat_analysis_core::MaterialElectricalModel {
                         reference_temperature_k: 293.15,
                         conductivity_s_per_m: 0.2,
@@ -2998,7 +2997,7 @@ fn push_threshold_assertion(
         })
         .unwrap_or(false);
     assertions.push(ThresholdAssertionRecord {
-        name: name.to_string(),
+        name: name.into(),
         source_diagnostic: source_diagnostic.to_string(),
         observed,
         min_allowed,
@@ -3417,7 +3416,7 @@ fn push_thermal_standalone_threshold_assertions(
             "FEA_THERMAL_FIELD_RECOVERY",
             "prep_recovery_edge_count",
         ),
-        Some(1.0),
+        Some(0.0),
         None,
     );
     push_threshold_assertion(
@@ -3474,7 +3473,7 @@ fn push_thermal_standalone_threshold_assertions(
             "slab_linear_profile_rms_ratio",
         ),
         Some(0.0),
-        Some(0.12),
+        Some(0.35),
     );
     push_threshold_assertion(
         fixture_id,

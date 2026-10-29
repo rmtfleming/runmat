@@ -1,8 +1,10 @@
 use once_cell::sync::OnceCell;
-use runmat_builtins::Value;
 use runmat_thread_local::runmat_thread_local;
 use runmat_time::unix_timestamp_ms;
+use runmat_value::Value;
 use std::cell::RefCell;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 /// Identifies the console stream that received the text.
@@ -24,11 +26,66 @@ pub struct ConsoleEntry {
 type StreamForwarder = dyn Fn(&ConsoleEntry) + Send + Sync + 'static;
 
 runmat_thread_local! {
-    static THREAD_BUFFER: RefCell<Vec<ConsoleEntry>> = const { RefCell::new(Vec::new()) };
-    static LAST_VALUE_OUTPUT: RefCell<Option<Value>> = const { RefCell::new(None) };
+    static FALLBACK_STATE: RefCell<ConsoleState> = RefCell::new(ConsoleState::default());
 }
 
 static FORWARDER: OnceCell<RwLock<Option<Arc<StreamForwarder>>>> = OnceCell::new();
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiaryStateSnapshot {
+    pub enabled: bool,
+    pub filename: PathBuf,
+}
+
+impl Default for DiaryStateSnapshot {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            filename: PathBuf::from("diary"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DiaryState {
+    enabled: bool,
+    filename: PathBuf,
+    last_error: Option<String>,
+}
+
+impl Default for DiaryState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            filename: PathBuf::from("diary"),
+            last_error: None,
+        }
+    }
+}
+
+impl From<DiaryStateSnapshot> for DiaryState {
+    fn from(snapshot: DiaryStateSnapshot) -> Self {
+        Self {
+            enabled: snapshot.enabled,
+            filename: snapshot.filename,
+            last_error: None,
+        }
+    }
+}
+
+/// Guard for a dynamic command-window capture scope such as `evalc`.
+pub struct ConsoleCaptureGuard {
+    active: bool,
+    state: Option<std::rc::Rc<crate::context::RuntimeContextState>>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ConsoleState {
+    buffer: Vec<ConsoleEntry>,
+    last_value_output: Option<Value>,
+    captures: Vec<Vec<ConsoleEntry>>,
+    diary: DiaryState,
+}
 
 fn now_ms() -> u64 {
     unix_timestamp_ms().min(u64::MAX as u128) as u64
@@ -42,7 +99,26 @@ pub fn record_console_output(stream: ConsoleStream, text: impl Into<String>) {
         text: text.into(),
         timestamp_ms: now_ms(),
     };
-    THREAD_BUFFER.with(|buf| buf.borrow_mut().push(entry.clone()));
+    if with_console_state(|state| {
+        if let Some(current) = state.captures.last_mut() {
+            current.push(entry.clone());
+            true
+        } else {
+            false
+        }
+    }) {
+        return;
+    }
+
+    with_console_state(|state| state.buffer.push(entry.clone()));
+    write_diary_entry(&entry);
+
+    if let Some(context) = crate::context::legacy::active() {
+        if let Some(host) = context.service_ports().host() {
+            host.console(entry.stream, entry.text.clone());
+            return;
+        }
+    }
 
     if let Some(forwarder) = FORWARDER
         .get()
@@ -70,22 +146,23 @@ pub fn record_console_line(stream: ConsoleStream, text: impl Into<String>) {
 /// Clears the per-thread console buffer. Call this before execution begins so
 /// each run only returns fresh output.
 pub fn reset_thread_buffer() {
-    THREAD_BUFFER.with(|buf| buf.borrow_mut().clear());
-    LAST_VALUE_OUTPUT.with(|value| value.borrow_mut().take());
+    with_console_state(|state| {
+        state.buffer.clear();
+        state.last_value_output = None;
+    });
 }
 
 /// Drain (and return) the buffered console entries for the current thread.
 pub fn take_thread_buffer() -> Vec<ConsoleEntry> {
-    THREAD_BUFFER.with(|buf| buf.borrow_mut().drain(..).collect())
+    with_console_state(|state| state.buffer.drain(..).collect())
 }
 
 /// Append console entries captured on another execution thread without
 /// forwarding them again to live stream listeners.
 pub fn append_thread_buffer(entries: impl IntoIterator<Item = ConsoleEntry>) {
-    THREAD_BUFFER.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        buf.extend(entries);
-        buf.sort_by_key(|entry| entry.timestamp_ms);
+    with_console_state(|state| {
+        state.buffer.extend(entries);
+        state.buffer.sort_by_key(|entry| entry.timestamp_ms);
     });
 }
 
@@ -100,17 +177,15 @@ pub fn install_forwarder(forwarder: Option<Arc<StreamForwarder>>) {
 
 /// Convenience helper to record formatted value output (matching MATLAB's `name = value` layout).
 pub fn record_value_output(label: Option<&str>, value: &Value) {
-    LAST_VALUE_OUTPUT.with(|last| {
-        *last.borrow_mut() = Some(value.clone());
-    });
+    with_console_state(|state| state.last_value_output = Some(value.clone()));
     let value_text = match value {
-        Value::Object(obj) if obj.is_class("datetime") => {
+        Value::Object(obj) if obj.is_class(runmat_types::standard::DATETIME) => {
             crate::builtins::datetime::datetime_display_text(value)
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| value.to_string())
         }
-        Value::Object(obj) if obj.is_class("duration") => {
+        Value::Object(obj) if obj.is_class(runmat_types::standard::DURATION) => {
             crate::builtins::duration::duration_display_text(value)
                 .ok()
                 .flatten()
@@ -133,7 +208,211 @@ pub fn record_value_output(label: Option<&str>, value: &Value) {
 }
 
 pub fn take_last_value_output() -> Option<Value> {
-    LAST_VALUE_OUTPUT.with(|value| value.borrow_mut().take())
+    with_console_state(|state| state.last_value_output.take())
+}
+
+/// Begin capturing command-window text for the current execution context.
+///
+/// While a capture is active, stdout/stderr entries are diverted into the
+/// capture buffer instead of the normal execution stream, live forwarder, or
+/// diary log. This matches MATLAB's `evalc` behavior, where `diary` is disabled
+/// inside the captured evaluation.
+pub fn begin_capture() -> ConsoleCaptureGuard {
+    let state = active_state();
+    if let Some(state) = &state {
+        state.console.borrow_mut().captures.push(Vec::new());
+    } else {
+        FALLBACK_STATE.with(|fallback| fallback.borrow_mut().captures.push(Vec::new()));
+    }
+    ConsoleCaptureGuard {
+        active: true,
+        state,
+    }
+}
+
+impl ConsoleCaptureGuard {
+    pub fn finish(mut self) -> String {
+        captured_text(self.take_entries())
+    }
+
+    /// Finish this capture and retain the stream identity of every entry.
+    ///
+    /// Foreign engine adapters use this form when the caller supplied
+    /// distinct standard-output and standard-error stream buffers.
+    pub fn finish_entries(mut self) -> Vec<ConsoleEntry> {
+        self.take_entries()
+    }
+
+    fn take_entries(&mut self) -> Vec<ConsoleEntry> {
+        self.active = false;
+        if let Some(state) = &self.state {
+            state
+                .console
+                .borrow_mut()
+                .captures
+                .pop()
+                .unwrap_or_default()
+        } else {
+            FALLBACK_STATE.with(|fallback| fallback.borrow_mut().captures.pop().unwrap_or_default())
+        }
+    }
+}
+
+impl Drop for ConsoleCaptureGuard {
+    fn drop(&mut self) {
+        if self.active {
+            if let Some(state) = &self.state {
+                state.console.borrow_mut().captures.pop();
+            } else {
+                FALLBACK_STATE.with(|fallback| {
+                    fallback.borrow_mut().captures.pop();
+                });
+            }
+        }
+    }
+}
+
+fn captured_text(entries: Vec<ConsoleEntry>) -> String {
+    let mut out = String::new();
+    for entry in entries {
+        if matches!(entry.stream, ConsoleStream::Stdout | ConsoleStream::Stderr) {
+            out.push_str(&entry.text);
+        }
+    }
+    out
+}
+
+pub fn diary_enabled() -> bool {
+    with_console_state(|state| state.diary.enabled)
+}
+
+pub fn diary_filename() -> PathBuf {
+    with_console_state(|state| state.diary.filename.clone())
+}
+
+pub fn diary_state_snapshot() -> DiaryStateSnapshot {
+    with_console_state(|state| DiaryStateSnapshot {
+        enabled: state.diary.enabled,
+        filename: state.diary.filename.clone(),
+    })
+}
+
+pub fn replace_diary_state(snapshot: DiaryStateSnapshot) -> DiaryStateSnapshot {
+    with_console_state(|state| {
+        let previous = DiaryStateSnapshot {
+            enabled: state.diary.enabled,
+            filename: state.diary.filename.clone(),
+        };
+        state.diary = DiaryState::from(snapshot);
+        previous
+    })
+}
+
+pub fn take_diary_error() -> Option<String> {
+    with_console_state(|state| state.diary.last_error.take())
+}
+
+pub fn set_diary_filename(filename: impl Into<PathBuf>) {
+    with_console_state(|state| {
+        state.diary.filename = filename.into();
+        state.diary.enabled = true;
+        state.diary.last_error = None;
+    });
+}
+
+pub fn set_diary_filename_checked(filename: impl Into<PathBuf>) -> std::io::Result<()> {
+    let filename = filename.into();
+    open_diary_append(&filename).map(|_| ())?;
+    set_diary_filename(filename);
+    Ok(())
+}
+
+pub fn set_diary_enabled(enabled: bool) {
+    with_console_state(|state| {
+        state.diary.enabled = enabled;
+        if enabled {
+            state.diary.last_error = None;
+        }
+    });
+}
+
+pub fn set_diary_enabled_checked(enabled: bool) -> std::io::Result<()> {
+    if enabled {
+        ensure_diary_writable()?;
+    }
+    set_diary_enabled(enabled);
+    Ok(())
+}
+
+pub fn toggle_diary() -> std::io::Result<()> {
+    if diary_enabled() {
+        set_diary_enabled(false);
+    } else {
+        set_diary_enabled_checked(true)?;
+    }
+    Ok(())
+}
+
+pub fn ensure_diary_writable() -> std::io::Result<()> {
+    let filename = diary_filename();
+    open_diary_append(&filename).map(|_| ())
+}
+
+/// Append the top-level source text to the diary without echoing it to stdout.
+pub fn record_diary_command(text: &str) {
+    if !diary_enabled() {
+        return;
+    }
+    let mut owned = text.to_string();
+    if !owned.ends_with('\n') {
+        owned.push('\n');
+    }
+    if let Err(err) = write_diary_text(&owned) {
+        record_diary_failure(err);
+    }
+}
+
+fn write_diary_entry(entry: &ConsoleEntry) {
+    if !matches!(entry.stream, ConsoleStream::Stdout | ConsoleStream::Stderr) {
+        return;
+    }
+    if diary_enabled() {
+        if let Err(err) = write_diary_text(&entry.text) {
+            record_diary_failure(err);
+        }
+    }
+}
+
+fn record_diary_failure(err: std::io::Error) {
+    with_console_state(|state| {
+        state.diary.enabled = false;
+        state.diary.last_error = Some(format!("diary: failed to write diary file ({err})"));
+    });
+}
+
+fn active_state() -> Option<std::rc::Rc<crate::context::RuntimeContextState>> {
+    crate::context::legacy::active().map(|context| std::rc::Rc::clone(context.state()))
+}
+
+fn with_console_state<R>(callback: impl FnOnce(&mut ConsoleState) -> R) -> R {
+    if let Some(state) = active_state() {
+        callback(&mut state.console.borrow_mut())
+    } else {
+        FALLBACK_STATE.with(|state| callback(&mut state.borrow_mut()))
+    }
+}
+
+fn write_diary_text(text: &str) -> std::io::Result<()> {
+    let filename = diary_filename();
+    let mut file = open_diary_append(&filename)?;
+    file.write_all(text.as_bytes())?;
+    file.flush()
+}
+
+fn open_diary_append(path: &PathBuf) -> std::io::Result<runmat_filesystem::File> {
+    let mut options = runmat_filesystem::OpenOptions::new();
+    options.create(true).append(true);
+    options.open(path)
 }
 
 fn is_unlabeled_nd_page_display(text: &str) -> bool {
@@ -182,5 +461,21 @@ mod tests {
             .map(|entry| entry.text)
             .collect::<Vec<_>>();
         assert_eq!(texts, vec!["early", "late", "same-time"]);
+    }
+
+    #[test]
+    fn capture_diverts_console_text_from_thread_buffer() {
+        let _lock = runmat_filesystem::provider_override_lock();
+        set_diary_enabled(false);
+        reset_thread_buffer();
+        let capture = begin_capture();
+        record_console_line(ConsoleStream::Stdout, "inside");
+        let text = capture.finish();
+        record_console_line(ConsoleStream::Stdout, "outside");
+
+        assert_eq!(text, "inside\n");
+        let entries = take_thread_buffer();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "outside\n");
     }
 }

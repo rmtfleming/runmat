@@ -15,50 +15,414 @@ fn mir_local_fact_count_for_entrypoint(
     analysis: &runmat_mir::analysis::AnalysisStore,
     assembly: &runmat_hir::HirAssembly,
 ) -> usize {
-    let Some(entrypoint_target) = entrypoint_target_function(assembly) else {
-        return analysis.mir_locals.len();
-    };
-    analysis
-        .mir_locals
-        .keys()
-        .filter(|key| key.function == entrypoint_target)
-        .count()
+    let function = entrypoint_target_function(assembly)
+        .and_then(|function| u32::try_from(function.0).ok())
+        .map(runmat_types::ProgramFunctionId);
+    analysis.local_value_count(function)
 }
 
-fn discover_known_project_symbols(source_name: Option<&str>) -> HashSet<String> {
-    use runmat_config::project::discover_known_project_symbols_from_source_name;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn discover_source_catalog(
+    source_name: Option<&str>,
+) -> Option<runmat_package::DiscoveredSourceSymbols> {
+    use runmat_package::discover_source_symbols_from_source_name;
     use std::path::{Path, PathBuf};
 
     let Ok(cwd) = runmat_filesystem::current_dir() else {
-        let Some(source_name) = source_name else {
-            return HashSet::new();
-        };
+        let source_name = source_name?;
         let source_path = PathBuf::from(source_name);
         if source_path.is_absolute() {
             let source_cwd = source_path
                 .parent()
                 .map(Path::to_path_buf)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            return discover_known_project_symbols_from_source_name(Some(source_name), &source_cwd);
+            return discover_source_symbols_from_source_name(source_name, &source_cwd)
+                .ok()
+                .flatten();
         }
-        return HashSet::new();
+        return None;
     };
-    discover_known_project_symbols_from_source_name(source_name, &cwd)
+    let source_name = source_name?;
+    discover_source_symbols_from_source_name(source_name, &cwd)
+        .ok()
+        .flatten()
+}
+
+async fn load_dynamic_function(
+    runtime: runmat_runtime::context::RuntimeContext,
+    name: String,
+    args: Vec<Value>,
+    requested_outputs: usize,
+    phase: runmat_runtime::user_functions::DynamicFunctionLoadPhase,
+    environment: DynamicFunctionEnvironment,
+) -> Option<Result<runmat_value::ValueSequence, RuntimeError>> {
+    #[cfg(target_arch = "wasm32")]
+    let _ = &runtime;
+    let DynamicFunctionEnvironment {
+        compat,
+        top_level_await_enabled,
+        cache,
+        project_handoff,
+        #[cfg(not(target_arch = "wasm32"))]
+        mex_runtime,
+    } = environment;
+    #[cfg(not(target_arch = "wasm32"))]
+    if phase == runmat_runtime::user_functions::DynamicFunctionLoadPhase::BeforeSemantic {
+        if let Some(result) = mex_runtime
+            .load_and_call(&name, args.clone(), requested_outputs, runtime)
+            .await
+        {
+            return Some(result);
+        }
+    }
+    if phase == runmat_runtime::user_functions::DynamicFunctionLoadPhase::BeforeSemantic {
+        return None;
+    }
+    let resolve_span = info_span!(
+        "runtime.callable.resolve",
+        call_kind = "runtime-name",
+        source_kind = "m-file"
+    );
+    let _resolve_guard = resolve_span.enter();
+    let source_search_span = info_span!("runtime.source_search", resolution_purpose = "call");
+    let path_result = {
+        let _source_search_guard = source_search_span.enter();
+        runmat_runtime::builtins::common::path_search::find_file_with_extensions(
+            &name,
+            &[".m"],
+            "function resolution",
+        )
+        .await
+    };
+    let path = match path_result {
+        Ok(Some(path)) => path,
+        Ok(None) => return None,
+        Err(error) => {
+            return Some(Err(build_runtime_error(error)
+                .with_identifier("RunMat:FunctionResolution")
+                .build()))
+        }
+    };
+    Some(
+        async move {
+            let source_text =
+                runmat_runtime::builtins::io::repl_fs::pcode::read_source_text_async(&path)
+                    .await
+                    .map_err(|error| {
+                        build_runtime_error(format!(
+                            "Could not read function source '{}': {error}",
+                            path.display()
+                        ))
+                        .with_identifier("RunMat:FunctionSourceRead")
+                        .build()
+                    })?;
+            let path_name = path.to_string_lossy();
+            let project_context = if let Some(handoff) = project_handoff.as_ref() {
+                Some(super::compile::project_compilation_context_from_handoff(
+                    path_name.as_ref(),
+                    handoff,
+                ))
+                .transpose()
+            } else {
+                super::compile::discover_project_compilation_context_async(path_name.as_ref()).await
+            }
+            .map_err(|error| {
+                build_runtime_error(format!(
+                    "Could not construct project context for '{}': {error}",
+                    path.display()
+                ))
+                .with_identifier("RunMat:ProjectComposition")
+                .build()
+            })?;
+            let source_catalog = project_context
+                .as_ref()
+                .and_then(|context| context.source_catalog.clone());
+            let project_revision = source_catalog
+                .as_ref()
+                .and_then(|catalog| catalog.project_revision());
+
+            let cached = cache
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .get(&path)
+                .filter(|entry| {
+                    entry.source_text == source_text && entry.project_revision == project_revision
+                })
+                .cloned();
+            let registry = if let Some(entry) = cached {
+                debug!(
+                    cache = "hit",
+                    "reusing dynamically compiled function source"
+                );
+                entry.registry
+            } else {
+                debug!(
+                    cache = "miss",
+                    "compiling dynamically resolved function source"
+                );
+                let dynamic_compile_span =
+                    info_span!("runtime.dynamic_compile", source_kind = "m-file");
+                let _dynamic_compile_guard = dynamic_compile_span.enter();
+                let mut ast = parse_with_options(&source_text, ParserOptions::new(compat))
+                    .map_err(|error| {
+                        build_runtime_error(format!(
+                            "Could not parse function source '{}': {error}",
+                            path.display()
+                        ))
+                        .with_identifier("RunMat:FunctionParseError")
+                        .build()
+                    })?;
+                let mut companion = if let Some(context) = project_context.as_ref() {
+                    super::compile::compose_project_compilation_context_async(context, compat)
+                        .await
+                        .map_err(|error| {
+                            build_runtime_error(format!(
+                                "Could not compose function source '{}': {error}",
+                                path.display()
+                            ))
+                            .with_identifier("RunMat:FunctionCompositionError")
+                            .build()
+                        })?
+                } else {
+                    super::compile::CompanionSourceDiscovery::default()
+                };
+                if !companion.statements.is_empty() {
+                    ast.body.append(&mut companion.statements);
+                }
+                let known_project_symbols = source_catalog
+                    .as_ref()
+                    .map(|catalog| &catalog.symbols)
+                    .cloned()
+                    .unwrap_or_default();
+                let frontend = runmat_static_analysis::frontend::analyze_program_with_catalog(
+                    &ast,
+                    &LoweringContext::new(&HashMap::new())
+                        .with_known_project_symbols(&known_project_symbols)
+                        .with_project_symbol_aliases(&companion.project_symbol_aliases)
+                        .with_private_functions(
+                            &companion.private_function_owners,
+                            &companion.private_function_aliases,
+                        )
+                        .with_runmat_extensions_enabled(compat.allows_runmat_extensions())
+                        .with_top_level_await_enabled(top_level_await_enabled),
+                    source_catalog.as_ref(),
+                );
+                if let Some(error) = frontend.lowering_failure {
+                    return Err(build_runtime_error(format!(
+                        "Could not lower function source '{}': {error}",
+                        path.display()
+                    ))
+                    .with_identifier(
+                        error
+                            .identifier
+                            .as_deref()
+                            .unwrap_or("RunMat:FunctionLoweringError"),
+                    )
+                    .build());
+                }
+                if let Some(error) = frontend.compile_failure {
+                    return Err(error.into());
+                }
+                if frontend.has_errors() {
+                    let diagnostic = frontend
+                        .diagnostics
+                        .iter()
+                        .find(|diagnostic| {
+                            diagnostic.severity == runmat_hir::HirDiagnosticSeverity::Error
+                        })
+                        .map(|diagnostic| diagnostic.message.clone())
+                        .unwrap_or_else(|| "static analysis failed".to_string());
+                    return Err(build_runtime_error(format!(
+                        "Could not compile function source '{}': {diagnostic}",
+                        path.display()
+                    ))
+                    .with_identifier("RunMat:FunctionCompileError")
+                    .build());
+                }
+                let bytecode = frontend.bytecode.ok_or_else(|| {
+                    build_runtime_error(format!(
+                        "Canonical frontend produced no bytecode for '{}'",
+                        path.display()
+                    ))
+                    .with_identifier("RunMat:FunctionCompileError")
+                    .build()
+                })?;
+                let mut compiled_registry = bytecode.function_registry();
+                let leaf_name = name.rsplit('.').next().unwrap_or(name.as_str());
+                if compiled_registry.resolve_name(&name).is_none() {
+                    if let Some(function) = compiled_registry.resolve_name(leaf_name) {
+                        compiled_registry.names.insert(name.clone(), function);
+                    }
+                }
+                let registry = Arc::new(compiled_registry);
+                let publish_span =
+                    info_span!("runtime.function_registry.publish", source_kind = "m-file");
+                let _publish_guard = publish_span.enter();
+                cache
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .insert(
+                        path.clone(),
+                        DynamicFunctionCacheEntry {
+                            source_text,
+                            project_revision,
+                            registry: Arc::clone(&registry),
+                        },
+                    );
+                registry
+            };
+
+            let leaf_name = name.rsplit('.').next().unwrap_or(name.as_str());
+            let function = registry
+                .resolve_name(&name)
+                .or_else(|| registry.resolve_name(leaf_name))
+                .ok_or_else(|| {
+                    build_runtime_error(format!(
+                        "Function source '{}' does not define '{name}'.",
+                        path.display()
+                    ))
+                    .with_identifier("RunMat:FunctionNameMismatch")
+                    .build()
+                })?;
+            runmat_vm::invoke_semantic_function_value(
+                function.0,
+                &args,
+                requested_outputs,
+                registry.as_ref(),
+            )
+            .await
+        }
+        .await,
+    )
+}
+
+#[derive(Clone)]
+struct DynamicFunctionEnvironment {
+    compat: CompatMode,
+    top_level_await_enabled: bool,
+    cache: Arc<Mutex<HashMap<std::path::PathBuf, DynamicFunctionCacheEntry>>>,
+    project_handoff: Option<runmat_package::FrozenProjectHandoff>,
+    #[cfg(not(target_arch = "wasm32"))]
+    mex_runtime: std::rc::Rc<runmat_runtime::foreign::MexRuntimeSession>,
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn discover_known_project_symbols(source_name: Option<&str>) -> HashSet<String> {
+    discover_source_catalog(source_name)
+        .map(|catalog| catalog.symbols)
+        .unwrap_or_default()
 }
 
 impl RunMatSession {
+    pub(super) fn configure_dynamic_function_services(&self) {
+        let dynamic_environment = DynamicFunctionEnvironment {
+            compat: self.compat_mode,
+            top_level_await_enabled: self.top_level_await_enabled,
+            cache: Arc::clone(&self.dynamic_function_cache),
+            project_handoff: self.project_handoff.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            mex_runtime: std::rc::Rc::clone(&self.mex_runtime),
+        };
+        let loader: std::rc::Rc<runmat_runtime::user_functions::DynamicFunctionLoader> =
+            std::rc::Rc::new(move |runtime, name, args, requested_outputs, phase| {
+                let environment = dynamic_environment.clone();
+                Box::pin(load_dynamic_function(
+                    runtime,
+                    name,
+                    args,
+                    requested_outputs,
+                    phase,
+                    environment,
+                ))
+            });
+        self.runtime_context
+            .set_dynamic_function_loader(Some(loader));
+
+        let dynamic_function_cache = Arc::clone(&self.dynamic_function_cache);
+        #[cfg(not(target_arch = "wasm32"))]
+        let mex_runtime = std::rc::Rc::clone(&self.mex_runtime);
+        let clearer: std::rc::Rc<runmat_runtime::user_functions::DynamicFunctionClearer> =
+            std::rc::Rc::new(move |runtime, request| {
+                let dynamic_function_cache = Arc::clone(&dynamic_function_cache);
+                #[cfg(not(target_arch = "wasm32"))]
+                let mex_runtime = std::rc::Rc::clone(&mex_runtime);
+                Box::pin(async move {
+                    #[cfg(target_arch = "wasm32")]
+                    let _ = &runtime;
+                    if !matches!(
+                        request,
+                        runmat_runtime::user_functions::DynamicFunctionClearRequest::NativeExtensions
+                    ) {
+                        let mut cache = dynamic_function_cache
+                            .lock()
+                            .unwrap_or_else(|poison| poison.into_inner());
+                        match &request {
+                            runmat_runtime::user_functions::DynamicFunctionClearRequest::All => {
+                                cache.clear();
+                            }
+                            runmat_runtime::user_functions::DynamicFunctionClearRequest::Named(
+                                name,
+                            ) => {
+                                cache.retain(|path, _| {
+                                    !super::dynamic::path_matches_clear_name(path, name)
+                                });
+                            }
+                            runmat_runtime::user_functions::DynamicFunctionClearRequest::NativeExtensions => {}
+                        }
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    mex_runtime.clear_gracefully(&request, runtime).await?;
+                    Ok(())
+                })
+            });
+        self.runtime_context
+            .set_dynamic_function_clearer(Some(clearer));
+    }
+
     async fn run(
         &mut self,
         input: &str,
     ) -> std::result::Result<crate::abi::ExecutionOutcome, RunError> {
+        self.configure_runtime_context();
+        let runtime = self.runtime_context.clone();
+        runtime.scope(self.run_in_context(input)).await
+    }
+
+    async fn run_in_context(
+        &mut self,
+        input: &str,
+    ) -> std::result::Result<crate::abi::ExecutionOutcome, RunError> {
+        let _test_services = runmat_runtime::testing::install_test_services(
+            crate::testing::runtime_adapter::services(
+                self.compat_mode,
+                self.project_handoff.clone(),
+            ),
+        );
+        self.configure_dynamic_function_services();
         let source_lookup_name = self
             .current_source_fullpath_name()
             .unwrap_or_else(|| self.current_source_name());
-        let companion = super::compile::discover_companion_source_statements_async(
-            source_lookup_name,
-            self.compat_mode,
-        )
-        .await;
+        let companion = if let Some(handoff) = self.project_handoff.as_ref() {
+            super::compile::companion_source_statements_from_handoff_async(
+                source_lookup_name,
+                self.compat_mode,
+                handoff,
+            )
+            .await
+        } else {
+            super::compile::discover_companion_source_statements_async(
+                source_lookup_name,
+                self.compat_mode,
+            )
+            .await
+        }
+        .map_err(|error| {
+            RunError::Runtime(
+                build_runtime_error(format!("project composition failed: {error}"))
+                    .with_identifier("RunMat:ProjectComposition")
+                    .build(),
+            )
+        })?;
         self.pending_companion_source_discovery = Some(companion);
         let previous_workspace_names = self
             .workspace_values
@@ -92,7 +456,7 @@ impl RunMatSession {
         &mut self,
         request: crate::abi::ExecutionRequest,
     ) -> crate::abi::ExecutionResponse {
-        let requested_outputs = request.requested_outputs.clone();
+        let requested_outputs = request.requested_outputs;
         let source_input = request.source.clone();
         let source_resolution = match source_input_text(request.source).await {
             Ok(resolved) => resolved,
@@ -141,7 +505,7 @@ impl RunMatSession {
                 identity: source_identity,
             },
             result: result
-                .map(|outcome| apply_requested_output_policy(outcome, &requested_outputs)),
+                .and_then(|outcome| apply_requested_output_policy(outcome, &requested_outputs)),
         }
     }
 
@@ -157,8 +521,7 @@ impl RunMatSession {
                     .build(),
             )
         })?;
-        runmat_vm::set_call_stack_limit(self.callstack_limit);
-        runmat_vm::set_error_namespace(&self.error_namespace);
+        let _diary_state = SessionDiaryStateGuard::new(self);
         runmat_vm::set_dynamic_eval_options(
             self.compat_mode,
             self.compat_mode.allows_runmat_extensions(),
@@ -173,9 +536,10 @@ impl RunMatSession {
         );
         let _exec_guard = exec_span.enter();
         runmat_runtime::console::reset_thread_buffer();
+        runmat_runtime::console::record_diary_command(input);
         runmat_runtime::plotting_hooks::reset_recent_figures();
         runmat_runtime::warning_store::reset();
-        runmat_builtins::set_display_format(self.format_mode);
+        runmat_value::set_display_format(self.format_mode);
         reset_provider_telemetry();
         self.interrupt_flag.store(false, Ordering::Relaxed);
         let _interrupt_guard =
@@ -286,10 +650,11 @@ impl RunMatSession {
         let dynamic_eval_enabled = self.dynamic_eval_enabled;
         #[cfg(target_arch = "wasm32")]
         let top_level_await_enabled = self.top_level_await_enabled;
-        let source_name_for_eval_hook = self.current_source_name().to_string();
-        let known_project_symbols_for_eval_hook = Arc::new(discover_known_project_symbols(Some(
-            source_name_for_eval_hook.as_str(),
-        )));
+        let source_catalog_for_eval_hook = Arc::new(
+            self.pending_companion_source_discovery
+                .as_ref()
+                .and_then(|companion| companion.source_catalog.clone()),
+        );
         let _eval_hook_guard =
             runmat_runtime::interaction::replace_eval_hook(Some(std::sync::Arc::new(
                 move |expr: String| -> runmat_runtime::interaction::EvalHookFuture {
@@ -299,7 +664,7 @@ impl RunMatSession {
                         expr: String,
                         compat: runmat_parser::CompatMode,
                         top_level_await_enabled: bool,
-                        known_project_symbols: Arc<HashSet<String>>,
+                        source_catalog: Arc<Option<runmat_package::DiscoveredSourceSymbols>>,
                     ) -> Result<Value, RuntimeError> {
                         let wrapped = format!("__runmat_input_result__ = ({expr});");
                         let ast = parse_with_options(&wrapped, ParserOptions::new(compat))
@@ -308,20 +673,36 @@ impl RunMatSession {
                                     .with_identifier("RunMat:input:ParseError")
                                     .build()
                             })?;
-                        let lowering = runmat_hir::lower(
-                            &ast,
-                            &LoweringContext::new(&HashMap::new())
-                                .with_known_project_symbols(&known_project_symbols)
-                                .with_runmat_extensions_enabled(compat.allows_runmat_extensions())
-                                .with_top_level_await_enabled(top_level_await_enabled),
-                        )
-                        .map_err(|e| {
-                            build_runtime_error(format!("input: lowering error: {e}"))
+                        let known_project_symbols = source_catalog
+                            .as_ref()
+                            .as_ref()
+                            .map(|catalog| &catalog.symbols)
+                            .cloned()
+                            .unwrap_or_default();
+                        let frontend =
+                            runmat_static_analysis::frontend::analyze_program_with_catalog(
+                                &ast,
+                                &LoweringContext::new(&HashMap::new())
+                                    .with_known_project_symbols(&known_project_symbols)
+                                    .with_runmat_extensions_enabled(
+                                        compat.allows_runmat_extensions(),
+                                    )
+                                    .with_top_level_await_enabled(top_level_await_enabled),
+                                source_catalog.as_ref().as_ref(),
+                            );
+                        if let Some(e) = frontend.lowering_failure {
+                            return Err(build_runtime_error(format!("input: lowering error: {e}"))
                                 .with_identifier("RunMat:input:LowerError")
+                                .build());
+                        }
+                        if let Some(e) = frontend.compile_failure {
+                            return Err(RuntimeError::from(e));
+                        }
+                        let bc = frontend.bytecode.ok_or_else(|| {
+                            build_runtime_error("input: canonical frontend produced no bytecode")
+                                .with_identifier("RunMat:input:CompileError")
                                 .build()
                         })?;
-                        let bc =
-                            compile_eval_hook_bytecode(&lowering).map_err(RuntimeError::from)?;
                         let result_idx = bc.var_names.iter().find_map(|(idx, name)| {
                             (name == "__runmat_input_result__").then_some(*idx)
                         });
@@ -335,21 +716,21 @@ impl RunMatSession {
                             })
                     }
 
-                    let known_project_symbols = Arc::clone(&known_project_symbols_for_eval_hook);
+                    let source_catalog = Arc::clone(&source_catalog_for_eval_hook);
                     #[cfg(target_arch = "wasm32")]
                     {
                         Box::pin(eval_expr(
                             expr,
                             compat,
                             top_level_await_enabled,
-                            known_project_symbols,
+                            source_catalog,
                         ))
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         const INPUT_EVAL_STACK_BYTES: usize = 16 * 1024 * 1024;
                         let mut eval_future =
-                            Box::pin(eval_expr(expr, compat, false, known_project_symbols));
+                            Box::pin(eval_expr(expr, compat, false, source_catalog));
                         Box::pin(futures::future::poll_fn(move |cx| {
                             stacker::grow(INPUT_EVAL_STACK_BYTES, || {
                                 let _dynamic_eval_guard = runmat_vm::push_dynamic_eval_options(
@@ -378,11 +759,58 @@ impl RunMatSession {
         let PreparedExecution {
             ast,
             lowering,
+            mir,
             analysis,
-            mut bytecode,
+            bytecode,
             function_registry_after_success,
             next_semantic_function_id_after_success,
         } = self.compile_input(input)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let interactive_unit = {
+            let source = crate::ExecutableSource::new(
+                format!("interactive:{}", self.abi_workspace_handle.0),
+                self.current_source_name(),
+                input,
+            );
+            let revision = crate::ExecutableRevision::derive(
+                &source,
+                self.runtime_context.program_revision().cloned(),
+                crate::program_environment(self.compat_mode),
+            );
+            crate::ExecutableUnit::new(
+                source.clone(),
+                revision,
+                self.executable_source_map(&source),
+                mir,
+                analysis,
+                bytecode,
+            )
+            .map_err(|error| {
+                RunError::Runtime(
+                    build_runtime_error(error)
+                        .with_identifier("RunMat:ExecutableProduct")
+                        .build(),
+                )
+            })?
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let analysis = interactive_unit.analysis();
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut bytecode = interactive_unit.bytecode().clone();
+        #[cfg(target_arch = "wasm32")]
+        let mut bytecode = {
+            let mut bytecode = bytecode;
+            bytecode
+                .install_parallel_regions(&mir, &analysis.parallel)
+                .map_err(|error| {
+                    RunError::Runtime(
+                        build_runtime_error(error)
+                            .with_identifier("RunMat:ExecutableProduct")
+                            .build(),
+                    )
+                })?;
+            bytecode
+        };
         let source_catalog_entries = self
             .source_pool
             .entries()
@@ -401,8 +829,6 @@ impl RunMatSession {
             );
         let _source_id_guard =
             runmat_runtime::source_context::replace_current_source_id(bytecode.source_id);
-        #[cfg(target_arch = "wasm32")]
-        let _ = &analysis;
         if self.verbose {
             debug!("AST: {ast:?}");
         }
@@ -411,6 +837,8 @@ impl RunMatSession {
         let display_var_ids = display.display_var_ids;
         let stmt_count = entry_statement_count(&lowering.assembly);
         let execution_vars = execution_workspace_mapping(&bytecode);
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut execution_vars = execution_vars;
         let max_var_id = execution_vars.values().copied().max().unwrap_or(0);
         if debug_trace {
             debug!(?execution_vars, "[repl] execution vars");
@@ -470,7 +898,7 @@ impl RunMatSession {
                     },
                     accel_graph_source: runtime_graph_source.as_str().to_string(),
                     mir_local_fact_count: mir_local_fact_count_for_entrypoint(
-                        &analysis,
+                        analysis,
                         &lowering.assembly,
                     ),
                     mir_diagnostic_count: analysis.diagnostics.len(),
@@ -500,13 +928,13 @@ impl RunMatSession {
             debug!("Bytecode instructions: {:?}", bytecode.instructions);
         }
 
-        #[cfg(feature = "jit")]
+        #[cfg(not(target_arch = "wasm32"))]
         let mut used_jit = false;
-        #[cfg(not(feature = "jit"))]
+        #[cfg(target_arch = "wasm32")]
         let used_jit = false;
-        #[cfg(feature = "jit")]
+        #[cfg(not(target_arch = "wasm32"))]
         let mut execution_completed = false;
-        #[cfg(not(feature = "jit"))]
+        #[cfg(target_arch = "wasm32")]
         let execution_completed = false;
         let mut result_value: Option<Value> = None; // Always start fresh for each execution
         let mut suppressed_value: Option<Value> = None; // Track value for type info when suppressed
@@ -514,6 +942,10 @@ impl RunMatSession {
         let mut workspace_updates: Vec<WorkspaceEntry> = Vec::new();
         let mut workspace_snapshot_force_full = false;
         let mut ans_update: Option<(usize, Value)> = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        let tiered_interactive = self.prepare_tiered_interactive(&interactive_unit);
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut native_loop_backedges = std::collections::BTreeMap::new();
 
         // Check if this is an expression statement (ends with Pop)
         let is_expression_stmt = bytecode
@@ -550,78 +982,66 @@ impl RunMatSession {
             debug!("is_semicolon_suppressed: {is_semicolon_suppressed}");
         }
 
-        // Use JIT for assignments, interpreter for expressions (to capture results properly)
-        #[cfg(feature = "jit")]
-        {
-            if let Some(ref mut jit_engine) = &mut self.jit_engine {
-                if !is_expression_stmt {
-                    // Ensure variable array is large enough
-                    if self.variable_array.len() < bytecode.var_count {
-                        self.variable_array
-                            .resize(bytecode.var_count, Value::Num(0.0));
-                    }
-
-                    if self.verbose {
-                        debug!(
-                            "JIT path for assignment: variable_array size: {}, bytecode.var_count: {}",
-                            self.variable_array.len(),
-                            bytecode.var_count
-                        );
-                    }
-
-                    // Use JIT for assignments
-                    match jit_engine.execute_or_compile(&bytecode, &mut self.variable_array) {
-                        Ok((_, actual_used_jit)) => {
-                            used_jit = actual_used_jit;
-                            execution_completed = true;
-                            if actual_used_jit {
-                                self.stats.jit_compiled += 1;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((workspace, profile)) = tiered_interactive.as_ref() {
+            match self
+                .invoke_tiered_interactive(&interactive_unit, workspace, profile)
+                .await
+            {
+                Ok(Some(native)) => {
+                    native_loop_backedges = native.loop_backedges.clone();
+                    if is_expression_stmt {
+                        if let Some(expression) = native.expression.clone() {
+                            if is_semicolon_suppressed {
+                                suppressed_value = Some(expression);
                             } else {
-                                self.stats.interpreter_fallback += 1;
+                                result_value = Some(expression);
                             }
-                            if !display_context.single_stmt_non_assign {
-                                if let Some(var_id) = display_context.first_assign_var {
-                                    if let Some(name) = id_to_name.get(&var_id) {
-                                        assigned_this_execution.insert(name.clone());
-                                    }
-                                    if var_id < self.variable_array.len() {
-                                        let assignment_value = self.variable_array[var_id].clone();
-                                        if !is_semicolon_suppressed {
-                                            result_value = Some(assignment_value);
-                                            if self.verbose {
-                                                debug!("JIT assignment result: {result_value:?}");
-                                            }
-                                        } else {
-                                            suppressed_value = Some(assignment_value);
-                                            if self.verbose {
-                                                debug!(
-                                                    "JIT assignment suppressed due to semicolon, captured for type info"
-                                                );
-                                            }
-                                        }
-                                    }
+                        }
+                    }
+                    let snapshot = native.workspace.ok_or_else(|| {
+                        RunError::Runtime(
+                            build_runtime_error(
+                                "interactive native execution produced no workspace snapshot",
+                            )
+                            .with_identifier("RunMat:NativeWorkspace")
+                            .build(),
+                        )
+                    })?;
+                    execution_vars.retain(|name, _| snapshot.values.contains_key(name));
+                    for (name, value) in snapshot.values {
+                        let slot = execution_vars.get(&name).copied().unwrap_or_else(|| {
+                            let slot = self.variable_array.len();
+                            execution_vars.insert(name.clone(), slot);
+                            slot
+                        });
+                        if self.variable_array.len() <= slot {
+                            self.variable_array.resize(slot + 1, Value::Num(0.0));
+                        }
+                        self.variable_array[slot] = value;
+                    }
+                    used_jit = true;
+                    execution_completed = true;
+                    if !display_context.single_stmt_non_assign {
+                        if let Some(var_id) = display_context.first_assign_var {
+                            if let Some(name) = id_to_name.get(&var_id) {
+                                assigned_this_execution.insert(name.clone());
+                            }
+                            if let Some(assignment_value) = self.variable_array.get(var_id).cloned()
+                            {
+                                if is_semicolon_suppressed {
+                                    suppressed_value = Some(assignment_value);
+                                } else {
+                                    result_value = Some(assignment_value);
                                 }
                             }
-
-                            if self.verbose {
-                                debug!(
-                                    "{} assignment successful, variable_array: {:?}",
-                                    if actual_used_jit {
-                                        "JIT"
-                                    } else {
-                                        "Interpreter"
-                                    },
-                                    self.variable_array
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            if self.verbose {
-                                debug!("JIT execution failed: {e}, using interpreter");
-                            }
-                            // Fall back to interpreter
                         }
                     }
+                }
+                Ok(None) => {}
+                Err(native_error) => {
+                    execution_completed = true;
+                    error = Some(native_error);
                 }
             }
         }
@@ -665,11 +1085,9 @@ impl RunMatSession {
             }
 
             match self.interpret_with_context(&execution_bytecode).await {
-                Ok(runmat_vm::InterpreterOutcome::Completed(results)) => {
-                    // Only increment interpreter_fallback if JIT wasn't attempted
-                    if !self.has_jit() || is_expression_stmt {
-                        self.stats.interpreter_fallback += 1;
-                    }
+                Ok(runmat_vm::InterpreterOutcome::Completed(completion)) => {
+                    let results = completion.values;
+                    self.stats.interpreter_fallback += 1;
                     if self.verbose {
                         debug!("Interpreter results: {results:?}");
                     }
@@ -794,7 +1212,32 @@ impl RunMatSession {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        if used_jit && is_expression_stmt {
+            if let Some(value) = result_value.clone() {
+                let slot = execution_vars.get("ans").copied().unwrap_or_else(|| {
+                    let slot = self.variable_array.len();
+                    execution_vars.insert("ans".to_string(), slot);
+                    slot
+                });
+                if self.variable_array.len() <= slot {
+                    self.variable_array.resize(slot + 1, Value::Num(0.0));
+                }
+                self.variable_array[slot] = value.clone();
+                ans_update = Some((slot, value));
+            }
+        }
+
         let execution_time = start_time.elapsed();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((_, profile)) = tiered_interactive.as_ref() {
+            self.observe_tiered_interactive(
+                &interactive_unit,
+                profile,
+                execution_time,
+                &native_loop_backedges,
+            );
+        }
         let execution_time_ms = execution_time.as_millis() as u64;
 
         self.stats.total_execution_time_ms += execution_time_ms;
@@ -803,7 +1246,9 @@ impl RunMatSession {
 
         // Update variable names mapping and function definitions if execution was successful
         if error.is_none() {
-            if let Some(workspace_state) = runmat_vm::take_updated_workspace_state() {
+            let vm_workspace_state = runmat_vm::take_updated_workspace_state();
+            let vm_workspace_state = (!used_jit).then_some(vm_workspace_state).flatten();
+            if let Some(workspace_state) = vm_workspace_state {
                 let mutated_names = workspace_state.names;
                 let assigned = workspace_state.assigned;
                 if debug_trace {
@@ -847,6 +1292,8 @@ impl RunMatSession {
                         continue;
                     }
                     let value_clone = self.variable_array[var_id].clone();
+                    runmat_runtime::execution::validate_storable_value(&value_clone)
+                        .map_err(RunError::Runtime)?;
                     if previous_workspace.get(name) != Some(&value_clone) {
                         changed_names.insert(name.clone());
                     }
@@ -880,6 +1327,8 @@ impl RunMatSession {
                         continue;
                     }
                     let value_clone = self.variable_array[*var_id].clone();
+                    runmat_runtime::execution::validate_storable_value(&value_clone)
+                        .map_err(RunError::Runtime)?;
                     if previous_workspace.get(name) != Some(&value_clone) {
                         changed_names.insert(name.clone());
                     }
@@ -904,10 +1353,16 @@ impl RunMatSession {
                     }
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            self.generic_native_cache
+                .publish_session_registry(&self.function_registry, &function_registry_after_success)
+                .map_err(RunError::Runtime)?;
             self.function_registry = function_registry_after_success;
             self.next_semantic_function_id = next_semantic_function_id_after_success;
             // Apply 'ans' update if applicable (persisting expression result)
             if let Some((var_id, value)) = ans_update {
+                runmat_runtime::execution::validate_storable_value(&value)
+                    .map_err(RunError::Runtime)?;
                 self.bind_workspace_slot("ans".to_string(), var_id);
                 self.workspace_values.insert("ans".to_string(), value);
                 if debug_trace {
@@ -1029,6 +1484,15 @@ impl RunMatSession {
             .unwrap_or_default();
 
         let warnings = runmat_runtime::warning_store::take_all();
+        if error.is_none() {
+            if let Some(diary_error) = runmat_runtime::console::take_diary_error() {
+                error = Some(
+                    build_runtime_error(diary_error)
+                        .with_identifier("RunMat:diary:IO")
+                        .build(),
+                );
+            }
+        }
 
         if let Some(runtime_error) = &mut error {
             self.normalize_error_namespace(runtime_error);
@@ -1114,7 +1578,7 @@ impl RunMatSession {
             profiling,
         };
 
-        self.format_mode = runmat_builtins::get_display_format();
+        self.format_mode = runmat_value::get_display_format();
         Ok(SessionExecution {
             outcome,
             workspace_snapshot,
@@ -1127,10 +1591,11 @@ impl RunMatSession {
         bytecode: &runmat_vm::Bytecode,
     ) -> Result<runmat_vm::InterpreterOutcome, RuntimeError> {
         let source_name = self.current_source_name().to_string();
-        runmat_vm::interpret_with_vars(
+        runmat_vm::interpret_with_vars_in_context(
             bytecode,
             &mut self.variable_array,
             Some(source_name.as_str()),
+            self.runtime_context.clone(),
         )
         .await
     }
@@ -1176,51 +1641,58 @@ impl RunMatSession {
 fn apply_requested_output_policy(
     mut outcome: crate::abi::ExecutionOutcome,
     requested_outputs: &runmat_hir::RequestedOutputCount,
-) -> crate::abi::ExecutionOutcome {
+) -> Result<crate::abi::ExecutionOutcome, RunError> {
     use crate::abi::RuntimeFlow;
     use runmat_hir::RequestedOutputCount;
+    use runmat_value::{ValueSequence, ValueSequenceKind};
+
+    let flow = match outcome.flow {
+        RuntimeFlow::DynamicList(handle) => {
+            outcome.flow = match requested_outputs {
+                RequestedOutputCount::Zero | RequestedOutputCount::Exactly(0) => {
+                    RuntimeFlow::NoValue
+                }
+                _ => RuntimeFlow::DynamicList(handle),
+            };
+            return Ok(outcome);
+        }
+        RuntimeFlow::NoValue => Ok(ValueSequence::empty()),
+        RuntimeFlow::Single(value) => ValueSequence::single(value),
+        RuntimeFlow::OutputList(values) => ValueSequence::comma_separated(values),
+    }
+    .map_err(runmat_runtime::sequence::sequence_error_to_runtime)
+    .map_err(RunError::Runtime)?;
 
     outcome.flow = match requested_outputs {
         RequestedOutputCount::Zero => RuntimeFlow::NoValue,
-        RequestedOutputCount::One => match outcome.flow {
-            RuntimeFlow::OutputList(mut values) | RuntimeFlow::CommaList(mut values) => {
-                if values.is_empty() {
-                    RuntimeFlow::NoValue
-                } else {
-                    RuntimeFlow::Single(values.remove(0))
-                }
-            }
-            flow => flow,
-        },
+        RequestedOutputCount::One => first_runtime_flow_value(flow),
         RequestedOutputCount::Exactly(count) => {
             if *count == 0 {
                 RuntimeFlow::NoValue
             } else if *count == 1 {
-                match outcome.flow {
-                    RuntimeFlow::OutputList(mut values) | RuntimeFlow::CommaList(mut values) => {
-                        if values.is_empty() {
-                            RuntimeFlow::NoValue
-                        } else {
-                            RuntimeFlow::Single(values.remove(0))
-                        }
-                    }
-                    flow => flow,
-                }
+                first_runtime_flow_value(flow)
             } else {
-                match outcome.flow {
-                    RuntimeFlow::NoValue => RuntimeFlow::OutputList(Vec::new()),
-                    RuntimeFlow::Single(value) => RuntimeFlow::OutputList(vec![value]),
-                    RuntimeFlow::OutputList(mut values) | RuntimeFlow::CommaList(mut values) => {
-                        values.truncate(*count);
-                        RuntimeFlow::OutputList(values)
-                    }
-                    RuntimeFlow::DynamicList(handle) => RuntimeFlow::DynamicList(handle),
-                }
+                let mut values = flow.into_values();
+                values.truncate(*count);
+                RuntimeFlow::OutputList(values)
             }
         }
-        RequestedOutputCount::CurrentFunctionNargout => outcome.flow,
+        RequestedOutputCount::CurrentFunctionNargout
+        | RequestedOutputCount::DestinationSequenceCardinality => match flow.kind() {
+            ValueSequenceKind::Single => first_runtime_flow_value(flow),
+            ValueSequenceKind::CommaSeparated => RuntimeFlow::OutputList(flow.into_values()),
+        },
     };
-    outcome
+    Ok(outcome)
+}
+
+fn first_runtime_flow_value(sequence: runmat_value::ValueSequence) -> crate::abi::RuntimeFlow {
+    sequence
+        .into_values()
+        .into_iter()
+        .next()
+        .map(crate::abi::RuntimeFlow::Single)
+        .unwrap_or(crate::abi::RuntimeFlow::NoValue)
 }
 
 fn resolve_source_identity(
@@ -1281,18 +1753,6 @@ fn runtime_error_span(error: &runmat_runtime::RuntimeError) -> Option<runmat_hir
     })
 }
 
-fn compile_eval_hook_bytecode(
-    lowering: &runmat_hir::LoweringResult,
-) -> Result<runmat_vm::Bytecode, runmat_vm::CompileError> {
-    let entrypoint = lowering.assembly.entrypoints.first().ok_or_else(|| {
-        runmat_vm::CompileError::new("semantic eval hook compile requires an entrypoint")
-    })?;
-    let mir = runmat_mir::lowering::lower_assembly(&lowering.assembly)
-        .map_err(runmat_vm::CompileError::from)?;
-    let _analysis = runmat_mir::analysis::analyze_assembly(&mir);
-    runmat_vm::compile(&lowering.assembly, &mir, entrypoint.id)
-}
-
 fn execution_workspace_mapping(bytecode: &runmat_vm::Bytecode) -> HashMap<String, usize> {
     let Some(layout) = &bytecode.layout else {
         return HashMap::new();
@@ -1350,18 +1810,34 @@ async fn source_input_text(
             let source_name = crate::diagnostic_path::display_path_for_current_cwd(&source_path);
             let source_fullpath_name = source_path.to_string_lossy().to_string();
 
-            let text = runmat_filesystem::read_to_string_async(&source_path)
-                .await
-                .map_err(|err| {
-                    RunError::Runtime(
+            let text = match runmat_runtime::builtins::io::repl_fs::pcode::read_source_text_async(
+                &source_path,
+            )
+            .await
+            {
+                Ok(text) => text,
+                Err(
+                    runmat_runtime::builtins::io::repl_fs::pcode::PcodeSourceReadError::InvalidPcode(
+                        err,
+                    ),
+                ) => {
+                    return Err(RunError::Runtime(
+                        runmat_runtime::builtins::io::repl_fs::pcode::invalid_pcode_runtime_error(
+                            format!("{} ({err})", source_path.display()),
+                        ),
+                    ));
+                }
+                Err(runmat_runtime::builtins::io::repl_fs::pcode::PcodeSourceReadError::Io(err)) => {
+                    return Err(RunError::Runtime(
                         build_runtime_error(format!(
                             "failed to read source path '{}': {err}",
                             source_path.display()
                         ))
                         .with_identifier("RunMat:SourceReadFailed")
                         .build(),
-                    )
-                })?;
+                    ));
+                }
+            };
             Ok(ResolvedSourceInput {
                 display_name: source_name,
                 fullpath_name: Some(source_fullpath_name),
@@ -1394,15 +1870,27 @@ async fn resolve_path_source_input(
 
         if let Ok(metadata) = runmat_filesystem::metadata_async(&candidate).await {
             if metadata.is_file() {
-                return Ok(candidate);
+                return Ok(
+                    runmat_runtime::builtins::io::repl_fs::pcode::prefer_pcode_source_path(
+                        &candidate,
+                    )
+                    .await,
+                );
             }
         }
 
         if source_path.extension().is_none() {
-            let with_ext = candidate.with_extension("m");
-            if let Ok(metadata) = runmat_filesystem::metadata_async(&with_ext).await {
-                if metadata.is_file() {
-                    return Ok(with_ext);
+            for extension in ["p", "m"] {
+                let with_ext = candidate.with_extension(extension);
+                if let Ok(metadata) = runmat_filesystem::metadata_async(&with_ext).await {
+                    if metadata.is_file() {
+                        return Ok(
+                            runmat_runtime::builtins::io::repl_fs::pcode::prefer_pcode_source_path(
+                                &with_ext,
+                            )
+                            .await,
+                        );
+                    }
                 }
             }
         }
@@ -1419,11 +1907,12 @@ async fn resolve_path_source_input(
                 .build(),
             )
         })?;
-        Ok(if resolved.is_absolute() {
+        let resolved = if resolved.is_absolute() {
             resolved
         } else {
             cwd.join(resolved)
-        })
+        };
+        Ok(runmat_runtime::builtins::io::repl_fs::pcode::prefer_pcode_source_path(&resolved).await)
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1444,15 +1933,27 @@ async fn resolve_path_source_input(
 
         if let Ok(metadata) = runmat_filesystem::metadata_async(&candidate).await {
             if metadata.is_file() {
-                return Ok(candidate);
+                return Ok(
+                    runmat_runtime::builtins::io::repl_fs::pcode::prefer_pcode_source_path(
+                        &candidate,
+                    )
+                    .await,
+                );
             }
         }
 
         if source_path.extension().is_none() {
-            let with_ext = candidate.with_extension("m");
-            if let Ok(metadata) = runmat_filesystem::metadata_async(&with_ext).await {
-                if metadata.is_file() {
-                    return Ok(with_ext);
+            for extension in ["p", "m"] {
+                let with_ext = candidate.with_extension(extension);
+                if let Ok(metadata) = runmat_filesystem::metadata_async(&with_ext).await {
+                    if metadata.is_file() {
+                        return Ok(
+                            runmat_runtime::builtins::io::repl_fs::pcode::prefer_pcode_source_path(
+                                &with_ext,
+                            )
+                            .await,
+                        );
+                    }
                 }
             }
         }
@@ -1463,20 +1964,80 @@ async fn resolve_path_source_input(
 
 #[cfg(test)]
 mod tests {
+    use super::apply_requested_output_policy;
     #[cfg(not(target_arch = "wasm32"))]
     use super::discover_known_project_symbols;
     #[cfg(not(target_arch = "wasm32"))]
     use super::source_input_text;
     #[cfg(not(target_arch = "wasm32"))]
     use crate::abi::SourceInput;
+    use crate::abi::{ExecutionOutcome, RuntimeFlow};
     #[cfg(not(target_arch = "wasm32"))]
     use crate::RunError;
+    use runmat_hir::RequestedOutputCount;
+    use runmat_value::Value;
     #[cfg(not(target_arch = "wasm32"))]
     use std::fs;
     #[cfg(not(target_arch = "wasm32"))]
     use std::path::{Path, PathBuf};
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::Arc;
+
+    #[test]
+    fn requested_output_policy_maps_checked_zero_one_and_many_results() {
+        let outcome = |flow| ExecutionOutcome {
+            flow,
+            ..ExecutionOutcome::default()
+        };
+
+        let zero = apply_requested_output_policy(
+            outcome(RuntimeFlow::OutputList(vec![Value::Num(1.0)])),
+            &RequestedOutputCount::Zero,
+        )
+        .unwrap();
+        assert!(matches!(zero.flow, RuntimeFlow::NoValue));
+
+        let one = apply_requested_output_policy(
+            outcome(RuntimeFlow::OutputList(vec![
+                Value::Num(1.0),
+                Value::Num(2.0),
+            ])),
+            &RequestedOutputCount::One,
+        )
+        .unwrap();
+        assert!(matches!(one.flow, RuntimeFlow::Single(Value::Num(1.0))));
+
+        let many = apply_requested_output_policy(
+            outcome(RuntimeFlow::Single(Value::Num(1.0))),
+            &RequestedOutputCount::Exactly(3),
+        )
+        .unwrap();
+        assert!(matches!(
+            many.flow,
+            RuntimeFlow::OutputList(ref values) if values == &[Value::Num(1.0)]
+        ));
+    }
+
+    #[test]
+    fn requested_output_policy_rejects_legacy_sequences_at_any_depth() {
+        for flow in [
+            RuntimeFlow::Single(Value::OutputList(vec![Value::Num(1.0)])),
+            RuntimeFlow::OutputList(vec![Value::OutputList(vec![Value::Num(1.0)])]),
+        ] {
+            let error = apply_requested_output_policy(
+                ExecutionOutcome {
+                    flow,
+                    ..ExecutionOutcome::default()
+                },
+                &RequestedOutputCount::Zero,
+            )
+            .unwrap_err();
+            let RunError::Runtime(error) = error else {
+                panic!("expected runtime error");
+            };
+            assert_eq!(error.identifier(), Some("RunMat:NestedLegacyOutputList"));
+        }
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     struct CwdGuard {
@@ -1566,6 +2127,100 @@ path = "src/main"
             PathBuf::from("src").join("main.m")
         );
         assert_eq!(resolved.text.trim(), "x = 1;");
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn source_input_path_prefers_runmat_pcode_over_m_extension() {
+        let _guard = cwd_lock();
+        let tmp = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src")).unwrap();
+        fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+        let encoded = runmat_runtime::builtins::io::repl_fs::pcode::encode_pcode_source(
+            "x = 2;",
+            "src/main.m",
+            runmat_runtime::builtins::io::repl_fs::pcode::PcodeAlgorithm::R2007b,
+        );
+        fs::write(tmp.path().join("src/main.p"), encoded).unwrap();
+        let _cwd = push_cwd(tmp.path());
+
+        let resolved = futures::executor::block_on(source_input_text(SourceInput::Path(
+            "src/main".to_string(),
+        )))
+        .expect("path without extension should prefer .p over .m");
+
+        assert_eq!(
+            PathBuf::from(&resolved.display_name),
+            PathBuf::from("src").join("main.p")
+        );
+        assert_eq!(resolved.text.trim(), "x = 2;");
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn source_input_path_prefers_runmat_pcode_over_explicit_m_path() {
+        let _guard = cwd_lock();
+        let tmp = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src")).unwrap();
+        fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+        let encoded = runmat_runtime::builtins::io::repl_fs::pcode::encode_pcode_source(
+            "x = 3;",
+            "src/main.m",
+            runmat_runtime::builtins::io::repl_fs::pcode::PcodeAlgorithm::R2007b,
+        );
+        fs::write(tmp.path().join("src/main.p"), encoded).unwrap();
+        let _cwd = push_cwd(tmp.path());
+
+        let resolved = futures::executor::block_on(source_input_text(SourceInput::Path(
+            "src/main.m".to_string(),
+        )))
+        .expect("explicit .m path should prefer sibling .p");
+
+        assert_eq!(
+            PathBuf::from(&resolved.display_name),
+            PathBuf::from("src").join("main.p")
+        );
+        assert_eq!(resolved.text.trim(), "x = 3;");
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn source_input_manifest_entrypoint_prefers_runmat_pcode_over_m_path() {
+        let _guard = cwd_lock();
+        let tmp = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src")).unwrap();
+        fs::write(tmp.path().join("src/main.m"), "x = 1;").unwrap();
+        let encoded = runmat_runtime::builtins::io::repl_fs::pcode::encode_pcode_source(
+            "x = 4;",
+            "src/main.m",
+            runmat_runtime::builtins::io::repl_fs::pcode::PcodeAlgorithm::R2007b,
+        );
+        fs::write(tmp.path().join("src/main.p"), encoded).unwrap();
+        fs::write(
+            tmp.path().join("runmat.toml"),
+            r#"
+[package]
+name = "demo"
+
+[sources]
+roots = ["src"]
+
+[entrypoints.main]
+path = "src/main"
+"#,
+        )
+        .unwrap();
+        let _cwd = push_cwd(tmp.path());
+
+        let resolved =
+            futures::executor::block_on(source_input_text(SourceInput::Path("main".to_string())))
+                .expect("named entrypoint should resolve to P-code sibling");
+
+        assert_eq!(
+            PathBuf::from(&resolved.display_name),
+            PathBuf::from("src").join("main.p")
+        );
+        assert_eq!(resolved.text.trim(), "x = 4;");
     }
 
     #[test]
@@ -1705,8 +2360,8 @@ roots = ["."]
             "expected base dependency symbol in known-project discovery"
         );
         assert!(
-            symbols.contains("statslib.summarize"),
-            "expected package-qualified dependency symbol in known-project discovery"
+            !symbols.contains("statslib.summarize"),
+            "dependency package identity must not become a MATLAB namespace"
         );
         assert!(
             symbols.contains("statsdep.summarize"),

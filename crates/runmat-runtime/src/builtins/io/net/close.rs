@@ -3,13 +3,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    StructValue, Value,
 };
+use runmat_value::{StructValue, Value};
 
-use crate::builtins::common::spec::{
-    BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
-    ReductionNaN, ResidencyPolicy, ShapeRequirements,
-};
+use crate::builtins::common::tensor;
 use crate::{build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError};
 
 use super::accept::{
@@ -89,23 +86,6 @@ pub const CLOSE_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     errors: &CLOSE_ERRORS,
 };
 
-#[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::io::net::close")]
-pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
-    name: "close",
-    op_kind: GpuOpKind::Custom("network"),
-    supported_precisions: &[],
-    broadcast: BroadcastSemantics::None,
-    provider_hooks: &[],
-    constant_strategy: ConstantStrategy::InlineLiteral,
-    residency: ResidencyPolicy::GatherImmediately,
-    nan_mode: ReductionNaN::Include,
-    two_pass_threshold: None,
-    workgroup_size: None,
-    accepts_nan_mode: false,
-    notes:
-        "Networking resources are host-only; the builtin gathers GPU values before closing handles.",
-};
-
 fn close_error_with_message(
     message: impl Into<String>,
     error: &'static BuiltinErrorDescriptor,
@@ -140,17 +120,6 @@ fn map_close_flow(err: RuntimeError, error: &'static BuiltinErrorDescriptor) -> 
     builder.build()
 }
 
-#[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::io::net::close")]
-pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
-    name: "close",
-    shape: ShapeRequirements::Any,
-    constant_strategy: ConstantStrategy::InlineLiteral,
-    elementwise: None,
-    reduction: None,
-    emits_nan: false,
-    notes: "Networking builtins execute eagerly on the CPU; close participates only in host bookkeeping.",
-};
-
 pub(crate) async fn close_network_builtin(args: Vec<Value>) -> crate::BuiltinResult<Value> {
     if args.is_empty() {
         let closed = close_everything();
@@ -175,6 +144,12 @@ pub(crate) async fn close_if_network_targets(args: &[Value]) -> BuiltinResult<Op
 
     let mut gathered_args = Vec::with_capacity(args.len());
     for raw in args {
+        // Graphics figure numbers are numeric host controls. In particular, a resident numeric
+        // value can never become a networking struct or selector after gathering, so classify it
+        // before touching the provider and let the plotting dispatcher reject resident targets.
+        if !is_network_target_value(raw) {
+            return Ok(None);
+        }
         let gathered = gather_if_needed_async(raw)
             .await
             .map_err(|flow| map_close_flow(flow, &CLOSE_ERROR_INTERNAL))?;
@@ -227,7 +202,7 @@ fn close_value(value: &Value) -> BuiltinResult<bool> {
             }
             Ok(closed)
         }
-        Value::Tensor(tensor) if tensor.data.is_empty() => Ok(false),
+        Value::Tensor(tensor) if tensor::tensor_element_len(tensor) == 0 => Ok(false),
         Value::LogicalArray(logical) if logical.is_empty() => Ok(false),
         _ => Err(close_flow(
             &CLOSE_ERROR_INVALID_ARGUMENT,
@@ -287,9 +262,7 @@ fn close_everything() -> bool {
 
 fn is_network_target_value(value: &Value) -> bool {
     match value {
-        Value::Struct(st) => {
-            st.fields.contains_key(CLIENT_HANDLE_FIELD) || st.fields.contains_key(HANDLE_ID_FIELD)
-        }
+        Value::Struct(_) => true,
         Value::String(text) => is_network_command_token(text),
         Value::CharArray(chars) => {
             if chars.data.is_empty() {
@@ -322,16 +295,9 @@ fn is_network_command_token(raw: &str) -> bool {
 
 fn value_to_u64(value: &Value) -> Option<u64> {
     match value {
-        Value::Int(int) => {
-            let raw = int.to_i64();
-            if raw >= 0 {
-                Some(raw as u64)
-            } else {
-                None
-            }
-        }
+        Value::Int(int) => int.try_to_u64(),
         Value::Num(num) => {
-            if num.is_finite() && *num >= 0.0 && num.fract() == 0.0 {
+            if num.is_finite() && *num >= 0.0 && *num < u64::MAX as f64 && num.fract() == 0.0 {
                 Some(*num as u64)
             } else {
                 None
@@ -347,8 +313,8 @@ pub(crate) mod tests {
     use crate::builtins::io::net::accept::{accept_builtin, client_handle};
     use crate::builtins::io::net::tcpclient::tcpclient_builtin;
     use crate::builtins::io::net::tcpserver::{server_handle, tcpserver_builtin};
-    use runmat_builtins::{
-        CellArray, CharArray, IntValue, StringArray, StructValue, Tensor, Value,
+    use runmat_value::{
+        CellArray, CharArray, IntValue, IntegerStorage, StringArray, StructValue, Tensor, Value,
     };
     use std::net::{TcpListener, TcpStream};
     use std::thread;
@@ -371,6 +337,16 @@ pub(crate) mod tests {
 
     fn assert_error_identifier(err: RuntimeError, expected: &str) {
         assert_eq!(err.identifier(), Some(expected));
+    }
+
+    #[test]
+    fn typed_network_handle_parser_rejects_negative_and_out_of_range_values() {
+        assert_eq!(
+            value_to_u64(&Value::Int(IntValue::U64(u64::MAX))),
+            Some(u64::MAX)
+        );
+        assert_eq!(value_to_u64(&Value::Int(IntValue::I8(-1))), None);
+        assert_eq!(value_to_u64(&Value::Num(u64::MAX as f64)), None);
     }
 
     fn run_close(args: Vec<Value>) -> BuiltinResult<Value> {
@@ -400,6 +376,28 @@ pub(crate) mod tests {
         }
     }
 
+    #[test]
+    fn close_accepts_empty_typed_integer_tensor_without_double_mirror() {
+        let tensor =
+            Tensor::new_integer(IntegerStorage::U8(Vec::new()), vec![0, 0]).expect("empty tensor");
+        assert!(!close_value(&Value::Tensor(tensor)).expect("close"));
+    }
+
+    #[test]
+    fn resident_numeric_target_is_not_gathered_during_network_dispatch() {
+        let resident = Value::GpuTensor(runmat_accelerate_api::GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: u32::MAX,
+            buffer_id: u64::MAX,
+            descriptor: Default::default(),
+        });
+        assert_eq!(
+            futures::executor::block_on(close_if_network_targets(&[resident]))
+                .expect("resident numeric target should bypass networking"),
+            None
+        );
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn close_descriptor_signatures_cover_core_forms() {
@@ -422,7 +420,7 @@ pub(crate) mod tests {
                     other => panic!("unexpected ServerAddress {other:?}"),
                 };
                 let port = match st.fields.get("ServerPort") {
-                    Some(Value::Int(iv)) => iv.to_i64() as u16,
+                    Some(Value::Num(value)) => *value as u16,
                     other => panic!("unexpected ServerPort {other:?}"),
                 };
                 (address, port)
@@ -441,7 +439,7 @@ pub(crate) mod tests {
 
         let client = run_tcpclient(
             Value::from("127.0.0.1"),
-            Value::Int(IntValue::I32(port as i32)),
+            Value::Num(port as f64),
             Vec::new(),
         )
         .expect("tcpclient");
@@ -451,12 +449,8 @@ pub(crate) mod tests {
     }
 
     fn spawn_tcp_server() -> Value {
-        run_tcpserver(
-            Value::from("127.0.0.1"),
-            Value::Int(IntValue::I32(0)),
-            Vec::new(),
-        )
-        .expect("tcpserver")
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(true);
+        run_tcpserver(Value::from("127.0.0.1"), Value::Num(0.0), Vec::new()).expect("tcpserver")
     }
 
     fn accept_from_server(server: &Value) -> Value {

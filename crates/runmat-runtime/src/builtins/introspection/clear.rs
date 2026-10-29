@@ -3,9 +3,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{Tensor, Value};
 
 use crate::{build_runtime_error, workspace, BuiltinResult};
 
@@ -64,6 +64,7 @@ pub const CLEAR_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
 
 #[runtime_builtin(
     name = "clear",
+    execution_stack = "process",
     category = "introspection",
     summary = "Clear variables from the active workspace.",
     keywords = "clear,workspace,variables",
@@ -74,6 +75,7 @@ pub const CLEAR_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
 )]
 async fn clear_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
     if args.is_empty() {
+        cleanup_workspace_values(workspace::snapshot()).await?;
         workspace::clear().map_err(clear_error)?;
         return Ok(empty_return_value());
     }
@@ -83,15 +85,68 @@ async fn clear_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
         collect_clear_targets(arg, &mut names)?;
     }
 
-    if names.is_empty() || names.iter().any(|name| name.eq_ignore_ascii_case("all")) {
-        workspace::clear().map_err(clear_error)?;
-    } else {
-        for name in names {
+    for name in names {
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(value) = workspace::lookup(&name) {
+            crate::builtins::introspection::on_cleanup::run_cleanup_for_workspace_value(&value)
+                .await?;
             workspace::remove(&name).map_err(clear_error)?;
+            continue;
+        }
+        match name.to_ascii_lowercase().as_str() {
+            "all" => {
+                cleanup_workspace_values(workspace::snapshot()).await?;
+                workspace::clear().map_err(clear_error)?;
+                clear_dynamic_functions(crate::user_functions::DynamicFunctionClearRequest::All)
+                    .await?;
+            }
+            "variables" => {
+                cleanup_workspace_values(workspace::snapshot()).await?;
+                workspace::clear().map_err(clear_error)?;
+            }
+            "functions" => {
+                clear_dynamic_functions(crate::user_functions::DynamicFunctionClearRequest::All)
+                    .await?
+            }
+            "mex" => {
+                clear_dynamic_functions(
+                    crate::user_functions::DynamicFunctionClearRequest::NativeExtensions,
+                )
+                .await?
+            }
+            _ => {
+                clear_dynamic_functions(crate::user_functions::DynamicFunctionClearRequest::Named(
+                    name,
+                ))
+                .await?
+            }
         }
     }
 
     Ok(empty_return_value())
+}
+
+async fn clear_dynamic_functions(
+    request: crate::user_functions::DynamicFunctionClearRequest,
+) -> BuiltinResult<()> {
+    match crate::user_functions::try_clear_dynamic_functions(request).await {
+        Some(result) => result,
+        None => Ok(()),
+    }
+}
+
+async fn cleanup_workspace_values(snapshot: Option<Vec<(String, Value)>>) -> BuiltinResult<()> {
+    if let Some(entries) = snapshot {
+        let values = entries
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
+        crate::builtins::introspection::on_cleanup::run_cleanup_for_workspace_values(&values)
+            .await?;
+    }
+    Ok(())
 }
 
 fn clear_error(message: impl Into<String>) -> crate::RuntimeError {
@@ -134,11 +189,11 @@ mod tests {
     use super::*;
     use futures::executor::block_on;
     use once_cell::sync::Lazy;
-    use runmat_builtins::Value;
     use runmat_thread_local::runmat_thread_local;
+    use runmat_value::Value;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     static CLEAR_TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
@@ -202,6 +257,21 @@ mod tests {
         });
     }
 
+    fn cleanup_invoker(counter: Arc<Mutex<usize>>) -> Arc<crate::user_functions::FunctionInvoker> {
+        Arc::new(move |_function, args, requested_outputs| {
+            assert!(
+                args.is_empty(),
+                "onCleanup callback should receive no inputs"
+            );
+            assert_eq!(requested_outputs, 0);
+            let counter = Arc::clone(&counter);
+            crate::sequence::single_value_future(async move {
+                *counter.lock().unwrap() += 1;
+                Ok(Value::Tensor(runmat_value::Tensor::zeros(vec![0, 0])))
+            })
+        })
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn clear_without_args_clears_workspace() {
@@ -238,6 +308,61 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn variable_name_takes_precedence_over_clear_keyword() {
+        let (_workspace_guard, _clear_guard) = test_guard();
+        ensure_test_resolver();
+        set_workspace(&[("all", Value::Num(1.0)), ("kept", Value::Num(2.0))]);
+        let requests = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let context = crate::context::RuntimeContext::new(std::rc::Rc::new(
+            crate::execution::RuntimeExecutionService::new(),
+        ));
+        let observed = std::rc::Rc::clone(&requests);
+        context.set_dynamic_function_clearer(Some(std::rc::Rc::new(move |_runtime, request| {
+            let observed = std::rc::Rc::clone(&observed);
+            Box::pin(async move {
+                observed.borrow_mut().push(request);
+                Ok(())
+            })
+        })));
+        let _context = crate::context::RuntimeContextGuard::enter(context);
+
+        clear_builtin(vec![Value::from("all")]).expect("clear variable named all");
+
+        assert!(requests.borrow().is_empty());
+        let snapshot = crate::workspace::snapshot().unwrap_or_default();
+        assert_eq!(snapshot, vec![("kept".into(), Value::Num(2.0))]);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn clear_mex_routes_only_to_native_extensions() {
+        let (_workspace_guard, _clear_guard) = test_guard();
+        ensure_test_resolver();
+        set_workspace(&[]);
+        let requests = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let context = crate::context::RuntimeContext::new(std::rc::Rc::new(
+            crate::execution::RuntimeExecutionService::new(),
+        ));
+        let observed = std::rc::Rc::clone(&requests);
+        context.set_dynamic_function_clearer(Some(std::rc::Rc::new(move |_runtime, request| {
+            let observed = std::rc::Rc::clone(&observed);
+            Box::pin(async move {
+                observed.borrow_mut().push(request);
+                Ok(())
+            })
+        })));
+        let _context = crate::context::RuntimeContextGuard::enter(context);
+
+        clear_builtin(vec![Value::from("mex")]).expect("clear mex");
+
+        assert_eq!(
+            requests.borrow().as_slice(),
+            &[crate::user_functions::DynamicFunctionClearRequest::NativeExtensions]
+        );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn clear_rejects_non_string_target() {
         let (_workspace_guard, _clear_guard) = test_guard();
         ensure_test_resolver();
@@ -246,5 +371,36 @@ mod tests {
         assert!(err
             .to_string()
             .contains("expected variable names as character vectors or string scalars"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn clear_named_oncleanup_runs_callback_before_removal() {
+        let (_workspace_guard, _clear_guard) = test_guard();
+        let _cleanup_guard = crate::builtins::introspection::on_cleanup::ON_CLEANUP_TEST_LOCK
+            .lock()
+            .unwrap();
+        ensure_test_resolver();
+        let counter = Arc::new(Mutex::new(0usize));
+        let _invoker = crate::user_functions::install_semantic_function_invoker(Some(
+            cleanup_invoker(Arc::clone(&counter)),
+        ));
+        let cleanup = block_on(
+            crate::builtins::introspection::on_cleanup::on_cleanup_builtin(
+                Value::BoundFunctionHandle {
+                    name: "cleanup".into(),
+                    function: 11,
+                },
+            ),
+        )
+        .expect("create cleanup");
+        set_workspace(&[("cleanup", cleanup), ("x", Value::Num(1.0))]);
+
+        clear_builtin(vec![Value::from("cleanup")]).expect("clear cleanup");
+
+        assert_eq!(*counter.lock().unwrap(), 1);
+        let snapshot = crate::workspace::snapshot().unwrap_or_default();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].0, "x");
     }
 }

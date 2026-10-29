@@ -1,13 +1,29 @@
 use clap::ValueEnum;
 
-#[derive(Clone, Debug, ValueEnum)]
-pub enum CompressionAlg {
-    /// No compression
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum AotOptLevel {
     None,
-    /// LZ4 compression (fast)
-    Lz4,
-    /// Zstd compression (balanced)
-    Zstd,
+    Size,
+    Speed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum AotPolicy {
+    NativeSpecialized,
+    ClosedWorld,
+    DynamicRuntime,
+    Portable,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum ColorMode {
+    /// Detect color support for each output stream
+    #[default]
+    Auto,
+    /// Always style human-readable output
+    Always,
+    /// Never emit CLI-owned ANSI styling
+    Never,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -54,16 +70,4 @@ pub enum CaptureFiguresMode {
 pub struct FigureSize {
     pub width: u32,
     pub height: u32,
-}
-
-impl From<CompressionAlg> for runmat_snapshot::CompressionAlgorithm {
-    fn from(alg: CompressionAlg) -> Self {
-        use runmat_snapshot::CompressionAlgorithm;
-
-        match alg {
-            CompressionAlg::None => CompressionAlgorithm::None,
-            CompressionAlg::Lz4 => CompressionAlgorithm::Lz4,
-            CompressionAlg::Zstd => CompressionAlgorithm::Zstd,
-        }
-    }
 }

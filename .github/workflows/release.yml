@@ -20,230 +20,67 @@ env:
   VERSION: ${{ github.ref_name }}
 
 jobs:
-  build-and-test:
-    runs-on: ["self-hosted", "windows", "GCP"]
-    env:
-      # Enable backtraces on CI to aid debugging of panics/segfaults
-      RUST_BACKTRACE: 1
-      MATRIX_NAME: windows-x86_64
+  validate-release-state:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.ref || github.ref_name }}
-
-      - name: Validate Rust toolchain (Windows self-hosted)
-        shell: pwsh
-        env:
-          RUST_TOOLCHAIN: 1.90.0-x86_64-pc-windows-msvc
-          RUST_COMPONENTS: rustfmt clippy
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $toolchain = $env:RUST_TOOLCHAIN
-          $components = $env:RUST_COMPONENTS.Split(' ')
-          $userProfile = [Environment]::GetFolderPath('UserProfile')
-          $cargoHome = Join-Path $userProfile '.cargo'
-          $rustupHome = Join-Path $userProfile '.rustup'
-          $cargoBin = Join-Path $cargoHome 'bin'
-          $rustup = Join-Path $cargoBin 'rustup.exe'
-          $cargo = Join-Path $cargoBin 'cargo.exe'
-
-          if (-not (Test-Path $rustup)) {
-            throw "Missing rustup at $rustup. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-          if (-not (Test-Path $cargo)) {
-            throw "Missing cargo at $cargo. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-          $unexpectedCargoHome = [Environment]::GetEnvironmentVariable('CARGO_HOME', 'Machine')
-          if ($unexpectedCargoHome -and $unexpectedCargoHome -ne $cargoHome) {
-            throw "Machine CARGO_HOME is '$unexpectedCargoHome', but the runner account Rust install must live at $cargoHome."
-          }
-          $unexpectedRustupHome = [Environment]::GetEnvironmentVariable('RUSTUP_HOME', 'Machine')
-          if ($unexpectedRustupHome -and $unexpectedRustupHome -ne $rustupHome) {
-            throw "Machine RUSTUP_HOME is '$unexpectedRustupHome', but the runner account Rust install must live at $rustupHome."
-          }
-
-          Add-Content -Path $env:GITHUB_ENV -Value "CARGO_HOME=$cargoHome"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUSTUP_HOME=$rustupHome"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUSTUP_TOOLCHAIN=$toolchain"
-          Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
-
-          & $rustup which --toolchain $toolchain cargo | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "rustup which failed (exit $LASTEXITCODE) — toolchain $toolchain may not be installed." }
-          $installedComponents = & $rustup component list --toolchain $toolchain --installed
-          if ($LASTEXITCODE -ne 0) { throw "rustup component list failed (exit $LASTEXITCODE)." }
-          foreach ($component in $components) {
-            $componentPattern = '^{0}-' -f [regex]::Escape($component)
-            if (-not ($installedComponents | Select-String -Pattern $componentPattern -Quiet)) {
-              throw "Missing Rust component '$component' for toolchain $toolchain. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-            }
-          }
-          & $cargo -V
-          if ($LASTEXITCODE -ne 0) { throw "cargo -V failed (exit $LASTEXITCODE) — toolchain may be broken." }
-          & (Join-Path $cargoBin 'rustc.exe') -V
-          if ($LASTEXITCODE -ne 0) { throw "rustc -V failed (exit $LASTEXITCODE) — toolchain may be broken." }
-
-
-      - name: Validate Windows runner dependencies
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $triplet = 'x64-windows'
-          $userProfile = [Environment]::GetFolderPath('UserProfile')
-          $profileVcpkgRoot = Join-Path $userProfile 'vcpkg-runmat'
-          $vcpkgRoot = if ($env:VCPKG_ROOT) {
-            $env:VCPKG_ROOT
-          } elseif (Test-Path (Join-Path $profileVcpkgRoot 'vcpkg.exe')) {
-            $profileVcpkgRoot
-          } else {
-            'C:\vcpkg'
-          }
-          $prefix = Join-Path $vcpkgRoot "installed\$triplet"
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-
-          if (-not (Test-Path $vswhere)) {
-            throw "vswhere.exe was not found. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-          $vsInstall = & $vswhere `
-            -latest `
-            -products * `
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-            -property installationPath
-          if (-not $vsInstall) {
-            throw "Visual Studio C++ Build Tools were not detected. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
-            throw "pkg-config was not found on PATH. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-          if (-not (Get-Command perl -ErrorAction SilentlyContinue)) {
-            throw "Perl was not found on PATH. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-
-          $required = @(
-            (Join-Path $vcpkgRoot 'vcpkg.exe'),
-            (Join-Path $prefix 'include\zmq.h'),
-            (Join-Path $prefix 'include\opencascade'),
-            (Join-Path $prefix 'lib\openblas.lib'),
-            (Join-Path $prefix 'lib\TKBRep.lib'),
-            (Join-Path $prefix 'lib\pkgconfig\libzmq.pc')
-          )
-          foreach ($path in $required) {
-            if (-not (Test-Path $path)) {
-              throw "Missing required Windows dependency artifact: $path. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-            }
-          }
-          $zmqImportLibs = Get-ChildItem -Path (Join-Path $prefix 'lib') -Filter '*zmq*.lib' -ErrorAction SilentlyContinue
-          if (-not $zmqImportLibs) {
-            throw "Missing required ZeroMQ import library under $prefix\lib. Provision the runner with infra/scripts/bootstrap-windows-runner.ps1."
-          }
-
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$vcpkgRoot"
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_DEFAULT_TRIPLET=$triplet"
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKGRS_TRIPLET=$triplet"
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKGRS_DYNAMIC=1"
-          Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$prefix\include;$env:INCLUDE"
-          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$prefix\lib;$env:LIB"
-          Add-Content -Path $env:GITHUB_ENV -Value "ZMQ_PATH=$prefix"
-          Add-Content -Path $env:GITHUB_ENV -Value "ZMQ_INCLUDE_DIR=$prefix\include"
-          Add-Content -Path $env:GITHUB_ENV -Value "ZMQ_LIB_DIR=$prefix\lib"
-          Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG_PATH=$prefix\lib\pkgconfig"
-          Add-Content -Path $env:GITHUB_PATH -Value $vcpkgRoot
-          Add-Content -Path $env:GITHUB_PATH -Value "$prefix\bin"
-          Add-Content -Path $env:GITHUB_ENV -Value "BLAS_LIB_DIR=$prefix\lib"
-          Add-Content -Path $env:GITHUB_ENV -Value "BLAS_LIBS=openblas"
-          Add-Content -Path $env:GITHUB_ENV -Value "LAPACK_LIB_DIR=$prefix\lib"
-          $lapackLibs = if (Test-Path (Join-Path $prefix 'lib\libf2c.lib')) { 'lapack;libf2c;openblas' } else { 'lapack;openblas' }
-          Add-Content -Path $env:GITHUB_ENV -Value "LAPACK_LIBS=$lapackLibs"
-          Add-Content -Path $env:GITHUB_ENV -Value "OPENBLAS_DIR=$prefix"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_ROOT=$prefix"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_INCLUDE_DIR=$prefix\include\opencascade"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_LIB_DIR=$prefix\lib"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_BIN_DIR=$prefix\bin"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_LINK_MODE=dylib"
-
-      - name: Format
-        run: cargo fmt -- --check
-
-      - name: Clippy (Windows)
-        shell: pwsh
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Test (Windows)
-        shell: pwsh
-        env:
-          RUST_BACKTRACE: 1
-          RUST_TEST_THREADS: 1
-        run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test --all-targets --all-features 2>&1 | Tee-Object -FilePath test.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Test Summary
-        if: always() && hashFiles('test.log') != ''
-        uses: actions/github-script@v7
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-node@v5
         with:
-          github-token: ${{ github.token }}
-          script: |
-            const fs = require('fs');
-            const log = fs.readFileSync('test.log', 'utf8');
-            const matrixName = process.env.MATRIX_NAME || 'matrix';
-            let totalPassed = 0;
-            let totalFailed = 0;
-            let current = '';
-            const details = [];
-            for (const line of log.split('\n')) {
-              const run = line.match(/Running .*deps\/(.+?)-[a-f0-9]+\)/);
-              if (run) current = run[1];
-              const m = line.match(/test result: .*?(\d+) passed; (\d+) failed.*finished in ([0-9.]+)s/);
-              if (m) {
-                const passed = parseInt(m[1], 10);
-                const failed = parseInt(m[2], 10);
-                totalPassed += passed;
-                totalFailed += failed;
-                details.push(`- ${matrixName} / ${current || 'crate'}: ${passed} passed, ${failed} failed (${m[3]}s)`);
-                current = '';
-              }
-            }
-            let body = '**Test Summary**\n';
-            body += details.join('\n');
-            body += `\n**Totals**: ${totalPassed} passed, ${totalFailed} failed`;
-            console.log(body);
-  
+          node-version: 24
+      - name: Verify tag matches reviewed package versions
+        if: github.event_name == 'push'
+        shell: bash
+        run: node scripts/verify-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - name: Record workflow-dispatch source
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "Testing ${{ inputs.ref }} without publishing a release."
+
+  release-validation:
+    name: Validate release with CI
+    needs: [validate-release-state]
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_validation: true
+
   build-release:
     if: github.event_name == 'push'
+    needs: [validate-release-state]
     environment: Production
     name: Build ${{ matrix.platform.release_for }}
     env:
       RUNMAT_TELEMETRY_KEY: ${{ secrets.TELEMETRY_INGESTION_KEY }}
     strategy:
+      fail-fast: false
       max-parallel: 8
       matrix:
         platform:
           
           - release_for: windows-x86_64
-            os: windows-latest-l
+            os: warp-windows-latest-x64-8x
             target: x86_64-pc-windows-msvc
             bin: runmat.exe
             name: runmat-windows-x86_64.zip
             command: build
 
           - release_for: macos-x86_64
-            os: macOS-latest
+            os: warp-macos-26-arm64-12x
             target: x86_64-apple-darwin
             bin: runmat
             name: runmat-darwin-x86_64.tar.gz
             command: build
 
           - release_for: macos-aarch64
-            os: macOS-latest
+            os: warp-macos-26-arm64-12x
             target: aarch64-apple-darwin
             bin: runmat
             name: runmat-darwin-aarch64.tar.gz
             command: build
 
           - release_for: linux-x86_64
-            os: ubuntu-latest-gpu
+            os: warp-ubuntu-latest-x64-16x
             target: x86_64-unknown-linux-gnu
             bin: runmat
             name: runmat-linux-x86_64.tar.gz
@@ -252,278 +89,228 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
 
-      - name: Install BLAS/LAPACK dependencies (Linux)
+      - name: Setup Node.js for product evidence
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install native dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libopenblas-dev liblapack-dev libzmq3-dev pkg-config libssl-dev
+          sudo apt-get install -y cmake libhdf5-dev libopenblas-dev liblapack-dev libzmq3-dev pkg-config libssl-dev
 
-      - name: Install macOS dependencies (ZMQ)
+      - name: Install macOS native dependencies
         if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew list cmake >/dev/null 2>&1 || brew install cmake
-          brew install zeromq
+        run: bash scripts/ci-install-macos-cross-dependencies.sh "${{ matrix.platform.target }}"
 
-      - name: Install Windows MSVC dependencies (ZMQ, vcpkg + OpenBLAS/LAPACK)
+      - name: Install Rust release target
+        shell: bash
+        run: rustup target add "${{ matrix.platform.target }}"
+
+      - name: Restore native artifact build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-artifact-v1-${{ matrix.platform.target }}
+          cache-workspace-crates: true
+
+      - name: Restore Windows native dependency cache
+        if: runner.os == 'Windows' && matrix.platform.target != 'aarch64-pc-windows-gnu'
+        uses: actions/cache@v5
+        with:
+          path: ~/vcpkg-runmat/installed
+          key: windows-vcpkg-a7eda31-${{ matrix.platform.target }}-${{ hashFiles('infra/vcpkg-ports/**', 'infra/scripts/ensure-windows-vcpkg-dependencies.ps1', 'infra/scripts/prepare-windows-cross-dependencies.ps1') }}
+
+      - name: Install Windows MSVC native dependencies
         if: runner.os == 'Windows' && matrix.platform.target != 'aarch64-pc-windows-gnu'
         shell: pwsh
-        run: |
-          choco install -y pkgconfiglite strawberryperl cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+        run: ./infra/scripts/prepare-windows-cross-dependencies.ps1 -Target "${{ matrix.platform.target }}"
 
-          Write-Host "Fetching prebuilt ZeroMQ for Windows (MSVC)"
-          curl -L -o libzmq.zip https://github.com/zeromq/libzmq/releases/download/v4.3.5/zeromq-4.3.5.zip
-          Expand-Archive -Path libzmq.zip -DestinationPath zmq
-          # Set env vars for ZMQ include/lib
-          $zmq = Join-Path $pwd "zmq"
-          Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$($zmq)\include;$env:INCLUDE"
-          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$($zmq)\lib;$env:LIB"
-          Add-Content -Path $env:GITHUB_ENV -Value "ZMQ_PATH=$($zmq)"
-          Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG_PATH=$($zmq)\lib\pkgconfig"
-
-          Write-Host "Cloning vcpkg and installing OpenBLAS/CLAPACK/OpenCASCADE"
-          $vcpkgRoot = Join-Path $pwd "vcpkg"
-          $vcpkgRevision = "a7eda31dc16994fcaa8587982eb833a8695f1b6f"
-          git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
-          if ($LASTEXITCODE -ne 0) { throw "git clone of vcpkg failed with exit code $LASTEXITCODE" }
-          git -C $vcpkgRoot checkout $vcpkgRevision
-          if ($LASTEXITCODE -ne 0) { throw "git checkout of vcpkg revision $vcpkgRevision failed with exit code $LASTEXITCODE" }
-          & "$vcpkgRoot\bootstrap-vcpkg.bat"
-          if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.bat failed with exit code $LASTEXITCODE" }
-
-          $finder = Join-Path $vcpkgRoot "scripts\cmake\vcpkg_find_fortran.cmake"
-          $content = Get-Content -LiteralPath $finder -Raw
-          $needle = "    include(CMakeDetermineFortranCompiler)"
-          $replacement = @'
-              include(CMakeDetermineFortranCompiler)
-
-              if(CMAKE_HOST_WIN32 AND "${VCPKG_CHAINLOAD_TOOLCHAIN_FILE}" STREQUAL "" AND
-                 ("${VCPKG_TARGET_ARCHITECTURE}" STREQUAL "x86" OR "${VCPKG_TARGET_ARCHITECTURE}" STREQUAL "x64"))
-                  if(CMAKE_Fortran_COMPILER)
-                      message(STATUS "Ignoring ambient Fortran compiler '${CMAKE_Fortran_COMPILER}' so vcpkg uses internal MinGW gfortran")
-                      unset(CMAKE_Fortran_COMPILER)
-                      unset(CMAKE_Fortran_COMPILER CACHE)
-                  endif()
-              endif()
-          '@
-          if (-not $content.Contains($replacement)) {
-            if (-not $content.Contains($needle)) {
-              throw "Could not find expected CMakeDetermineFortranCompiler hook in $finder"
-            }
-            Set-Content -LiteralPath $finder -Value $content.Replace($needle, $replacement) -NoNewline
-          }
-
-          $keptPath = [System.Collections.Generic.List[string]]::new()
-          foreach ($entry in ($env:Path -split ";")) {
-            if ([string]::IsNullOrWhiteSpace($entry)) {
-              continue
-            }
-            $expanded = [Environment]::ExpandEnvironmentVariables($entry.Trim('"'))
-            $hasFortran = $false
-            foreach ($compiler in @("flang.exe", "flang-new.exe", "gfortran.exe", "ifort.exe", "ifx.exe")) {
-              if (Test-Path -LiteralPath (Join-Path $expanded $compiler)) {
-                $hasFortran = $true
-                break
-              }
-            }
-            if (-not $hasFortran) {
-              $keptPath.Add($entry)
-            }
-          }
-          Remove-Item Env:FC -ErrorAction SilentlyContinue
-          Remove-Item Env:F77 -ErrorAction SilentlyContinue
-          Remove-Item Env:F90 -ErrorAction SilentlyContinue
-          $env:Path = [string]::Join(";", $keptPath)
-
-          # Compute vcpkg triplet based on target
-          $target = "${{ matrix.platform.target }}"
-          if ($target -eq "aarch64-pc-windows-msvc") {
-            $triplet = "arm64-windows"
-          } else {
-            $triplet = "x64-windows"
-          }
-
-          # Ensure triplet in env
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$vcpkgRoot"
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_DEFAULT_TRIPLET=$triplet"
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKGRS_TRIPLET=$triplet"
-
-          # vcpkg builds OpenBLAS without LAPACK on Windows; use CLAPACK for
-          # LAPACK symbols without depending on a gfortran-backed LAPACK build.
-          & "$vcpkgRoot\vcpkg.exe" install "openblas:$triplet"
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg install openblas failed with exit code $LASTEXITCODE" }
-          & "$vcpkgRoot\vcpkg.exe" install "clapack:$triplet"
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg install clapack failed with exit code $LASTEXITCODE" }
-          if ($triplet -eq "arm64-windows") {
-            & "$vcpkgRoot\vcpkg.exe" install "opencascade:$triplet" --allow-unsupported
-          } else {
-            & "$vcpkgRoot\vcpkg.exe" install "opencascade:$triplet"
-          }
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg install opencascade failed with exit code $LASTEXITCODE" }
-          Add-Content -Path $env:GITHUB_ENV -Value "VCPKGRS_DYNAMIC=1"
-          Add-Content -Path $env:GITHUB_PATH -Value "$vcpkgRoot\installed\$triplet\bin"
-
-          # Hint BLAS/LAPACK discovery for blas-sys/lapack-sys
-          Add-Content -Path $env:GITHUB_ENV -Value "BLAS_LIB_DIR=$vcpkgRoot\installed\$triplet\lib"
-          Add-Content -Path $env:GITHUB_ENV -Value "BLAS_LIBS=openblas"
-          Add-Content -Path $env:GITHUB_ENV -Value "LAPACK_LIB_DIR=$vcpkgRoot\installed\$triplet\lib"
-          Add-Content -Path $env:GITHUB_ENV -Value "LAPACK_LIBS=lapack;libf2c;openblas"
-          Add-Content -Path $env:GITHUB_ENV -Value "OPENBLAS_DIR=$vcpkgRoot\installed\$triplet"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_ROOT=$vcpkgRoot\installed\$triplet"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_INCLUDE_DIR=$vcpkgRoot\installed\$triplet\include\opencascade"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_LIB_DIR=$vcpkgRoot\installed\$triplet\lib"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_BIN_DIR=$vcpkgRoot\installed\$triplet\bin"
-          Add-Content -Path $env:GITHUB_ENV -Value "RUNMAT_OCCT_LINK_MODE=dylib"
-
-      - name: Cross build (linux-x86_64)
-        if: matrix.platform.target == 'x86_64-unknown-linux-gnu'
-        uses: houseabsolute/actions-rust-cross@v0
+      - name: Build release CLI with embedded AOT runtime (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         env:
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+          OPENSSL_NO_PKG_CONFIG: ${{ runner.os == 'macOS' && '1' || '0' }}
+          OPENSSL_STATIC: ${{ runner.os == 'macOS' && '1' || '0' }}
+          RUNMAT_BUILD_TARGET: ${{ matrix.platform.target }}
           RUNMAT_OCCT_LINK_MODE: static
-        with:
-          command: ${{ matrix.platform.command }}
-          target: ${{ matrix.platform.target }}
-          # Use system OpenSSL via pkg-config; libssl-dev installed above
-          args: "--locked --release --bin runmat --features blas-lapack,occt-native"
-          strip: true
+        run: |
+          set -euo pipefail
+          features="blas-lapack,occt-native"
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            features="$features,vendored-openssl"
+          fi
+          bash scripts/build-runmat-with-aot-runtime.sh \
+            --locked --release --target "${{ matrix.platform.target }}" \
+            --bin runmat --features "$features"
 
-      - name: Cross build (other targets)
-        if: matrix.platform.target != 'x86_64-unknown-linux-gnu'
-        uses: houseabsolute/actions-rust-cross@v0
+      - name: Build release CLI with embedded AOT runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         env:
+          CARGO_PROFILE_RELEASE_STRIP: symbols
           OPENSSL_NO_PKG_CONFIG: '1'
           OPENSSL_STATIC: '1'
-          RUNMAT_OCCT_LINK_MODE: ${{ runner.os == 'Windows' && 'dylib' || 'static' }}
-        with:
-          command: ${{ matrix.platform.command }}
-          target: ${{ matrix.platform.target }}
-          # Build all targets with vendored OpenSSL and full BLAS+LAPACK
-          args: "--locked --release --bin runmat --features blas-lapack,vendored-openssl,occt-native"
-          strip: true
+          RUNMAT_BUILD_TARGET: ${{ matrix.platform.target }}
+          RUNMAT_OCCT_LINK_MODE: dylib
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./scripts/build-runmat-with-aot-runtime.ps1 --locked --release --target "${{ matrix.platform.target }}" --bin runmat --features "blas-lapack,vendored-openssl,occt-native"
+          if ($LASTEXITCODE -ne 0) { throw "embedded-runtime release build failed with exit code $LASTEXITCODE" }
 
-      - name: Import signing cert and codesign (macOS)
+      - name: Sign and notarize release artifact (macOS)
         if: runner.os == 'macOS'
         shell: bash
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          MACOS_CERT_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
-        run: |
-          set -euxo pipefail
-          # Prepare keychain with Developer ID Application certificate
-          KEYCHAIN=build.keychain
-          KEYCHAIN_PWD=$(uuidgen)
-          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
-          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
-          security import cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PWD" "$KEYCHAIN"
-
-          BIN="target/${{ matrix.platform.target }}/release/runmat"
-          # Minimal entitlements to support JIT and dynamic loading under Hardened Runtime
-          cat > entitlements.plist <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>com.apple.security.cs.allow-jit</key><true/>
-            <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
-            <key>com.apple.security.cs.disable-library-validation</key><true/>
-          </dict>
-          </plist>
-          EOF
-
-          codesign --force --timestamp --options runtime --entitlements entitlements.plist \
-            --sign "$MACOS_CERT_IDENTITY" "$BIN"
-          codesign -dv --verbose=4 "$BIN" || true
-
-      - name: Notarize (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
           APPLE_NOTARIZE_KEY_ID: ${{ secrets.APPLE_NOTARIZE_KEY_ID }}
           APPLE_NOTARIZE_ISSUER_ID: ${{ secrets.APPLE_NOTARIZE_ISSUER_ID }}
           APPLE_NOTARIZE_PRIVATE_KEY: ${{ secrets.APPLE_NOTARIZE_PRIVATE_KEY }}
+        run: bash scripts/sign-and-notarize-macos-binary.sh "target/${{ matrix.platform.target }}/release/runmat"
+
+      - name: Stage and probe signed release product (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          set -euxo pipefail
-          BIN="target/${{ matrix.platform.target }}/release/runmat"
-          # Create a temporary zip only for notarization submission (do not ship this)
-          ZIP_NAME="notarize-submit.zip"
-          /usr/bin/zip -j "$ZIP_NAME" "$BIN"
-          echo "$APPLE_NOTARIZE_PRIVATE_KEY" | base64 --decode > notary_key.p8
-          # Submit and wait for notarization result
-          xcrun notarytool submit "$ZIP_NAME" --key notary_key.p8 \
-            --key-id "$APPLE_NOTARIZE_KEY_ID" --issuer "$APPLE_NOTARIZE_ISSUER_ID" --wait
-          # Staple ticket to binary if possible (no-op for some formats)
-          xcrun stapler staple "$BIN" || true
-          rm -f "$ZIP_NAME" notary_key.p8
+          set -euo pipefail
+          root="artifacts/release-product/${{ matrix.platform.release_for }}"
+          source_revision="$(git rev-parse HEAD)"
+          node scripts/runtime/stage-builtin-example-product.mjs \
+            --binary "target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}" \
+            --destination "$root/product" --executable-name "${{ matrix.platform.bin }}"
+          node scripts/runtime/verify-builtin-examples.mjs artifacts \
+            --product native-cli --profile embedded-aot --source-revision "$source_revision" \
+            --root "$root/product" --entrypoint "runmat-binary=${{ matrix.platform.bin }}" \
+            --output "$root/${{ matrix.platform.release_for }}.artifact-manifest.json"
+          node scripts/runtime/verify-builtin-examples.mjs probe \
+            --kind native-embedded-aot-compile-and-execute-v1 \
+            --artifact-manifest "$root/${{ matrix.platform.release_for }}.artifact-manifest.json" \
+            --output "$root/${{ matrix.platform.release_for }}.product-probe.json"
+
+      - name: Stage and probe signed release product (Windows)
+        if: runner.os == 'Windows' && matrix.platform.target != 'aarch64-pc-windows-gnu'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "artifacts/release-product/${{ matrix.platform.release_for }}"
+          $sourceRevision = (& git rev-parse HEAD).Trim()
+          $arguments = @(
+            "scripts/runtime/stage-builtin-example-product.mjs",
+            "--binary", "target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}",
+            "--destination", "$root/product",
+            "--executable-name", "${{ matrix.platform.bin }}"
+          )
+          $vcpkgBin = Join-Path $env:VCPKG_ROOT ("installed\" + $env:VCPKG_DEFAULT_TRIPLET + "\bin")
+          if (Test-Path $vcpkgBin) { $arguments += @("--dependency-dir", $vcpkgBin) }
+          $zmqBin = Join-Path $env:ZMQ_PATH "bin"
+          $zmqLib = Join-Path $env:ZMQ_PATH "lib"
+          if (Test-Path $zmqBin) { $arguments += @("--dependency-dir", $zmqBin) }
+          elseif (Test-Path $zmqLib) { $arguments += @("--dependency-dir", $zmqLib) }
+          & node @arguments
+          if ($LASTEXITCODE -ne 0) { throw "native product staging failed with exit code $LASTEXITCODE" }
+          & node scripts/runtime/verify-builtin-examples.mjs artifacts `
+            --product native-cli --profile embedded-aot --source-revision $sourceRevision `
+            --root "$root/product" --entrypoint "runmat-binary=${{ matrix.platform.bin }}" `
+            --output "$root/${{ matrix.platform.release_for }}.artifact-manifest.json"
+          if ($LASTEXITCODE -ne 0) { throw "native artifact manifest failed with exit code $LASTEXITCODE" }
+          & node scripts/runtime/verify-builtin-examples.mjs probe `
+            --kind native-embedded-aot-compile-and-execute-v1 `
+            --artifact-manifest "$root/${{ matrix.platform.release_for }}.artifact-manifest.json" `
+            --output "$root/${{ matrix.platform.release_for }}.product-probe.json"
+          if ($LASTEXITCODE -ne 0) { throw "native product probe failed with exit code $LASTEXITCODE" }
+
+      - name: Verify examples against exact staged native product
+        if: runner.os != 'Windows' || matrix.platform.target != 'aarch64-pc-windows-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="artifacts/release-product/${{ matrix.platform.release_for }}"
+          mkdir -p "$root/verification/results"
+          node scripts/runtime/verify-builtin-examples.mjs inventory --output "$root/verification/inventory.json"
+          node scripts/runtime/verify-builtin-examples.mjs plan \
+            --inventory "$root/verification/inventory.json" --product native-cli \
+            --topology scripts/runtime/builtin-example-topology.c00.json \
+            --output "$root/verification/plan.json"
+          set +e
+          node scripts/runtime/run-builtin-example-product.mjs \
+            --inventory "$root/verification/inventory.json" --plan "$root/verification/plan.json" \
+            --artifact-manifest "$root/${{ matrix.platform.release_for }}.artifact-manifest.json" \
+            --output-dir "$root/verification/results"
+          execution_status=$?
+          set -e
+          set +e
+          node scripts/runtime/verify-builtin-examples.mjs reconcile \
+            --inventory "$root/verification/inventory.json" --plan "$root/verification/plan.json" \
+            --results-dir "$root/verification/results" \
+            --artifact-manifest "$root/${{ matrix.platform.release_for }}.artifact-manifest.json" \
+            --product-probe "$root/${{ matrix.platform.release_for }}.product-probe.json" \
+            --report-dir "$root/verification/report" \
+            --output "$root/${{ matrix.platform.release_for }}.example-reconciliation.json"
+          reconciliation_status=$?
+          set -e
+          tar -czf "runmat-${VERSION}-${{ matrix.platform.release_for }}-builtin-example-evidence.tar.gz" \
+            -C "$root" \
+            "${{ matrix.platform.release_for }}.artifact-manifest.json" \
+            "${{ matrix.platform.release_for }}.product-probe.json" \
+            "${{ matrix.platform.release_for }}.example-reconciliation.json" \
+            verification
+          test "$execution_status" -eq 0
+          test "$reconciliation_status" -eq 0
 
       - name: Package as archive (Windows)
         if: runner.os == 'Windows' && matrix.platform.target != 'aarch64-pc-windows-gnu'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $target = "${{ matrix.platform.target }}"
-          $outDir = Join-Path "target" (Join-Path $target "release")
+          $outDir = "artifacts/release-product/${{ matrix.platform.release_for }}/product"
           $artifactName = "runmat-${{ env.VERSION }}-${{ matrix.platform.release_for }}"
 
           Push-Location $outDir
-          # Copy required runtime DLLs into output dir
-          $triplet = $env:VCPKG_DEFAULT_TRIPLET
-          $vcpkgBin = Join-Path $env:VCPKG_ROOT ("installed\" + $triplet + "\bin")
-          if (Test-Path $vcpkgBin) { Copy-Item -Path (Join-Path $vcpkgBin "*.dll") -Destination . -Force -ErrorAction SilentlyContinue }
-
-          $zmqBin = Join-Path $env:ZMQ_PATH "bin"
-          if (Test-Path $zmqBin) { Copy-Item -Path (Join-Path $zmqBin "*.dll") -Destination . -Force -ErrorAction SilentlyContinue }
-          else {
-            $zmqLib = Join-Path $env:ZMQ_PATH "lib"
-            if (Test-Path $zmqLib) { Copy-Item -Path (Join-Path $zmqLib "*.dll") -Destination . -Force -ErrorAction SilentlyContinue }
-          }
-
-          # Create zip with binary and DLLs
-          7z a (Join-Path "..\..\.." ("$artifactName.zip")) ${{ matrix.platform.bin }} *.dll
+          7z a (Join-Path "..\..\..\.." ("$artifactName.zip")) ${{ matrix.platform.bin }} *.dll
           Pop-Location
 
       - name: Package as archive (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          cd target/${{ matrix.platform.target }}/release
+          cd artifacts/release-product/${{ matrix.platform.release_for }}/product
           ARTIFACT_NAME="runmat-${{ env.VERSION }}-${{ matrix.platform.release_for }}"
-          tar czvf ../../../${ARTIFACT_NAME}.tar.gz ${{ matrix.platform.bin }}
+          tar czvf ../../../../${ARTIFACT_NAME}.tar.gz ${{ matrix.platform.bin }}
           cd -
 
       - name: Publish release artifacts
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: runmat-${{ env.VERSION }}-${{ matrix.platform.release_for }}
+          name: runmat-${{ env.VERSION }}-${{ matrix.platform.release_for }}-${{ github.run_attempt }}
           path: |
             runmat-*.tar.gz
             runmat-*.zip
+            artifacts/release-product/${{ matrix.platform.release_for }}/*.json
+          if-no-files-found: error
 
   create-release:
     if: github.event_name == 'push'
     name: Create Release
-    needs: [build-and-test, build-release]
+    needs: [release-validation, build-release]
     environment: Production
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
@@ -572,7 +359,7 @@ jobs:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}

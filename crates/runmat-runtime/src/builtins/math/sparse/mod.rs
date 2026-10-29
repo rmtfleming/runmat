@@ -6,13 +6,9 @@
 
 pub(crate) mod colamd;
 pub(crate) mod dissect;
-pub(crate) mod full;
-pub(crate) mod nonzeros;
 pub(crate) mod spalloc;
-pub(crate) mod spdiags;
-pub(crate) mod speye;
 
-use runmat_builtins::Value;
+use runmat_value::Value;
 
 /// (rows, cols, coordinates) where each coordinate is a (row, col) pair of a
 /// structurally stored entry.
@@ -45,7 +41,7 @@ pub(crate) fn scalar_f64(value: &Value) -> Option<f64> {
         Value::Num(n) => Some(*n),
         Value::Int(i) => Some(i.to_f64()),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-        Value::Tensor(t) if t.data.len() == 1 => Some(t.data[0]),
+        Value::Tensor(t) if t.len() == 1 => Some(t.materialize_f64()[0]),
         _ => None,
     }
 }
@@ -62,7 +58,7 @@ pub(crate) fn scalar_f64(value: &Value) -> Option<f64> {
 pub(crate) fn matrix_pattern(value: &Value) -> Result<MatrixPattern, String> {
     match value {
         Value::SparseTensor(sparse) => {
-            let mut coords = Vec::with_capacity(sparse.values.len());
+            let mut coords = Vec::with_capacity(sparse.nnz());
             for col in 0..sparse.cols {
                 for idx in sparse.col_ptrs[col]..sparse.col_ptrs[col + 1] {
                     coords.push((sparse.row_indices[idx], col));
@@ -76,7 +72,7 @@ pub(crate) fn matrix_pattern(value: &Value) -> Result<MatrixPattern, String> {
             let mut coords = Vec::new();
             for col in 0..cols {
                 for row in 0..rows {
-                    let v = t.data[row + col * rows];
+                    let v = t.materialize_f64()[row + col * rows];
                     if v != 0.0 || v.is_nan() {
                         coords.push((row, col));
                     }

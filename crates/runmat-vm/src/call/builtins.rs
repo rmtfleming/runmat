@@ -7,11 +7,14 @@ use crate::runtime::workspace::{
     replace_workspace_target_vars_and_state, workspace_assign_target, workspace_target_snapshot,
     WorkspaceTarget, WorkspaceValueSnapshot,
 };
-use runmat_builtins::Value;
 use runmat_hir::{CallableIdentity, FunctionId, QualifiedName, SymbolName};
 use runmat_parser::{parse_with_options, CompatMode, ParserOptions};
+use runmat_runtime::builtins::common::tensor::{
+    is_scalar_tensor, scalar_integer_value, tensor_value_f64,
+};
 use runmat_runtime::{build_runtime_error, RuntimeError};
 use runmat_thread_local::runmat_thread_local;
+use runmat_value::Value;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "native-accel")]
@@ -33,6 +36,7 @@ enum VmIntrinsicBuiltin {
 #[derive(Clone, Copy)]
 enum VmDynamicWorkspaceBuiltin {
     Eval,
+    Evalc,
     Evalin,
     Assignin,
     Run,
@@ -42,6 +46,7 @@ impl VmDynamicWorkspaceBuiltin {
     fn classify(name: &str) -> Option<Self> {
         match name {
             runmat_hir::EVAL_BUILTIN_NAME => Some(Self::Eval),
+            runmat_hir::EVALC_BUILTIN_NAME => Some(Self::Evalc),
             runmat_hir::EVALIN_BUILTIN_NAME => Some(Self::Evalin),
             runmat_hir::ASSIGNIN_BUILTIN_NAME => Some(Self::Assignin),
             runmat_hir::RUN_BUILTIN_NAME => Some(Self::Run),
@@ -52,6 +57,7 @@ impl VmDynamicWorkspaceBuiltin {
     fn name(self) -> &'static str {
         match self {
             Self::Eval => runmat_hir::EVAL_BUILTIN_NAME,
+            Self::Evalc => runmat_hir::EVALC_BUILTIN_NAME,
             Self::Evalin => runmat_hir::EVALIN_BUILTIN_NAME,
             Self::Assignin => runmat_hir::ASSIGNIN_BUILTIN_NAME,
             Self::Run => runmat_hir::RUN_BUILTIN_NAME,
@@ -71,7 +77,7 @@ impl Default for DynamicEvalOptions {
     fn default() -> Self {
         Self {
             compat_mode: CompatMode::Matlab,
-            runmat_extensions_enabled: true,
+            runmat_extensions_enabled: false,
             top_level_await_enabled: true,
             dynamic_eval_enabled: true,
         }
@@ -89,6 +95,17 @@ pub fn set_dynamic_eval_options(
     top_level_await_enabled: bool,
     dynamic_eval_enabled: bool,
 ) {
+    if let Some(runtime) = runmat_runtime::context::legacy::active() {
+        runtime.set_language_mode(match compat_mode {
+            CompatMode::Matlab => runmat_runtime::context::RuntimeLanguageMode::Matlab,
+            CompatMode::RunMat => runmat_runtime::context::RuntimeLanguageMode::RunMat,
+            CompatMode::Strict => runmat_runtime::context::RuntimeLanguageMode::Strict,
+        });
+        runtime.set_runmat_extensions_enabled(runmat_extensions_enabled);
+        runtime.set_top_level_await_enabled(top_level_await_enabled);
+        runtime.set_dynamic_eval_enabled(dynamic_eval_enabled);
+    }
+    runmat_runtime::compatibility::set_runmat_extensions_enabled(runmat_extensions_enabled);
     DYNAMIC_EVAL_OPTIONS.with(|slot| {
         *slot.borrow_mut() = DynamicEvalOptions {
             compat_mode,
@@ -107,9 +124,12 @@ pub struct DynamicEvalOptionsGuard {
 impl Drop for DynamicEvalOptionsGuard {
     fn drop(&mut self) {
         let previous = self.previous;
-        DYNAMIC_EVAL_OPTIONS.with(|slot| {
-            *slot.borrow_mut() = previous;
-        });
+        set_dynamic_eval_options(
+            previous.compat_mode,
+            previous.runmat_extensions_enabled,
+            previous.top_level_await_enabled,
+            previous.dynamic_eval_enabled,
+        );
     }
 }
 
@@ -130,6 +150,19 @@ pub fn push_dynamic_eval_options(
 }
 
 fn current_dynamic_eval_options() -> DynamicEvalOptions {
+    if let Some(runtime) = runmat_runtime::context::legacy::active() {
+        let compat_mode = match runtime.language_mode() {
+            runmat_runtime::context::RuntimeLanguageMode::Matlab => CompatMode::Matlab,
+            runmat_runtime::context::RuntimeLanguageMode::RunMat => CompatMode::RunMat,
+            runmat_runtime::context::RuntimeLanguageMode::Strict => CompatMode::Strict,
+        };
+        return DynamicEvalOptions {
+            compat_mode,
+            runmat_extensions_enabled: runtime.runmat_extensions_enabled(),
+            top_level_await_enabled: runtime.top_level_await_enabled(),
+            dynamic_eval_enabled: runtime.dynamic_eval_enabled(),
+        };
+    }
     DYNAMIC_EVAL_OPTIONS.with(|slot| *slot.borrow())
 }
 
@@ -215,10 +248,18 @@ fn parse_finite_arity_bound(
     builtin: &str,
     name: &str,
 ) -> Result<usize, RuntimeError> {
+    if let Some(integer) = scalar_integer_value(value) {
+        return integer.try_to_usize().ok_or_else(|| {
+            mex(
+                &format!("{builtin}ArgumentInvalid"),
+                &format!("{builtin}: {name} exceeds the platform argument-count range"),
+            )
+        });
+    }
+
     let number = match value {
         Value::Num(value) => *value,
-        Value::Int(value) => value.to_f64(),
-        Value::Tensor(tensor) if tensor.data.len() == 1 => tensor.data[0],
+        Value::Tensor(tensor) if is_scalar_tensor(tensor) => tensor_value_f64(tensor, 0),
         other => {
             return Err(mex(
                 &format!("{builtin}ArgumentInvalid"),
@@ -248,9 +289,9 @@ fn parse_max_arity_bound(value: &Value, builtin: &str) -> Result<ArityBound, Run
             Ok(ArityBound::Unbounded)
         }
         Value::Tensor(tensor)
-            if tensor.data.len() == 1
-                && tensor.data[0].is_infinite()
-                && tensor.data[0].is_sign_positive() =>
+            if is_scalar_tensor(tensor)
+                && tensor_value_f64(tensor, 0).is_infinite()
+                && tensor_value_f64(tensor, 0).is_sign_positive() =>
         {
             Ok(ArityBound::Unbounded)
         }
@@ -363,6 +404,11 @@ pub fn vm_intrinsic_builtin(
             Ok(Value::Num(0.0))
         }
         VmIntrinsicBuiltin::Nargoutchk => {
+            if matches!(args.len(), 3 | 4) {
+                return runmat_runtime::builtins::introspection::arity_check::dispatch_nargoutchk(
+                    args,
+                );
+            }
             validate_intrinsic_arg_count(intrinsic.name(), args.len(), 2)?;
             let (_, nout) = call_counts.last().cloned().unwrap_or((0, 0));
             validate_nargoutchk(&args, nout)?;
@@ -377,7 +423,7 @@ pub async fn vm_dynamic_workspace_builtin(
     arg_count: usize,
     requested_outputs: usize,
     function_registry: &FunctionRegistry,
-    source_id: Option<runmat_hir::SourceId>,
+    _source_id: Option<runmat_hir::SourceId>,
 ) -> Result<Value, RuntimeError> {
     let Some(builtin) = VmDynamicWorkspaceBuiltin::classify(name) else {
         return Err(mex(
@@ -390,6 +436,7 @@ pub async fn vm_dynamic_workspace_builtin(
         VmDynamicWorkspaceBuiltin::Eval => {
             validate_intrinsic_arg_count(builtin.name(), args.len(), 1)?;
             let source = workspace_text_arg(builtin.name(), &args[0])?;
+            let source_context = dynamic_source_context("<eval>", &source);
             eval_workspace_source(
                 WorkspaceEvalRequest {
                     builtin: builtin.name(),
@@ -397,18 +444,51 @@ pub async fn vm_dynamic_workspace_builtin(
                     source,
                     source_label: "<eval>".to_string(),
                     requested_outputs,
-                    source_id,
-                    source_context: None,
+                    source_id: Some(source_context.source_id),
+                    source_context: Some(source_context),
                     commit_workspace_on_error: false,
+                    capture_display_output: false,
+                    empty_value_when_no_result: false,
                 },
                 function_registry,
             )
             .await
         }
+        VmDynamicWorkspaceBuiltin::Evalc => {
+            validate_intrinsic_arg_count(builtin.name(), args.len(), 1)?;
+            let source = workspace_text_arg(builtin.name(), &args[0])?;
+            let source_context = dynamic_source_context("<evalc>", &source);
+            let eval_requested_outputs = if requested_outputs == 1 {
+                1
+            } else {
+                requested_outputs.saturating_sub(1)
+            };
+            let capture = runmat_runtime::console::begin_capture();
+            let eval_result = eval_workspace_source(
+                WorkspaceEvalRequest {
+                    builtin: builtin.name(),
+                    target: WorkspaceTarget::Current,
+                    source,
+                    source_label: "<evalc>".to_string(),
+                    requested_outputs: eval_requested_outputs,
+                    source_id: Some(source_context.source_id),
+                    source_context: Some(source_context),
+                    commit_workspace_on_error: false,
+                    capture_display_output: requested_outputs == 1,
+                    empty_value_when_no_result: requested_outputs > 1,
+                },
+                function_registry,
+            )
+            .await;
+            let captured = capture.finish();
+            let result = eval_result?;
+            evalc_output_value(captured, result, requested_outputs)
+        }
         VmDynamicWorkspaceBuiltin::Evalin => {
             validate_intrinsic_arg_count(builtin.name(), args.len(), 2)?;
             let target = workspace_target_arg(builtin.name(), &args[0])?;
             let source = workspace_text_arg(builtin.name(), &args[1])?;
+            let source_context = dynamic_source_context("<eval>", &source);
             eval_workspace_source(
                 WorkspaceEvalRequest {
                     builtin: builtin.name(),
@@ -416,9 +496,11 @@ pub async fn vm_dynamic_workspace_builtin(
                     source,
                     source_label: "<eval>".to_string(),
                     requested_outputs,
-                    source_id,
-                    source_context: None,
+                    source_id: Some(source_context.source_id),
+                    source_context: Some(source_context),
                     commit_workspace_on_error: false,
+                    capture_display_output: false,
+                    empty_value_when_no_result: false,
                 },
                 function_registry,
             )
@@ -426,9 +508,14 @@ pub async fn vm_dynamic_workspace_builtin(
         }
         VmDynamicWorkspaceBuiltin::Assignin => {
             validate_intrinsic_arg_count(builtin.name(), args.len(), 3)?;
+            if requested_outputs > 0 {
+                return Err(
+                    runmat_runtime::builtins::introspection::dynamic_workspace::assignin_too_many_outputs_error(),
+                );
+            }
             let target = workspace_target_arg(builtin.name(), &args[0])?;
             let name = workspace_text_arg(builtin.name(), &args[1])?;
-            if !is_valid_workspace_identifier(&name) {
+            if !runmat_runtime::builtins::common::identifiers::is_valid_varname(&name) {
                 return Err(mex(
                     "DynamicWorkspaceName",
                     &format!(
@@ -456,6 +543,7 @@ pub async fn vm_dynamic_workspace_builtin(
             let source_context = DynamicSourceContext {
                 source_id: dynamic_source_id,
                 name: source.display_name.clone(),
+                fullpath_name: Some(source.path.to_string_lossy().to_string()),
                 text: source.text.clone(),
             };
             eval_workspace_source(
@@ -468,11 +556,50 @@ pub async fn vm_dynamic_workspace_builtin(
                     source_id: Some(source_context.source_id),
                     source_context: Some(source_context),
                     commit_workspace_on_error: true,
+                    capture_display_output: false,
+                    empty_value_when_no_result: false,
                 },
                 function_registry,
             )
             .await
         }
+    }
+}
+
+fn evalc_output_value(
+    captured: String,
+    result: Value,
+    requested_outputs: usize,
+) -> Result<Value, RuntimeError> {
+    if requested_outputs == 0 {
+        return Ok(Value::OutputList(Vec::new()));
+    }
+
+    let mut outputs = Vec::with_capacity(requested_outputs.max(1));
+    outputs.push(Value::String(captured));
+    if requested_outputs > 1 {
+        match result {
+            Value::OutputList(values) => {
+                outputs.extend(values.into_iter().take(requested_outputs - 1))
+            }
+            value => outputs.push(value),
+        }
+        if outputs.len() < requested_outputs {
+            return Err(mex(
+                "EvalcTooManyOutputs",
+                &format!(
+                    "evalc: requested {} output arguments, but evaluated source produced {}",
+                    requested_outputs,
+                    outputs.len()
+                ),
+            ));
+        }
+    }
+
+    if requested_outputs == 1 {
+        Ok(outputs.remove(0))
+    } else {
+        Ok(Value::OutputList(outputs))
     }
 }
 
@@ -500,15 +627,6 @@ fn workspace_target_arg(builtin: &str, value: &Value) -> Result<WorkspaceTarget,
     }
 }
 
-fn is_valid_workspace_identifier(name: &str) -> bool {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first == '_' || first.is_ascii_alphabetic())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
-
 struct WorkspaceEvalRequest {
     builtin: &'static str,
     target: WorkspaceTarget,
@@ -518,6 +636,8 @@ struct WorkspaceEvalRequest {
     source_id: Option<runmat_hir::SourceId>,
     source_context: Option<DynamicSourceContext>,
     commit_workspace_on_error: bool,
+    capture_display_output: bool,
+    empty_value_when_no_result: bool,
 }
 
 async fn eval_workspace_source(
@@ -533,6 +653,8 @@ async fn eval_workspace_source(
         source_id,
         source_context,
         commit_workspace_on_error,
+        capture_display_output,
+        empty_value_when_no_result,
     } = request;
     if !current_dynamic_eval_options().dynamic_eval_enabled {
         return Err(mex(
@@ -565,7 +687,8 @@ async fn eval_workspace_source(
     )
     .await?;
     let vars = match outcome {
-        Ok(crate::interpreter::api::InterpreterOutcome::Completed(vars)) => {
+        Ok(crate::interpreter::api::InterpreterOutcome::Completed(completion)) => {
+            let vars = completion.values;
             if let Some(snapshot) = updated_workspace {
                 let result_vars = snapshot.vars.clone();
                 replace_workspace_target_vars_and_state(
@@ -605,7 +728,13 @@ async fn eval_workspace_source(
     let result = if requested_outputs == 0 {
         Value::OutputList(Vec::new())
     } else if let Some(slot) = result_slot {
-        vars.get(slot).cloned().unwrap_or(Value::Num(0.0))
+        let value = vars.get(slot).cloned().unwrap_or(Value::Num(0.0));
+        if capture_display_output {
+            runmat_runtime::console::record_value_output(None, &value);
+        }
+        value
+    } else if empty_value_when_no_result {
+        Value::OutputList(Vec::new())
     } else {
         Value::Num(0.0)
     };
@@ -616,6 +745,7 @@ async fn eval_workspace_source(
 struct DynamicSourceContext {
     source_id: runmat_hir::SourceId,
     name: String,
+    fullpath_name: Option<String>,
     text: String,
 }
 
@@ -627,10 +757,27 @@ fn install_dynamic_source_context(
     entries.push((
         context.source_id,
         context.name.clone(),
-        None,
+        context.fullpath_name.clone(),
         context.text.clone(),
     ));
     runmat_runtime::source_context::replace_source_catalog_with_fullpaths(entries)
+}
+
+fn dynamic_source_context(name: impl Into<String>, text: &str) -> DynamicSourceContext {
+    let fallback_name = name.into();
+    let current = runmat_runtime::source_context::current_source_info();
+    DynamicSourceContext {
+        source_id: next_dynamic_source_id(),
+        name: current
+            .as_ref()
+            .map(|source| source.name.to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(fallback_name),
+        fullpath_name: current
+            .as_ref()
+            .and_then(|source| source.fullpath_name.as_ref().map(ToString::to_string)),
+        text: text.to_string(),
+    }
 }
 
 fn next_dynamic_source_id() -> runmat_hir::SourceId {
@@ -851,97 +998,10 @@ fn remap_emit_label(label: &mut crate::bytecode::EmitLabel, slot_remap: &HashMap
     }
 }
 
-fn remap_end_expr_slots(expr: &mut crate::bytecode::EndExpr, slot_remap: &HashMap<usize, usize>) {
-    match expr {
-        crate::bytecode::EndExpr::Var(slot) => remap_slot(slot, slot_remap),
-        crate::bytecode::EndExpr::ResolvedCall { args, .. } => {
-            for arg in args {
-                remap_end_expr_slots(arg, slot_remap);
-            }
-        }
-        crate::bytecode::EndExpr::Add(left, right)
-        | crate::bytecode::EndExpr::Sub(left, right)
-        | crate::bytecode::EndExpr::Mul(left, right)
-        | crate::bytecode::EndExpr::Div(left, right)
-        | crate::bytecode::EndExpr::LeftDiv(left, right)
-        | crate::bytecode::EndExpr::Pow(left, right) => {
-            remap_end_expr_slots(left, slot_remap);
-            remap_end_expr_slots(right, slot_remap);
-        }
-        crate::bytecode::EndExpr::Neg(inner)
-        | crate::bytecode::EndExpr::Pos(inner)
-        | crate::bytecode::EndExpr::Floor(inner)
-        | crate::bytecode::EndExpr::Ceil(inner)
-        | crate::bytecode::EndExpr::Round(inner)
-        | crate::bytecode::EndExpr::Fix(inner) => remap_end_expr_slots(inner, slot_remap),
-        crate::bytecode::EndExpr::End | crate::bytecode::EndExpr::Const(_) => {}
-    }
-}
-
-fn remap_optional_end_expr_slots(
-    exprs: &mut [Option<crate::bytecode::EndExpr>],
-    slot_remap: &HashMap<usize, usize>,
-) {
-    for expr in exprs.iter_mut().flatten() {
-        remap_end_expr_slots(expr, slot_remap);
-    }
-}
-
-fn remap_indexed_end_expr_slots(
-    exprs: &mut [(usize, crate::bytecode::EndExpr)],
-    slot_remap: &HashMap<usize, usize>,
-) {
-    for (_, expr) in exprs {
-        remap_end_expr_slots(expr, slot_remap);
-    }
-}
-
-fn remap_end_expr_vec_slots(
-    exprs: &mut [crate::bytecode::EndExpr],
-    slot_remap: &HashMap<usize, usize>,
-) {
-    for expr in exprs {
-        remap_end_expr_slots(expr, slot_remap);
-    }
-}
-
 fn remap_instr_slots(instr: &mut Instr, slot_remap: &HashMap<usize, usize>) {
     match instr {
         Instr::LoadVar(slot) | Instr::LoadVarForIndexAssignment(slot) | Instr::StoreVar(slot) => {
             remap_slot(slot, slot_remap);
-        }
-        Instr::IndexSliceExpr {
-            range_start_exprs,
-            range_step_exprs,
-            range_end_exprs,
-            end_numeric_exprs,
-            ..
-        }
-        | Instr::StoreSliceExpr {
-            range_start_exprs,
-            range_step_exprs,
-            range_end_exprs,
-            end_numeric_exprs,
-            ..
-        }
-        | Instr::StoreSliceExprDelete {
-            range_start_exprs,
-            range_step_exprs,
-            range_end_exprs,
-            end_numeric_exprs,
-            ..
-        } => {
-            remap_optional_end_expr_slots(range_start_exprs, slot_remap);
-            remap_optional_end_expr_slots(range_step_exprs, slot_remap);
-            remap_end_expr_vec_slots(range_end_exprs, slot_remap);
-            remap_indexed_end_expr_slots(end_numeric_exprs, slot_remap);
-        }
-        Instr::IndexCell { end_exprs, .. }
-        | Instr::IndexCellExpand { end_exprs, .. }
-        | Instr::IndexCellList { end_exprs, .. }
-        | Instr::StoreIndexCell { end_exprs, .. }
-        | Instr::StoreIndexCellDelete { end_exprs, .. } => {
-            remap_indexed_end_expr_slots(end_exprs, slot_remap);
         }
         Instr::CallFevalMultiUsingOutputSlot(_, slot)
         | Instr::CallFevalExpandMultiOutputUsingOutputSlot(_, slot)
@@ -1054,49 +1114,6 @@ fn remap_eval_local_function_instr(instr: &mut Instr, remap: &HashMap<FunctionId
         | Instr::CallFunctionExpandMultiOutput { identity, .. } => {
             remap_eval_local_callable_identity(identity, remap);
         }
-        Instr::IndexSliceExpr {
-            range_start_exprs,
-            range_step_exprs,
-            range_end_exprs,
-            end_numeric_exprs,
-            ..
-        }
-        | Instr::StoreSliceExpr {
-            range_start_exprs,
-            range_step_exprs,
-            range_end_exprs,
-            end_numeric_exprs,
-            ..
-        }
-        | Instr::StoreSliceExprDelete {
-            range_start_exprs,
-            range_step_exprs,
-            range_end_exprs,
-            end_numeric_exprs,
-            ..
-        } => {
-            for expr in range_start_exprs.iter_mut().flatten() {
-                remap_eval_local_end_expr(expr, remap);
-            }
-            for expr in range_step_exprs.iter_mut().flatten() {
-                remap_eval_local_end_expr(expr, remap);
-            }
-            for expr in range_end_exprs {
-                remap_eval_local_end_expr(expr, remap);
-            }
-            for (_, expr) in end_numeric_exprs {
-                remap_eval_local_end_expr(expr, remap);
-            }
-        }
-        Instr::IndexCell { end_exprs, .. }
-        | Instr::IndexCellExpand { end_exprs, .. }
-        | Instr::IndexCellList { end_exprs, .. }
-        | Instr::StoreIndexCell { end_exprs, .. }
-        | Instr::StoreIndexCellDelete { end_exprs, .. } => {
-            for (_, expr) in end_exprs {
-                remap_eval_local_end_expr(expr, remap);
-            }
-        }
         _ => {}
     }
 }
@@ -1120,38 +1137,6 @@ fn remap_eval_local_callable_identity(
         | CallableIdentity::Method(_)
         | CallableIdentity::DynamicName(_)
         | CallableIdentity::ExternalName(_) => {}
-    }
-}
-
-fn remap_eval_local_end_expr(
-    expr: &mut crate::bytecode::EndExpr,
-    remap: &HashMap<FunctionId, FunctionId>,
-) {
-    match expr {
-        crate::bytecode::EndExpr::ResolvedCall { identity, args, .. } => {
-            remap_eval_local_callable_identity(identity, remap);
-            for arg in args {
-                remap_eval_local_end_expr(arg, remap);
-            }
-        }
-        crate::bytecode::EndExpr::Add(lhs, rhs)
-        | crate::bytecode::EndExpr::Sub(lhs, rhs)
-        | crate::bytecode::EndExpr::Mul(lhs, rhs)
-        | crate::bytecode::EndExpr::Div(lhs, rhs)
-        | crate::bytecode::EndExpr::LeftDiv(lhs, rhs)
-        | crate::bytecode::EndExpr::Pow(lhs, rhs) => {
-            remap_eval_local_end_expr(lhs, remap);
-            remap_eval_local_end_expr(rhs, remap);
-        }
-        crate::bytecode::EndExpr::Neg(inner)
-        | crate::bytecode::EndExpr::Pos(inner)
-        | crate::bytecode::EndExpr::Floor(inner)
-        | crate::bytecode::EndExpr::Ceil(inner)
-        | crate::bytecode::EndExpr::Round(inner)
-        | crate::bytecode::EndExpr::Fix(inner) => remap_eval_local_end_expr(inner, remap),
-        crate::bytecode::EndExpr::End
-        | crate::bytecode::EndExpr::Const(_)
-        | crate::bytecode::EndExpr::Var(_) => {}
     }
 }
 
@@ -1274,7 +1259,57 @@ pub fn rethrow_without_explicit_exception(
 
 #[cfg(test)]
 mod tests {
-    use super::{imported_builtin_qualified_name, rethrow_without_explicit_exception};
+    use super::{
+        current_dynamic_eval_options, dynamic_source_context, imported_builtin_qualified_name,
+        parse_finite_arity_bound, push_dynamic_eval_options, rethrow_without_explicit_exception,
+    };
+    use runmat_parser::CompatMode;
+    use runmat_value::{IntValue, IntegerStorage, Tensor, Value};
+
+    #[test]
+    fn dynamic_eval_guard_restores_runtime_extension_policy() {
+        let original = current_dynamic_eval_options();
+        let original_runtime = runmat_runtime::compatibility::runmat_extensions_enabled();
+        {
+            let _guard = push_dynamic_eval_options(CompatMode::RunMat, true, false, false);
+            assert!(current_dynamic_eval_options().runmat_extensions_enabled);
+            assert!(runmat_runtime::compatibility::runmat_extensions_enabled());
+        }
+        assert_eq!(
+            current_dynamic_eval_options().runmat_extensions_enabled,
+            original.runmat_extensions_enabled
+        );
+        assert_eq!(
+            runmat_runtime::compatibility::runmat_extensions_enabled(),
+            original_runtime
+        );
+    }
+
+    #[test]
+    fn dynamic_eval_guard_updates_and_restores_active_runtime_policy() {
+        let runtime = runmat_runtime::context::RuntimeContext::new(std::rc::Rc::new(
+            runmat_runtime::execution::RuntimeExecutionService::new(),
+        ));
+        runtime.set_language_mode(runmat_runtime::context::RuntimeLanguageMode::Strict);
+        runtime.set_runmat_extensions_enabled(false);
+        runtime.set_top_level_await_enabled(true);
+        runtime.set_dynamic_eval_enabled(true);
+        futures::executor::block_on(runtime.scope(async {
+            {
+                let _guard = push_dynamic_eval_options(CompatMode::RunMat, true, false, false);
+                let current = current_dynamic_eval_options();
+                assert_eq!(current.compat_mode, CompatMode::RunMat);
+                assert!(current.runmat_extensions_enabled);
+                assert!(!current.top_level_await_enabled);
+                assert!(!current.dynamic_eval_enabled);
+            }
+            let restored = current_dynamic_eval_options();
+            assert_eq!(restored.compat_mode, CompatMode::Strict);
+            assert!(!restored.runmat_extensions_enabled);
+            assert!(restored.top_level_await_enabled);
+            assert!(restored.dynamic_eval_enabled);
+        }));
+    }
 
     #[test]
     fn imported_builtin_qualified_name_uses_typed_segments() {
@@ -1308,6 +1343,56 @@ mod tests {
         .expect("rethrow should preserve prior exception");
         assert_eq!(err.identifier(), Some("RunMat:Original"));
         assert_eq!(err.message(), "boom");
+    }
+
+    #[test]
+    fn dynamic_eval_inherits_the_calling_file_identity() {
+        let source_id = runmat_hir::SourceId(41);
+        let _catalog =
+            runmat_runtime::source_context::replace_source_catalog_with_fullpaths(vec![(
+                source_id,
+                "analysis.m".to_string(),
+                Some("/project/analysis.m".to_string()),
+                "value = eval('mfilename()');".to_string(),
+            )]);
+        let _current = runmat_runtime::source_context::replace_current_source_id(Some(source_id));
+        let dynamic = dynamic_source_context("<eval>", "mfilename()");
+        assert_eq!(dynamic.name, "analysis.m");
+        assert_eq!(
+            dynamic.fullpath_name.as_deref(),
+            Some("/project/analysis.m")
+        );
+        assert_eq!(dynamic.text, "mfilename()");
+        assert_ne!(dynamic.source_id, source_id);
+    }
+
+    #[test]
+    fn arity_bound_reads_typed_integer_tensor_storage_exactly() {
+        let tensor =
+            Tensor::new_integer(IntegerStorage::U16(vec![7]), vec![1, 1]).expect("arity tensor");
+        assert_eq!(
+            parse_finite_arity_bound(&Value::Tensor(tensor), "narginchk", "minArgs").unwrap(),
+            7
+        );
+    }
+
+    #[test]
+    fn arity_bound_rejects_wide_integer_scalars_and_poisoned_tensor_mirrors() {
+        let scalar = Value::Int(IntValue::U64(u64::MAX));
+        if usize::BITS == 64 {
+            assert_eq!(
+                parse_finite_arity_bound(&scalar, "narginchk", "minArgs").unwrap(),
+                usize::MAX
+            );
+        } else {
+            assert!(parse_finite_arity_bound(&scalar, "narginchk", "minArgs").is_err());
+        }
+
+        let tensor =
+            Tensor::new_integer(IntegerStorage::I64(vec![-1]), vec![1, 1]).expect("arity tensor");
+        // The f64 mirror is intentionally plausible but must never decide an
+        // integer-only argument bound.
+        assert!(parse_finite_arity_bound(&Value::Tensor(tensor), "narginchk", "minArgs",).is_err());
     }
 
     #[cfg(feature = "native-accel")]

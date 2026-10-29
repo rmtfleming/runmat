@@ -1,24 +1,17 @@
-//! MATLAB-compatible `int2str` builtin for RunMat.
-//!
-//! Clean-room provenance: specs/007-numeric-string-conversion (spec `int2str`
-//! 0.2.0, claims int2str.signature-primary, int2str.output-class,
-//! int2str.rounding-and-char).
-//!
-//! Observed behaviour (normative): rounds each element to the nearest integer
-//! with ties away from zero (`int2str(3.7)` => `'4'`, `int2str(-2.5)` =>
-//! `'-3'`) and returns a char array whose rows mirror the input rows;
-//! multi-element inputs are space-separated (`int2str([1.2 3.8 5.5])` =>
-//! `'1  4  6'`, 1x7). Column alignment beyond the observed single-digit cases
-//! is an independent choice (unresolved question int2str.q-spacing):
-//! right-aligned columns joined by two spaces, all rows equal width.
+//! MATLAB-compatible `int2str` builtin with GPU-aware host formatting.
 
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinExtensionDescriptor,
+    BuiltinExtensionMode, BuiltinIntegerBackendRule, BuiltinIntegerCapabilityDescriptor,
+    BuiltinIntegerComputationDomain, BuiltinIntegerInputAvailability,
+    BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule, BuiltinIntegerOverflowRule,
+    BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, IntValue, IntegerStorage, Tensor, Value};
 
+use crate::builtins::common::gpu_helpers;
 use crate::builtins::common::map_control_flow_with_builtin;
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -30,52 +23,24 @@ use crate::{build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeE
 
 const BUILTIN_NAME: &str = "int2str";
 
-#[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::strings::core::int2str")]
-pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
-    name: "int2str",
-    op_kind: GpuOpKind::Custom("conversion"),
-    supported_precisions: &[],
-    broadcast: BroadcastSemantics::None,
-    provider_hooks: &[],
-    constant_strategy: ConstantStrategy::InlineLiteral,
-    residency: ResidencyPolicy::GatherImmediately,
-    nan_mode: ReductionNaN::Include,
-    two_pass_threshold: None,
-    workgroup_size: None,
-    accepts_nan_mode: false,
-    notes: "Always gathers GPU data to host memory before rounding and formatting integer text.",
-};
-
-#[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::strings::core::int2str")]
-pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
-    name: "int2str",
-    shape: ShapeRequirements::Any,
-    constant_strategy: ConstantStrategy::InlineLiteral,
-    elementwise: None,
-    reduction: None,
-    emits_nan: false,
-    notes:
-        "Conversion builtin; not eligible for fusion and always materialises host character arrays.",
-};
-
 const INT2STR_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "str",
+    name: "chr",
     ty: BuiltinParamType::Any,
     arity: BuiltinParamArity::Required,
     default: None,
-    description: "Character array containing the rounded integer values.",
+    description: "Character array containing the rounded integer text.",
 }];
 
 const INT2STR_INPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "X",
+    name: "N",
     ty: BuiltinParamType::Any,
     arity: BuiltinParamArity::Required,
     default: None,
-    description: "Numeric or logical scalar/vector/matrix input.",
+    description: "Numeric or logical scalar, vector, or matrix input.",
 }];
 
 const INT2STR_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "str = int2str(X)",
+    label: "chr = int2str(N)",
     inputs: &INT2STR_INPUT,
     outputs: &INT2STR_OUTPUT,
 }];
@@ -87,6 +52,13 @@ const INT2STR_ERROR_INVALID_INPUT: BuiltinErrorDescriptor = BuiltinErrorDescript
     message: "int2str: unsupported input type",
 };
 
+const INT2STR_ERROR_INVALID_OPTION: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.INT2STR.INVALID_OPTION",
+    identifier: Some("RunMat:int2str:InvalidOption"),
+    when: "Arguments are malformed or too many were supplied.",
+    message: "int2str: invalid option arguments",
+};
+
 const INT2STR_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     code: "RM.INT2STR.INTERNAL",
     identifier: Some("RunMat:int2str:InternalError"),
@@ -94,8 +66,11 @@ const INT2STR_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     message: "int2str: internal error",
 };
 
-const INT2STR_ERRORS: [BuiltinErrorDescriptor; 2] =
-    [INT2STR_ERROR_INVALID_INPUT, INT2STR_ERROR_INTERNAL];
+const INT2STR_ERRORS: [BuiltinErrorDescriptor; 3] = [
+    INT2STR_ERROR_INVALID_INPUT,
+    INT2STR_ERROR_INVALID_OPTION,
+    INT2STR_ERROR_INTERNAL,
+];
 
 pub const INT2STR_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &INT2STR_SIGNATURES,
@@ -103,6 +78,34 @@ pub const INT2STR_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &INT2STR_ERRORS,
 };
+
+const INT2STR_LOGICAL_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
+    id: "int2str-logical-input",
+    mode: BuiltinExtensionMode::RunMatOnly,
+    description: "int2str with logical input is a RunMat extension",
+    error_identifier: Some("RunMat:compatibility:Int2strLogicalInputExtension"),
+};
+pub const INT2STR_EXTENSIONS: [BuiltinExtensionDescriptor; 1] = [INT2STR_LOGICAL_EXTENSION];
+
+const INT2STR_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "N",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
+        notes: "Every integer class is formatted directly from authoritative storage, including wide values above flintmax.",
+    }];
+pub const INT2STR_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 1] =
+    [BuiltinIntegerCapabilityDescriptor {
+        form: "chr = int2str(integer_N)",
+        inputs: &INT2STR_INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::ExactInteger,
+        output_class: BuiltinIntegerOutputClassRule::FunctionSpecific,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::FunctionSpecific,
+        notes: "Integer text is exact and the result is a host character array. Documented gpuArray input is downloaded through its owner because int2str does not execute on the GPU.",
+    }];
 
 fn int2str_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
     int2str_error_with_message(error.message, error)
@@ -123,42 +126,122 @@ fn remap_int2str_flow(err: RuntimeError) -> RuntimeError {
     map_control_flow_with_builtin(err, BUILTIN_NAME)
 }
 
+#[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::strings::core::int2str")]
+pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
+    name: "int2str",
+    op_kind: GpuOpKind::Custom("conversion"),
+    supported_precisions: &[],
+    broadcast: BroadcastSemantics::None,
+    provider_hooks: &[],
+    constant_strategy: ConstantStrategy::InlineLiteral,
+    residency: ResidencyPolicy::GatherImmediately,
+    nan_mode: ReductionNaN::Include,
+    two_pass_threshold: None,
+    workgroup_size: None,
+    accepts_nan_mode: false,
+    notes: "Accepts GPU inputs but gathers them to host memory before rounding and formatting.",
+};
+
+#[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::strings::core::int2str")]
+pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
+    name: "int2str",
+    shape: ShapeRequirements::Any,
+    constant_strategy: ConstantStrategy::InlineLiteral,
+    elementwise: None,
+    reduction: None,
+    emits_nan: false,
+    notes:
+        "Conversion builtin; not eligible for fusion and always materialises host character arrays.",
+};
+
 #[runtime_builtin(
     name = "int2str",
     category = "strings/core",
-    summary = "Round numeric values to the nearest integers and convert them to a character array.",
-    keywords = "int2str,integer to string,round,format",
-    examples = "txt = int2str([1.2 3.8 5.5]);",
+    summary = "Convert rounded integer values to a character array.",
+    keywords = "int2str,integer to string,number to string,round",
+    examples = "chr = int2str([5 10 20; 100 200 400]);",
     type_resolver(string_scalar_type),
     descriptor(crate::builtins::strings::core::int2str::INT2STR_DESCRIPTOR),
+    extensions(crate::builtins::strings::core::int2str::INT2STR_EXTENSIONS),
+    integer_capabilities(crate::builtins::strings::core::int2str::INT2STR_INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::strings::core::int2str"
 )]
-async fn int2str_builtin(value: Value) -> BuiltinResult<Value> {
+async fn int2str_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+    if !rest.is_empty() {
+        return Err(int2str_error_with_message(
+            "int2str: too many input arguments",
+            &INT2STR_ERROR_INVALID_OPTION,
+        ));
+    }
+
+    if value_is_logical(&value) {
+        crate::compatibility::ensure_builtin_extension_enabled(
+            &INT2STR_LOGICAL_EXTENSION,
+            BUILTIN_NAME,
+        )?;
+    }
+
     let gathered = gather_if_needed_async(&value)
         .await
         .map_err(remap_int2str_flow)?;
-    let (data, rows, cols) = extract_real_data(gathered)?;
-    let char_array = format_rounded_matrix(&data, rows, cols)?;
-    Ok(Value::CharArray(char_array))
+    let data = extract_numeric_data(gathered).await?;
+    Ok(Value::CharArray(format_numeric_data(data)?))
 }
 
-/// Extract real numeric data (column-major) plus its 2-D extent. Complex,
-/// text, cell, and struct inputs are rejected with a documented independent
-/// choice: the approved export only observes real numeric inputs.
-fn extract_real_data(value: Value) -> BuiltinResult<(Vec<f64>, usize, usize)> {
+fn value_is_logical(value: &Value) -> bool {
+    matches!(value, Value::Bool(_) | Value::LogicalArray(_))
+        || matches!(value, Value::GpuTensor(handle) if runmat_accelerate_api::handle_is_logical(handle))
+}
+
+enum NumericData {
+    Real {
+        data: Vec<f64>,
+        rows: usize,
+        cols: usize,
+    },
+    Integer {
+        storage: IntegerStorage,
+        rows: usize,
+        cols: usize,
+    },
+}
+
+async fn extract_numeric_data(value: Value) -> BuiltinResult<NumericData> {
     match value {
-        Value::Num(n) => Ok((vec![n], 1, 1)),
-        Value::Int(i) => Ok((vec![i.to_f64()], 1, 1)),
-        Value::Bool(b) => Ok((vec![if b { 1.0 } else { 0.0 }], 1, 1)),
-        Value::Tensor(t) => tensor_to_real_data(t),
-        Value::LogicalArray(la) => {
-            let tensor = tensor::logical_to_tensor(&la)
+        Value::Num(n) => Ok(NumericData::Real {
+            data: vec![n],
+            rows: 1,
+            cols: 1,
+        }),
+        Value::Int(i) => Ok(NumericData::Integer {
+            storage: integer_storage_from_scalar(i),
+            rows: 1,
+            cols: 1,
+        }),
+        Value::Bool(b) => Ok(NumericData::Real {
+            data: vec![if b { 1.0 } else { 0.0 }],
+            rows: 1,
+            cols: 1,
+        }),
+        Value::Tensor(tensor) => tensor_to_numeric_data(tensor),
+        Value::LogicalArray(logical) => {
+            let tensor = tensor::logical_to_tensor(&logical)
                 .map_err(|_| int2str_error(&INT2STR_ERROR_INVALID_INPUT))?;
-            tensor_to_real_data(tensor)
+            tensor_to_numeric_data(tensor)
+        }
+        Value::Complex(_, _) | Value::ComplexTensor(_) => Err(int2str_error_with_message(
+            "int2str: complex input is not supported",
+            &INT2STR_ERROR_INVALID_INPUT,
+        )),
+        Value::GpuTensor(handle) => {
+            let gathered = gpu_helpers::gather_tensor_async(&handle)
+                .await
+                .map_err(remap_int2str_flow)?;
+            tensor_to_numeric_data(gathered)
         }
         other => Err(int2str_error_with_message(
             format!(
-                "{} {:?}; expected real numeric or logical values",
+                "{} {:?}; expected numeric or logical values",
                 INT2STR_ERROR_INVALID_INPUT.message, other
             ),
             &INT2STR_ERROR_INVALID_INPUT,
@@ -166,7 +249,7 @@ fn extract_real_data(value: Value) -> BuiltinResult<(Vec<f64>, usize, usize)> {
     }
 }
 
-fn tensor_to_real_data(tensor: Tensor) -> BuiltinResult<(Vec<f64>, usize, usize)> {
+fn tensor_to_numeric_data(tensor: Tensor) -> BuiltinResult<NumericData> {
     if tensor.shape.len() > 2 {
         return Err(int2str_error_with_message(
             "int2str: input must be scalar, vector, or 2-D matrix",
@@ -175,56 +258,156 @@ fn tensor_to_real_data(tensor: Tensor) -> BuiltinResult<(Vec<f64>, usize, usize)
     }
     let rows = tensor.rows();
     let cols = tensor.cols();
-    Ok((tensor.data, rows, cols))
+    let storage = tensor
+        .into_numeric_storage()
+        .map_err(|_| int2str_error(&INT2STR_ERROR_INVALID_INPUT))?;
+    match storage.into_integer_storage() {
+        Ok(storage) => Ok(NumericData::Integer {
+            storage,
+            rows,
+            cols,
+        }),
+        Err(storage) => Ok(NumericData::Real {
+            data: storage.materialize_f64(),
+            rows,
+            cols,
+        }),
+    }
 }
 
-/// Round each element (ties away from zero, per int2str.rounding-and-char),
-/// format per column, and join columns with two spaces. Columns are
-/// right-aligned to the widest entry so every row has equal width; the
-/// observed 1x7 (`'1  4  6'`) and 2x4 (`'1  3'` / `'4  4'`) extents follow
-/// from this layout.
-fn format_rounded_matrix(data: &[f64], rows: usize, cols: usize) -> BuiltinResult<CharArray> {
+#[derive(Clone)]
+struct CellEntry {
+    text: String,
+    width: usize,
+}
+
+fn format_numeric_data(data: NumericData) -> BuiltinResult<CharArray> {
+    match data {
+        NumericData::Real { data, rows, cols } => format_real_matrix(&data, rows, cols),
+        NumericData::Integer {
+            storage,
+            rows,
+            cols,
+        } => format_integer_matrix(&storage, rows, cols),
+    }
+}
+
+fn format_real_matrix(data: &[f64], rows: usize, cols: usize) -> BuiltinResult<CharArray> {
     if rows == 0 || cols == 0 {
-        return CharArray::new(Vec::new(), 0, 0)
-            .map_err(|_| int2str_error(&INT2STR_ERROR_INTERNAL));
+        return char_array(Vec::new(), 0, 0);
     }
 
-    let mut texts = vec![String::new(); rows * cols];
-    let mut col_widths = vec![0usize; cols];
-    for (col, col_width) in col_widths.iter_mut().enumerate() {
-        for row in 0..rows {
-            let idx = row + col * rows;
-            let text = format_rounded_value(data.get(idx).copied().unwrap_or(0.0));
-            let width = text.chars().count();
-            if width > *col_width {
-                *col_width = width;
-            }
-            texts[idx] = text;
-        }
-    }
-
-    let width: usize = col_widths.iter().sum::<usize>() + 2 * (cols - 1);
-    let mut chars = Vec::with_capacity(rows * width);
-    for row in 0..rows {
-        for (col, col_width) in col_widths.iter().enumerate() {
-            if col > 0 {
-                chars.extend([' ', ' ']);
-            }
-            let text = &texts[row + col * rows];
-            let pad = col_width.saturating_sub(text.chars().count());
-            chars.extend(std::iter::repeat_n(' ', pad));
-            chars.extend(text.chars());
-        }
-    }
-
-    CharArray::new(chars, rows, width).map_err(|_| int2str_error(&INT2STR_ERROR_INTERNAL))
+    format_entries(rows, cols, |row, col| {
+        let idx = row + col * rows;
+        format_rounded_real(data.get(idx).copied().unwrap_or(0.0))
+    })
 }
 
-/// Round to the nearest integer with ties away from zero (Rust's
-/// `f64::round` semantics match the observed -2.5 -> -3 and 5.5 -> 6).
-/// Non-finite values keep word spellings (independent choice; the approved
-/// export records no NaN/Inf observations).
-fn format_rounded_value(value: f64) -> String {
+fn format_integer_matrix(
+    storage: &IntegerStorage,
+    rows: usize,
+    cols: usize,
+) -> BuiltinResult<CharArray> {
+    if rows == 0 || cols == 0 {
+        return char_array(Vec::new(), 0, 0);
+    }
+
+    format_entries(rows, cols, |row, col| {
+        integer_storage_string(storage, row + col * rows)
+    })
+}
+
+fn integer_storage_from_scalar(value: IntValue) -> IntegerStorage {
+    match value {
+        IntValue::I8(value) => IntegerStorage::I8(vec![value]),
+        IntValue::I16(value) => IntegerStorage::I16(vec![value]),
+        IntValue::I32(value) => IntegerStorage::I32(vec![value]),
+        IntValue::I64(value) => IntegerStorage::I64(vec![value]),
+        IntValue::U8(value) => IntegerStorage::U8(vec![value]),
+        IntValue::U16(value) => IntegerStorage::U16(vec![value]),
+        IntValue::U32(value) => IntegerStorage::U32(vec![value]),
+        IntValue::U64(value) => IntegerStorage::U64(vec![value]),
+    }
+}
+
+fn integer_storage_string(storage: &IntegerStorage, index: usize) -> String {
+    match storage {
+        IntegerStorage::I8(values) => values[index].to_string(),
+        IntegerStorage::I16(values) => values[index].to_string(),
+        IntegerStorage::I32(values) => values[index].to_string(),
+        IntegerStorage::I64(values) => values[index].to_string(),
+        IntegerStorage::U8(values) => values[index].to_string(),
+        IntegerStorage::U16(values) => values[index].to_string(),
+        IntegerStorage::U32(values) => values[index].to_string(),
+        IntegerStorage::U64(values) => values[index].to_string(),
+    }
+}
+
+fn format_entries<F>(rows: usize, cols: usize, mut value_at: F) -> BuiltinResult<CharArray>
+where
+    F: FnMut(usize, usize) -> String,
+{
+    let total_cells = rows.checked_mul(cols).ok_or_else(|| {
+        int2str_error_with_message(
+            "int2str: output dimensions are too large",
+            &INT2STR_ERROR_INTERNAL,
+        )
+    })?;
+    if total_cells > isize::MAX as usize {
+        return Err(int2str_error_with_message(
+            "int2str: output dimensions are too large",
+            &INT2STR_ERROR_INTERNAL,
+        ));
+    }
+
+    let mut entries = vec![
+        vec![
+            CellEntry {
+                text: String::new(),
+                width: 0,
+            };
+            cols
+        ];
+        rows
+    ];
+    let mut col_widths = vec![0usize; cols];
+
+    for (col, width) in col_widths.iter_mut().enumerate() {
+        for (row, row_entries) in entries.iter_mut().enumerate() {
+            let text = value_at(row, col);
+            let entry_width = text.chars().count();
+            row_entries[col] = CellEntry {
+                text,
+                width: entry_width,
+            };
+            *width = (*width).max(entry_width);
+        }
+    }
+
+    if cols > 1 {
+        for (idx, width) in col_widths.iter_mut().enumerate() {
+            if idx > 0 {
+                *width += 1;
+            }
+        }
+    }
+
+    rows_to_char_array(assemble_rows(entries, col_widths))
+}
+
+fn format_rounded_real(value: f64) -> String {
+    format_integer_like(matlab_round(value))
+}
+
+fn matlab_round(value: f64) -> f64 {
+    if value.is_finite() {
+        value.round()
+    } else {
+        value
+    }
+}
+
+fn format_integer_like(value: f64) -> String {
     if value.is_nan() {
         return "NaN".to_string();
     }
@@ -235,198 +418,241 @@ fn format_rounded_value(value: f64) -> String {
             "Inf".to_string()
         };
     }
-    let rounded = value.round();
-    if rounded == 0.0 {
+    if value == 0.0 {
         return "0".to_string();
     }
-    format!("{rounded:.0}")
+    if value >= i64::MIN as f64 && value <= i64::MAX as f64 {
+        return format!("{}", value as i64);
+    }
+    format!("{value:.0}")
+}
+
+fn assemble_rows(entries: Vec<Vec<CellEntry>>, col_widths: Vec<usize>) -> Vec<String> {
+    entries
+        .into_iter()
+        .map(|row_entries| {
+            row_entries
+                .into_iter()
+                .enumerate()
+                .fold(String::new(), |mut acc, (col, entry)| {
+                    if col > 0 {
+                        acc.push(' ');
+                    }
+                    let target = col_widths[col];
+                    let pad = target.saturating_sub(entry.width);
+                    acc.extend(std::iter::repeat_n(' ', pad));
+                    acc.push_str(&entry.text);
+                    acc
+                })
+        })
+        .collect()
+}
+
+fn rows_to_char_array(rows: Vec<String>) -> BuiltinResult<CharArray> {
+    if rows.is_empty() {
+        return char_array(Vec::new(), 0, 0);
+    }
+
+    let row_count = rows.len();
+    let col_count = rows
+        .iter()
+        .map(|row| row.chars().count())
+        .max()
+        .unwrap_or(0);
+    let capacity = row_count.checked_mul(col_count).ok_or_else(|| {
+        int2str_error_with_message(
+            "int2str: output dimensions are too large",
+            &INT2STR_ERROR_INTERNAL,
+        )
+    })?;
+
+    let mut data = Vec::with_capacity(capacity);
+    for row in rows {
+        let mut chars: Vec<char> = row.chars().collect();
+        if chars.len() < col_count {
+            chars.extend(std::iter::repeat_n(' ', col_count - chars.len()));
+        }
+        data.extend(chars);
+    }
+    char_array(data, row_count, col_count)
+}
+
+fn char_array(data: Vec<char>, rows: usize, cols: usize) -> BuiltinResult<CharArray> {
+    let expected = rows.checked_mul(cols).ok_or_else(|| {
+        int2str_error_with_message(
+            "int2str: output dimensions are too large",
+            &INT2STR_ERROR_INTERNAL,
+        )
+    })?;
+    if expected != data.len() {
+        return Err(int2str_error(&INT2STR_ERROR_INTERNAL));
+    }
+    CharArray::new(data, rows, cols).map_err(|_| int2str_error(&INT2STR_ERROR_INTERNAL))
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
-    use runmat_builtins::{IntValue, LogicalArray, ResolveContext, Type};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::{IntValue, LogicalArray};
 
-    fn run_int2str(value: Value) -> Value {
-        futures::executor::block_on(super::int2str_builtin(value)).expect("int2str")
+    fn int2str_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+        futures::executor::block_on(super::int2str_builtin(value, rest))
     }
 
-    fn char_rows(ca: &CharArray) -> Vec<String> {
-        ca.data
-            .chunks(ca.cols.max(1))
-            .map(|chunk| chunk.iter().collect())
-            .collect()
-    }
-
-    // Normative [FR-007-01, FR-007-02; int2str.signature-primary,
-    // int2str.output-class, int2str.rounding-and-char]
-    // Observed case `scalar`: int2str(3.7) => '4' (char, 1x1).
-    #[test]
-    fn observed_scalar_rounds_to_nearest_integer() {
-        let out = run_int2str(Value::Num(3.7));
-        match out {
-            Value::CharArray(ca) => {
-                assert_eq!((ca.rows, ca.cols), (1, 1));
-                assert_eq!(ca.data.iter().collect::<String>(), "4");
-            }
+    fn char_rows(value: Value) -> Vec<String> {
+        match value {
+            Value::CharArray(ca) => ca
+                .data
+                .chunks(ca.cols)
+                .map(|chunk| chunk.iter().collect())
+                .collect(),
             other => panic!("expected char array, got {other:?}"),
         }
     }
 
-    // Normative [FR-007-02; int2str.rounding-and-char, int2str.output-class]
-    // Observed case `negative`: int2str(-2.5) => '-3' (char, 1x2) — ties
-    // round away from zero.
-    #[test]
-    fn observed_negative_half_rounds_away_from_zero() {
-        let out = run_int2str(Value::Num(-2.5));
-        match out {
-            Value::CharArray(ca) => {
-                assert_eq!((ca.rows, ca.cols), (1, 2));
-                assert_eq!(ca.data.iter().collect::<String>(), "-3");
-            }
-            other => panic!("expected char array, got {other:?}"),
-        }
+    fn error_message(err: RuntimeError) -> String {
+        err.message().to_string()
     }
 
-    // Normative [FR-007-02, FR-007-03; int2str.rounding-and-char]
-    // Observed case `vector`: int2str([1.2 3.8 5.5]) => '1  4  6' (char, 1x7).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn observed_vector_elements_joined_with_two_spaces() {
-        let tensor = Tensor::new(vec![1.2, 3.8, 5.5], vec![1, 3]).expect("tensor");
-        let out = run_int2str(Value::Tensor(tensor));
-        match out {
-            Value::CharArray(ca) => {
-                assert_eq!((ca.rows, ca.cols), (1, 7));
-                assert_eq!(ca.data.iter().collect::<String>(), "1  4  6");
-            }
-            other => panic!("expected char array, got {other:?}"),
-        }
+    fn int2str_rounds_scalar_float() {
+        let out = int2str_builtin(Value::Num(3.25), Vec::new()).expect("int2str");
+        assert_eq!(char_rows(out), vec!["3"]);
+
+        let out = int2str_builtin(Value::Num(4.5), Vec::new()).expect("int2str");
+        assert_eq!(char_rows(out), vec!["5"]);
+
+        let out = int2str_builtin(Value::Num(-4.5), Vec::new()).expect("int2str");
+        assert_eq!(char_rows(out), vec!["-5"]);
     }
 
-    // Normative [FR-007-02, FR-007-03; int2str.rounding-and-char,
-    // int2str.output-class]
-    // Observed case `matrix`: int2str([1.1 2.9; 3.5 4.4]) => ['1  3';'4  4']
-    // (char, 2x4) — output rows mirror input rows.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn observed_matrix_rows_mirror_input_rows() {
-        // Column-major data for [1.1 2.9; 3.5 4.4].
-        let tensor = Tensor::new(vec![1.1, 3.5, 2.9, 4.4], vec![2, 2]).expect("tensor");
-        let out = run_int2str(Value::Tensor(tensor));
-        match out {
-            Value::CharArray(ca) => {
-                assert_eq!((ca.rows, ca.cols), (2, 4));
-                assert_eq!(char_rows(&ca), vec!["1  3".to_string(), "4  4".to_string()]);
-            }
-            other => panic!("expected char array, got {other:?}"),
-        }
+    fn int2str_preserves_exact_uint64_scalars_and_arrays() {
+        let scalar = int2str_builtin(Value::Int(IntValue::U64(u64::MAX)), Vec::new())
+            .expect("uint64 scalar");
+        assert_eq!(char_rows(scalar), vec![u64::MAX.to_string()]);
+
+        let tensor =
+            Tensor::new_integer(IntegerStorage::U64(vec![u64::MAX, 1_u64 << 63]), vec![1, 2])
+                .expect("uint64 tensor");
+        let matrix = int2str_builtin(Value::Tensor(tensor), Vec::new()).expect("uint64 array");
+        assert_eq!(
+            char_rows(matrix),
+            vec![format!("{}  {}", u64::MAX, 1_u64 << 63)]
+        );
     }
 
-    // unresolved_choice (int2str.q-spacing): multi-width column alignment is
-    // unobserved; the documented choice is right-aligned columns joined by
-    // two spaces, so all rows share one width.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn unresolved_choice_columns_right_aligned_two_space_separator() {
-        // Column-major data for [5 123; 42 7].
-        let tensor = Tensor::new(vec![5.0, 42.0, 123.0, 7.0], vec![2, 2]).expect("tensor");
-        let out = run_int2str(Value::Tensor(tensor));
-        match out {
-            Value::CharArray(ca) => {
-                assert_eq!((ca.rows, ca.cols), (2, 7));
-                assert_eq!(
-                    char_rows(&ca),
-                    vec![" 5  123".to_string(), "42    7".to_string()]
-                );
-            }
-            other => panic!("expected char array, got {other:?}"),
-        }
+    fn int2str_formats_integer_matrix_with_column_alignment() {
+        let tensor =
+            Tensor::new(vec![5.0, 100.0, 10.0, 200.0, 20.0, 400.0], vec![2, 3]).expect("tensor");
+        let out = int2str_builtin(Value::Tensor(tensor), Vec::new()).expect("int2str");
+        assert_eq!(char_rows(out), vec!["  5   10   20", "100  200  400"]);
     }
 
-    // unresolved_choice: NaN/Inf inputs are unobserved in the approved
-    // export; documented choice keeps word spellings.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn unresolved_choice_nonfinite_values_keep_word_spellings() {
+    fn int2str_accepts_int_and_logical_inputs() {
+        let out = int2str_builtin(Value::Int(IntValue::I32(-12)), Vec::new()).expect("int2str int");
+        assert_eq!(char_rows(out), vec!["-12"]);
+
+        let logical = LogicalArray::new(vec![1, 0, 1], vec![1, 3]).expect("logical");
+        let error = int2str_builtin(Value::LogicalArray(logical.clone()), Vec::new())
+            .expect_err("MATLAB-compatible mode rejects logical input");
+        assert_eq!(
+            error.identifier(),
+            INT2STR_LOGICAL_EXTENSION.error_identifier
+        );
+        let _guard = crate::compatibility::push_runmat_extensions_enabled(true);
+        let out = int2str_builtin(Value::LogicalArray(logical), Vec::new())
+            .expect("RunMat logical extension");
+        assert_eq!(char_rows(out), vec!["1  0  1"]);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn int2str_preserves_nonfinite_text() {
         let tensor = Tensor::new(vec![f64::NAN, f64::INFINITY, f64::NEG_INFINITY], vec![1, 3])
             .expect("tensor");
-        let out = run_int2str(Value::Tensor(tensor));
+        let out = int2str_builtin(Value::Tensor(tensor), Vec::new()).expect("int2str");
+        assert_eq!(char_rows(out), vec!["NaN  Inf  -Inf"]);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn int2str_empty_matrix_shapes() {
+        let empty = Tensor::new(Vec::new(), vec![0, 3]).expect("empty rows");
+        let out = int2str_builtin(Value::Tensor(empty), Vec::new()).expect("int2str");
         match out {
             Value::CharArray(ca) => {
-                assert_eq!(ca.rows, 1);
-                assert_eq!(ca.data.iter().collect::<String>(), "NaN  Inf  -Inf");
+                assert_eq!(ca.rows, 0);
+                assert_eq!(ca.cols, 0);
+                assert!(ca.data.is_empty());
             }
             other => panic!("expected char array, got {other:?}"),
         }
-    }
 
-    // unresolved_choice: empty input unobserved; documented choice returns a
-    // 0x0 char array.
-    #[test]
-    fn unresolved_choice_empty_input_returns_empty_char() {
-        let tensor = Tensor::new(Vec::new(), vec![0, 0]).expect("tensor");
-        let out = run_int2str(Value::Tensor(tensor));
+        let empty_cols = Tensor::new(Vec::new(), vec![2, 0]).expect("empty cols");
+        let out = int2str_builtin(Value::Tensor(empty_cols), Vec::new()).expect("int2str");
         match out {
             Value::CharArray(ca) => {
-                assert_eq!((ca.rows, ca.cols), (0, 0));
+                assert_eq!(ca.rows, 0);
+                assert_eq!(ca.cols, 0);
                 assert!(ca.data.is_empty());
             }
             other => panic!("expected char array, got {other:?}"),
         }
     }
 
-    // unresolved_choice: integer-typed and logical inputs are unobserved;
-    // documented choice treats them like their numeric values.
-    #[test]
-    fn unresolved_choice_integer_and_logical_inputs_format_numerically() {
-        let out = run_int2str(Value::Int(IntValue::I32(7)));
-        match out {
-            Value::CharArray(ca) => assert_eq!(ca.data.iter().collect::<String>(), "7"),
-            other => panic!("expected char array, got {other:?}"),
-        }
-
-        let logical = LogicalArray::new(vec![1, 0, 1], vec![1, 3]).expect("logical");
-        let out = run_int2str(Value::LogicalArray(logical));
-        match out {
-            Value::CharArray(ca) => assert_eq!(ca.data.iter().collect::<String>(), "1  0  1"),
-            other => panic!("expected char array, got {other:?}"),
-        }
-    }
-
-    // unresolved_choice: non-numeric input classes are unobserved; documented
-    // choice rejects them with a stable identifier.
-    #[test]
-    fn unresolved_choice_non_numeric_input_errors() {
-        let err =
-            futures::executor::block_on(super::int2str_builtin(Value::String("hello".to_string())))
-                .expect_err("int2str should reject text input");
-        assert_eq!(err.identifier(), Some("RunMat:int2str:InvalidInput"));
-    }
-
-    // GPU inputs are gathered to the host before formatting (Principle IX;
-    // residency policy GatherImmediately).
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn int2str_gpu_tensor_roundtrip() {
         test_support::with_test_provider(|provider| {
-            let tensor = Tensor::new(vec![1.2, 3.8], vec![1, 2]).expect("tensor");
+            let tensor = Tensor::new(vec![10.2, 20.8], vec![1, 2]).expect("tensor");
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");
-            let out = run_int2str(Value::GpuTensor(handle));
-            match out {
-                Value::CharArray(ca) => {
-                    assert_eq!(ca.data.iter().collect::<String>(), "1  4");
-                }
-                other => panic!("expected char array, got {other:?}"),
-            }
+            let out = int2str_builtin(Value::GpuTensor(handle), Vec::new()).expect("int2str");
+            assert_eq!(char_rows(out), vec!["10  21"]);
         });
     }
 
-    // Registration is discoverable through the builtin registry (SC-007-2).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn int2str_is_registered() {
-        assert!(runmat_builtins::builtin_function_by_name("int2str").is_some());
+    fn int2str_rejects_complex_input() {
+        let err = error_message(int2str_builtin(Value::Complex(3.0, 4.0), Vec::new()).unwrap_err());
+        assert!(err.contains("complex input is not supported"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn int2str_rejects_extra_arguments() {
+        let err =
+            error_message(int2str_builtin(Value::Num(1.0), vec![Value::Num(2.0)]).unwrap_err());
+        assert!(err.contains("too many input arguments"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn int2str_rejects_non_numeric_input() {
+        let err =
+            error_message(int2str_builtin(Value::String("hello".into()), Vec::new()).unwrap_err());
+        assert!(err.contains("unsupported input type"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn int2str_rejects_nd_input() {
+        let tensor = Tensor::new(vec![1.0; 8], vec![2, 2, 2]).expect("tensor");
+        let err = error_message(int2str_builtin(Value::Tensor(tensor), Vec::new()).unwrap_err());
+        assert!(err.contains("scalar, vector, or 2-D matrix"));
     }
 
     #[test]

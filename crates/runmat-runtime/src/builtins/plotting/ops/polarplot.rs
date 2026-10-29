@@ -1,26 +1,33 @@
 //! MATLAB-compatible `polarplot` builtin.
 
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinExtensionDescriptor,
+    BuiltinExtensionMode, BuiltinIntegerBackendRule, BuiltinIntegerCapabilityDescriptor,
+    BuiltinIntegerComputationDomain, BuiltinIntegerInputAvailability,
+    BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule, BuiltinIntegerOverflowRule,
+    BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ComplexTensor, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
 use runmat_plot::plots::{AxesKind, LinePlot, LineStyle};
+use runmat_value::{ComplexTensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
-use crate::builtins::plotting::common::{gather_tensor_from_gpu_async, numeric_pair};
 use crate::builtins::plotting::type_resolvers::handle_scalar_type;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
+use super::op_common::polar::{
+    complex_tensor_columns, evaluate_theta_rho_tensors, implicit_theta, is_real_numeric_value,
+    polar_to_cartesian, real_tensor_from_value, tensor_columns, EvaluatedPolarData,
+};
 use super::op_common::{apply_axes_target, split_leading_axes_handle};
 use super::plot::build_line_plot;
 use super::plotting_error;
 use super::state::{
-    current_axes_state, current_hold_enabled, line_color_for_series_index,
+    current_axes_state, current_hold_enabled, line_color_for_axes_series_index,
     next_line_color_for_axes, next_line_style_for_axes, render_active_plot,
     set_line_style_order_for_axes, PlotRenderOptions,
 };
@@ -124,6 +131,72 @@ pub const POLARPLOT_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     errors: &POLARPLOT_ERRORS,
 };
 
+const POLARPLOT_COMPLEX_INTEGER_EXTENSION: BuiltinExtensionDescriptor =
+    BuiltinExtensionDescriptor {
+        id: "polarplot-complex-integer-z",
+        mode: BuiltinExtensionMode::RunMatOnly,
+        description: "polarplot accepts paired complex-integer Z data as a RunMat extension",
+        error_identifier: Some("RunMat:compatibility:PolarplotComplexIntegerZExtension"),
+    };
+pub const POLARPLOT_EXTENSIONS: [BuiltinExtensionDescriptor; 1] =
+    [POLARPLOT_COMPLEX_INTEGER_EXTENSION];
+const POLARPLOT_INTEGER_COORDINATE_INPUT: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "theta, rho, or selected real table data",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "The public plotting surface accepts real numeric coordinate data and explicitly permits any real numeric class in selected table variables.",
+    }];
+const POLARPLOT_COMPLEX_INTEGER_INPUT: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "complex Z components",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::RunMatOnly,
+        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
+        notes: "Public evidence does not establish paired complex-integer Z admission. RunMat keeps this useful form behind an explicit compatibility gate and checked renderer boundary.",
+    }];
+const POLARPLOT_INTEGER_SELECTOR_INPUT: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "thetavar or rhovar variable indices",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "The compatibility target documents numeric scalar/vector table-variable indices; these are exact one-based structural selectors.",
+    }];
+pub const POLARPLOT_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 3] = [
+    BuiltinIntegerCapabilityDescriptor {
+        form: "h = polarplot(integer_theta,integer_rho,___) or polarplot(integer_rho,___)",
+        inputs: &POLARPLOT_INTEGER_COORDINATE_INPUT,
+        computation_domain: BuiltinIntegerComputationDomain::FunctionSpecific,
+        output_class: BuiltinIntegerOutputClassRule::NotApplicable,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::Multiple,
+        notes: "Coordinate storage is read authoritatively; polar-to-Cartesian conversion and rendering are explicit floating geometry boundaries.",
+    },
+    BuiltinIntegerCapabilityDescriptor {
+        form: "h = polarplot(complex_integer_Z,___)",
+        inputs: &POLARPLOT_COMPLEX_INTEGER_INPUT,
+        computation_domain: BuiltinIntegerComputationDomain::FloatingPoint,
+        output_class: BuiltinIntegerOutputClassRule::NotApplicable,
+        overflow: BuiltinIntegerOverflowRule::Error,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::Multiple,
+        notes: "Componentwise integer Z is gated before conversion to polar renderer geometry.",
+    },
+    BuiltinIntegerCapabilityDescriptor {
+        form: "h = polarplot(tbl,integer_thetavar,integer_rhovar,___)",
+        inputs: &POLARPLOT_INTEGER_SELECTOR_INPUT,
+        computation_domain: BuiltinIntegerComputationDomain::Structural,
+        output_class: BuiltinIntegerOutputClassRule::NotApplicable,
+        overflow: BuiltinIntegerOverflowRule::Error,
+        backend: BuiltinIntegerBackendRule::HostOnly,
+        overload: BuiltinIntegerOverloadKind::StructuralParameter,
+        notes: "Variable selection remains exact; broader table-form implementation is tracked as a general plotting surface concern.",
+    },
+];
+
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::plotting::polarplot")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     name: "polarplot",
@@ -160,9 +233,22 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     suppress_auto_output = true,
     type_resolver(handle_scalar_type),
     descriptor(crate::builtins::plotting::polarplot::POLARPLOT_DESCRIPTOR),
+    extensions(crate::builtins::plotting::polarplot::POLARPLOT_EXTENSIONS),
+    integer_capabilities(crate::builtins::plotting::polarplot::POLARPLOT_INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::plotting::polarplot"
 )]
 pub async fn polarplot_builtin(args: Vec<Value>) -> BuiltinResult<f64> {
+    for value in &args {
+        if crate::builtins::common::validation::is_typed_complex_integer(value) {
+            crate::builtins::common::validation::ensure_runmat_integer_f64_boundary(
+                value,
+                &POLARPLOT_COMPLEX_INTEGER_EXTENSION,
+                BUILTIN_NAME,
+                "complex Z component",
+            )
+            .await?;
+        }
+    }
     let (axes_target, args) =
         split_leading_axes_handle(args, BUILTIN_NAME).map_err(map_polarplot_invalid_argument)?;
     apply_axes_target(axes_target, BUILTIN_NAME).map_err(map_polarplot_invalid_argument)?;
@@ -206,7 +292,7 @@ pub async fn polarplot_builtin(args: Vec<Value>) -> BuiltinResult<f64> {
             series.appearance.color = if hold_enabled {
                 next_line_color_for_axes(axes)
             } else {
-                line_color_for_series_index(series_idx)
+                line_color_for_axes_series_index(axes, series_idx)
             };
         }
 
@@ -226,7 +312,7 @@ pub async fn polarplot_builtin(args: Vec<Value>) -> BuiltinResult<f64> {
                 .map(|v| v.abs())
                 .fold(0.0, f64::max),
         );
-        let (x, y) = polar_to_cartesian(&series.data.theta, &series.data.rho)?;
+        let (x, y) = polar_to_cartesian(&series.data.theta, &series.data.rho, BUILTIN_NAME)?;
         plots.push(build_line_plot(x, y, &label, &series.appearance)?);
     }
 
@@ -306,12 +392,6 @@ enum PolarSeriesInput {
 enum ComplexInput {
     Scalar(f64, f64),
     Tensor(ComplexTensor),
-}
-
-#[derive(Clone, Debug)]
-struct EvaluatedPolarData {
-    theta: Vec<f64>,
-    rho: Vec<f64>,
 }
 
 fn parse_polar_series_specs(
@@ -437,12 +517,12 @@ fn merge_group_style(target: &mut PolarSeriesPlan, source: &PolarSeriesPlan) {
 async fn evaluate_polar_data(input: PolarSeriesInput) -> BuiltinResult<Vec<EvaluatedPolarData>> {
     match input {
         PolarSeriesInput::ThetaRho(theta, rho) => {
-            let theta = real_tensor_from_value(theta).await?;
-            let rho = real_tensor_from_value(rho).await?;
-            evaluate_theta_rho_tensors(theta, rho)
+            let theta = real_tensor_from_value(theta, BUILTIN_NAME).await?;
+            let rho = real_tensor_from_value(rho, BUILTIN_NAME).await?;
+            evaluate_theta_rho_tensors(theta, rho, BUILTIN_NAME)
         }
         PolarSeriesInput::Rho(rho) => {
-            let rho = real_tensor_from_value(rho).await?;
+            let rho = real_tensor_from_value(rho, BUILTIN_NAME).await?;
             Ok(tensor_columns(&rho)
                 .into_iter()
                 .map(|rho| EvaluatedPolarData {
@@ -468,163 +548,6 @@ async fn evaluate_polar_data(input: PolarSeriesInput) -> BuiltinResult<Vec<Evalu
                 .collect())
         }
     }
-}
-
-fn evaluate_theta_rho_tensors(
-    theta: Tensor,
-    rho: Tensor,
-) -> BuiltinResult<Vec<EvaluatedPolarData>> {
-    if tensor_is_vector(&theta) && tensor_is_vector(&rho) {
-        let (theta, rho) = numeric_pair(theta, rho, BUILTIN_NAME)?;
-        return Ok(vec![EvaluatedPolarData { theta, rho }]);
-    }
-
-    if tensor_is_vector(&theta) {
-        let theta_vec = theta.data;
-        let rho_rows = tensor_rows(&rho);
-        if theta_vec.len() != rho_rows {
-            return Err(polarplot_err(
-                "theta vector length must match each rho matrix column",
-            ));
-        }
-        return Ok(tensor_columns(&rho)
-            .into_iter()
-            .map(|rho| EvaluatedPolarData {
-                theta: theta_vec.clone(),
-                rho,
-            })
-            .collect());
-    }
-
-    if tensor_is_vector(&rho) {
-        let rho_vec = rho.data;
-        let theta_rows = tensor_rows(&theta);
-        if rho_vec.len() != theta_rows {
-            return Err(polarplot_err(
-                "rho vector length must match each theta matrix column",
-            ));
-        }
-        return Ok(tensor_columns(&theta)
-            .into_iter()
-            .map(|theta| EvaluatedPolarData {
-                theta,
-                rho: rho_vec.clone(),
-            })
-            .collect());
-    }
-
-    if tensor_rows(&theta) != tensor_rows(&rho) || tensor_cols(&theta) != tensor_cols(&rho) {
-        return Err(polarplot_err(
-            "theta and rho matrices must have matching row and column counts",
-        ));
-    }
-
-    Ok(tensor_columns(&theta)
-        .into_iter()
-        .zip(tensor_columns(&rho))
-        .map(|(theta, rho)| EvaluatedPolarData { theta, rho })
-        .collect())
-}
-
-fn tensor_is_vector(tensor: &Tensor) -> bool {
-    tensor.rows <= 1 || tensor.cols <= 1 || tensor.shape.len() <= 1
-}
-
-fn tensor_rows(tensor: &Tensor) -> usize {
-    if tensor_is_vector(tensor) {
-        tensor.data.len()
-    } else {
-        tensor.rows
-    }
-}
-
-fn tensor_cols(tensor: &Tensor) -> usize {
-    if tensor_is_vector(tensor) {
-        1
-    } else {
-        tensor.cols
-    }
-}
-
-fn tensor_columns(tensor: &Tensor) -> Vec<Vec<f64>> {
-    if tensor_is_vector(tensor) {
-        return vec![tensor.data.clone()];
-    }
-    (0..tensor.cols)
-        .map(|col| {
-            let start = col * tensor.rows;
-            tensor.data[start..start + tensor.rows].to_vec()
-        })
-        .collect()
-}
-
-fn complex_tensor_columns(tensor: &ComplexTensor) -> Vec<Vec<(f64, f64)>> {
-    if tensor.rows <= 1 || tensor.cols <= 1 || tensor.shape.len() <= 1 {
-        return vec![tensor.data.clone()];
-    }
-    (0..tensor.cols)
-        .map(|col| {
-            let start = col * tensor.rows;
-            tensor.data[start..start + tensor.rows].to_vec()
-        })
-        .collect()
-}
-
-async fn real_tensor_from_value(value: Value) -> BuiltinResult<Tensor> {
-    match value {
-        Value::GpuTensor(handle) => gather_tensor_from_gpu_async(handle, BUILTIN_NAME).await,
-        Value::Num(value) => Ok(scalar_tensor(value)),
-        Value::Int(value) => Ok(scalar_tensor(value.to_f64())),
-        Value::Bool(value) => Ok(scalar_tensor(if value { 1.0 } else { 0.0 })),
-        other => Tensor::try_from(&other)
-            .map_err(|err| polarplot_err(format!("expected real numeric data: {err}"))),
-    }
-}
-
-fn scalar_tensor(value: f64) -> Tensor {
-    Tensor {
-        data: vec![value],
-        shape: vec![1],
-        rows: 1,
-        cols: 1,
-        dtype: runmat_builtins::NumericDType::F64,
-    }
-}
-
-fn implicit_theta(len: usize) -> Vec<f64> {
-    match len {
-        0 => Vec::new(),
-        1 => vec![0.0],
-        n => (0..n)
-            .map(|idx| idx as f64 * std::f64::consts::TAU / (n - 1) as f64)
-            .collect(),
-    }
-}
-
-fn polar_to_cartesian(theta: &[f64], rho: &[f64]) -> BuiltinResult<(Vec<f64>, Vec<f64>)> {
-    if theta.len() != rho.len() {
-        return Err(polarplot_err(
-            "theta and rho inputs must have the same number of elements",
-        ));
-    }
-    let x = theta
-        .iter()
-        .zip(rho.iter())
-        .map(|(theta, rho)| rho * theta.cos())
-        .collect();
-    let y = theta
-        .iter()
-        .zip(rho.iter())
-        .map(|(theta, rho)| rho * theta.sin())
-        .collect();
-    Ok((x, y))
-}
-
-fn is_real_numeric_value(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Tensor(_) | Value::GpuTensor(_) | Value::Num(_) | Value::Int(_) | Value::Bool(_)
-    )
 }
 
 fn apply_polar_line_style_order(plans: &mut [PolarSeriesPlan], order: &[LineStyle]) {
@@ -677,16 +600,10 @@ mod tests {
     use crate::builtins::plotting::{
         clone_figure, current_figure_handle, reset_hold_state_for_run, reset_plot_state,
     };
-    use runmat_builtins::NumericDType;
+    use runmat_value::Tensor;
 
     fn tensor(data: &[f64]) -> Value {
-        Value::Tensor(Tensor {
-            data: data.to_vec(),
-            shape: vec![data.len()],
-            rows: data.len(),
-            cols: 1,
-            dtype: NumericDType::F64,
-        })
+        Value::Tensor(Tensor::new(data.to_vec(), vec![data.len()]).expect("polar plot vector"))
     }
 
     #[test]
@@ -694,6 +611,7 @@ mod tests {
         let (x, y) = polar_to_cartesian(
             &[0.0, std::f64::consts::FRAC_PI_2, std::f64::consts::PI],
             &[1.0, 2.0, 3.0],
+            BUILTIN_NAME,
         )
         .unwrap();
         assert!((x[0] - 1.0).abs() < 1e-12);
@@ -738,13 +656,7 @@ mod tests {
 
     #[test]
     fn matrix_rho_expands_to_column_series() {
-        let rho = Tensor {
-            data: vec![1.0, 2.0, 3.0, 4.0],
-            shape: vec![2, 2],
-            rows: 2,
-            cols: 2,
-            dtype: NumericDType::F64,
-        };
+        let rho = Tensor::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]).expect("polar plot matrix");
         let data = futures::executor::block_on(evaluate_polar_data(PolarSeriesInput::Rho(
             Value::Tensor(rho),
         )))
@@ -786,13 +698,7 @@ mod tests {
         reset_plot_state();
         reset_hold_state_for_run();
 
-        let empty = Value::Tensor(Tensor {
-            data: Vec::new(),
-            shape: vec![0, 0],
-            rows: 0,
-            cols: 0,
-            dtype: NumericDType::F64,
-        });
+        let empty = Value::Tensor(Tensor::new(Vec::new(), vec![0, 0]).expect("empty polar plot"));
         futures::executor::block_on(polarplot_builtin(vec![empty])).unwrap();
 
         let mut figure = clone_figure(current_figure_handle()).unwrap();
@@ -815,13 +721,9 @@ mod tests {
         reset_hold_state_for_run();
 
         let theta = tensor(&[0.0, std::f64::consts::FRAC_PI_2]);
-        let rho = Value::Tensor(Tensor {
-            data: vec![1.0, 2.0, 3.0, 4.0],
-            shape: vec![2, 2],
-            rows: 2,
-            cols: 2,
-            dtype: NumericDType::F64,
-        });
+        let rho = Value::Tensor(
+            Tensor::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]).expect("polar plot matrix"),
+        );
         futures::executor::block_on(polarplot_builtin(vec![
             theta,
             rho,

@@ -72,90 +72,77 @@ concurrency:
 
 jobs:
   build-and-publish:
-    runs-on: ["self-hosted", "linux", "GCP"]
+    runs-on: warp-ubuntu-latest-x64-16x
     # Environment-scoped secrets (NPM_TOKEN) require the job to declare the
     # correct environment. Direct dev pushes use Dev; workflow_dispatch and
     # release.yml workflow_call can select Production via release_channel=prod.
     environment: ${{ inputs.release_channel == 'prod' && 'Production' || 'Dev' }}
     env:
       RUST_BACKTRACE: 1
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref_name }}
 
-      - name: Validate Rust toolchain (Linux self-hosted)
-        shell: bash
-        env:
-          RUST_TOOLCHAIN: 1.90.0-x86_64-unknown-linux-gnu
-          RUST_COMPONENTS: rustfmt clippy
-        run: |
-          set -euo pipefail
+      - name: Install Rust and WASM toolchain
+        uses: taiki-e/install-action@v2
+        with:
+          tool: |
+            rust@1.90.0 + wasm32-unknown-unknown
+            wasm-pack@0.14.0
 
-          toolchain="${RUST_TOOLCHAIN}"
-          cargo_home="${CARGO_HOME:-${HOME}/.cargo}"
-          rustup_home="${RUSTUP_HOME:-${HOME}/.rustup}"
-          cargo_bin="${cargo_home}/bin"
-          rustup="${cargo_bin}/rustup"
-          cargo="${cargo_bin}/cargo"
-
-          if [[ ! -x "${rustup}" ]]; then
-            echo "Missing rustup at ${rustup}. Provision the runner with infra/scripts/bootstrap-linux-runner.sh." >&2
-            exit 1
-          fi
-          if [[ ! -x "${cargo}" ]]; then
-            echo "Missing cargo at ${cargo}. Provision the runner with infra/scripts/bootstrap-linux-runner.sh." >&2
-            exit 1
-          fi
-
-          {
-            echo "CARGO_HOME=${cargo_home}"
-            echo "RUSTUP_HOME=${rustup_home}"
-            echo "RUSTUP_TOOLCHAIN=${toolchain}"
-          } >> "${GITHUB_ENV}"
-          echo "${cargo_bin}" >> "${GITHUB_PATH}"
-
-          "${rustup}" which --toolchain "${toolchain}" cargo >/dev/null
-          installed_components="$("${rustup}" component list --toolchain "${toolchain}" --installed)"
-          for component in ${RUST_COMPONENTS}; do
-            if ! grep -q "^${component}-" <<<"${installed_components}"; then
-              echo "Missing Rust component '${component}' for toolchain ${toolchain}. Provision the runner with infra/scripts/bootstrap-linux-runner.sh." >&2
-              exit 1
-            fi
-          done
-          "${cargo}" -V
-          "${cargo_bin}/rustc" -V
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # The expensive WASM graph is primarily RunMat workspace crates, so
+          # retain those artifacts as well as third-party dependencies. Bump
+          # the namespace when changing cache policy because GitHub cache keys
+          # are immutable.
+          shared-key: wasm-bindings-workspace-v1
+          cache-workspace-crates: true
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Add wasm32 target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Setup Chrome and ChromeDriver
+        id: setup_chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          install-chromedriver: true
+          install-dependencies: true
+
+      - name: Configure Chrome for WebDriver tests
+        shell: bash
+        env:
+          RUNMAT_CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          config_path="${RUNNER_TEMP}/runmat-webdriver.json"
+          node -e '
+            const fs = require("node:fs");
+            const [binary, output] = process.argv.slice(1);
+            fs.writeFileSync(output, JSON.stringify({
+              "goog:chromeOptions": { binary }
+            }));
+          ' "${RUNMAT_CHROME_BIN}" "${config_path}"
+          echo "WASM_BINDGEN_TEST_WEBDRIVER_JSON=${config_path}" >> "${GITHUB_ENV}"
 
       - name: Install npm dependencies
         working-directory: bindings/ts
         run: npm ci
 
-      - name: Regenerate wasm builtin registry
-        run: scripts/regenerate-wasm-registry.sh
-
-      - name: Build wasm32 target
-        run: cargo build -p runmat-wasm --target wasm32-unknown-unknown --features occt-wasm-host
-
       - name: Run wasm headless tests
         env:
+          RUNMAT_CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
+          RUNMAT_CHROMEDRIVER_BIN: ${{ steps.setup_chrome.outputs.chromedriver-path }}
           WASM_BINDGEN_TEST_TIMEOUT: "300"
         run: scripts/test-wasm-headless.sh
-
-      - name: Run wasm symptom regression suite
-        env:
-          WASM_BINDGEN_TEST_TIMEOUT: "300"
-        run: scripts/runtime/test-wasm-regression-suite.sh symptom-closure
 
       - name: Determine publish settings
         id: publish_settings
@@ -284,12 +271,83 @@ jobs:
           npm version "${next_version}" --no-git-tag-version --allow-same-version
           echo "version=${next_version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Build publishable bindings once
+        working-directory: bindings/ts
+        run: npm run build
+
+      - name: Bind browser runtime entrypoints to exact publish bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_revision="$(git rev-parse HEAD)"
+          node scripts/runtime/verify-builtin-examples.mjs artifacts \
+            --product browser-wasm --profile web --source-revision "$source_revision" \
+            --file wasm-js=bindings/ts/dist/pkg-web/runmat_wasm_web.js \
+            --file wasm-binary=bindings/ts/dist/pkg-web/runmat_wasm_web_bg.wasm \
+            --output bindings/ts/browser-product.artifacts.json
+
+      - name: Verify examples against exact browser publish bytes
+        env:
+          RUNMAT_CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
+          RUNMAT_CHROMEDRIVER_BIN: ${{ steps.setup_chrome.outputs.chromedriver-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=bindings/ts/builtin-example-verification
+          mkdir -p "$root/results"
+          node scripts/runtime/verify-builtin-examples.mjs inventory --output "$root/inventory.json"
+          node scripts/runtime/verify-builtin-examples.mjs plan \
+            --inventory "$root/inventory.json" --product browser-wasm \
+            --topology scripts/runtime/builtin-example-topology.c00.json --output "$root/plan.json"
+          set +e
+          node scripts/runtime/run-builtin-example-product.mjs \
+            --inventory "$root/inventory.json" --plan "$root/plan.json" \
+            --artifact-manifest bindings/ts/browser-product.artifacts.json \
+            --output-dir "$root/results"
+          execution_status=$?
+          set -e
+          node scripts/runtime/verify-builtin-examples.mjs reconcile \
+            --inventory "$root/inventory.json" --plan "$root/plan.json" \
+            --results-dir "$root/results" \
+            --artifact-manifest bindings/ts/browser-product.artifacts.json \
+            --report-dir "$root/report" --output "$root/reconciliation.json"
+          test "$execution_status" -eq 0
+
+      - name: Retain browser product verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-bindings-product-evidence-${{ github.run_attempt }}
+          path: |
+            bindings/ts/browser-product.artifacts.json
+            bindings/ts/builtin-example-verification/plan.json
+            bindings/ts/builtin-example-verification/reconciliation.json
+            bindings/ts/builtin-example-verification/report
+            bindings/ts/builtin-example-verification/results/*.shard-result.json
+          if-no-files-found: error
+
+      - name: Pack the already-built package without lifecycle rebuilds
+        id: package_archive
+        working-directory: bindings/ts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_json="$(npm pack --ignore-scripts --json)"
+          archive="$(PACKAGE_ARCHIVE_JSON="$archive_json" node -e 'const value=JSON.parse(process.env.PACKAGE_ARCHIVE_JSON); if (!Array.isArray(value) || value.length !== 1 || typeof value[0].filename !== "string") throw new Error("npm pack returned no unique archive"); process.stdout.write(value[0].filename)')"
+          test -f "$archive"
+          packed_root="${RUNNER_TEMP}/runmat-bindings-package"
+          mkdir -p "$packed_root"
+          tar -xzf "$archive" -C "$packed_root"
+          cmp dist/pkg-web/runmat_wasm_web.js "$packed_root/package/dist/pkg-web/runmat_wasm_web.js"
+          cmp dist/pkg-web/runmat_wasm_web_bg.wasm "$packed_root/package/dist/pkg-web/runmat_wasm_web_bg.wasm"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
       - name: Publish bindings package to npm
         if: github.event_name == 'push' || inputs.publish
         working-directory: bindings/ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --tag ${{ steps.publish_settings.outputs.dist_tag }}
+        run: npm publish "${{ steps.package_archive.outputs.archive }}" --ignore-scripts --access public --tag ${{ steps.publish_settings.outputs.dist_tag }}
 
       - name: Promote production release to latest
         if: (github.event_name == 'push' || inputs.publish) && steps.publish_settings.outputs.channel == 'prod'

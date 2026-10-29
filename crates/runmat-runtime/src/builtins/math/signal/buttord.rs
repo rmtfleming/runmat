@@ -1,23 +1,30 @@
 //! MATLAB-compatible `buttord` Butterworth order selection.
 
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinExtensionDescriptor,
+    BuiltinExtensionMode, BuiltinIntegerBackendRule, BuiltinIntegerCapabilityDescriptor,
+    BuiltinIntegerComputationDomain, BuiltinIntegerInputAvailability,
+    BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule, BuiltinIntegerOverflowRule,
+    BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule, BuiltinOutputMode,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
-use crate::builtins::math::signal::common::{
-    parse_scalar_f64, real_vector_to_row_value, value_to_complex_vector,
+use crate::builtins::math::signal::common::real_vector_to_row_value;
+use crate::builtins::math::signal::order_selection::{
+    checked_order, classify_kind, db_excess, db_excess_log_ratio, find_natural_frequency,
+    option_text, parse_positive_db, real_edges, transform_edges, unwarp_frequency,
+    validate_critical_frequencies, FilterKind, OrderFamily,
 };
 use crate::builtins::math::signal::type_resolvers::buttord_type;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "buttord";
-const EPS: f64 = 1.0e-12;
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::math::signal::buttord")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -173,6 +180,13 @@ const BUTTORD_ERROR_INVALID_OPTION: BuiltinErrorDescriptor = BuiltinErrorDescrip
     message: "buttord: optional selector must be 's'",
 };
 
+const BUTTORD_ERROR_TOO_MANY_OUTPUTS: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.BUTTORD.TOO_MANY_OUTPUTS",
+    identifier: Some("RunMat:buttord:TooManyOutputs"),
+    when: "More than two output arguments are requested.",
+    message: "buttord: too many output arguments",
+};
+
 const BUTTORD_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     code: "RM.BUTTORD.INTERNAL",
     identifier: Some("RunMat:buttord:Internal"),
@@ -180,12 +194,120 @@ const BUTTORD_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     message: "buttord: internal error",
 };
 
-const BUTTORD_ERRORS: [BuiltinErrorDescriptor; 5] = [
+const BUTTORD_ERRORS: [BuiltinErrorDescriptor; 6] = [
     BUTTORD_ERROR_ARG_COUNT,
     BUTTORD_ERROR_INVALID_FREQUENCY,
     BUTTORD_ERROR_INVALID_ATTENUATION,
     BUTTORD_ERROR_INVALID_OPTION,
+    BUTTORD_ERROR_TOO_MANY_OUTPUTS,
     BUTTORD_ERROR_INTERNAL,
+];
+
+const BUTTORD_INTEGER_FREQUENCY_EXTENSION: BuiltinExtensionDescriptor =
+    BuiltinExtensionDescriptor {
+        id: "buttord-integer-frequency",
+        mode: BuiltinExtensionMode::RunMatOnly,
+        description: "buttord with typed-integer passband or stopband edges is a RunMat extension",
+        error_identifier: Some("RunMat:compatibility:ButtordIntegerFrequencyExtension"),
+    };
+const BUTTORD_LOGICAL_FREQUENCY_EXTENSION: BuiltinExtensionDescriptor =
+    BuiltinExtensionDescriptor {
+        id: "buttord-logical-frequency",
+        mode: BuiltinExtensionMode::RunMatOnly,
+        description: "buttord with logical passband or stopband edges is a RunMat extension",
+        error_identifier: Some("RunMat:compatibility:ButtordLogicalFrequencyExtension"),
+    };
+const BUTTORD_COMPLEX_FREQUENCY_EXTENSION: BuiltinExtensionDescriptor =
+    BuiltinExtensionDescriptor {
+        id: "buttord-complex-frequency",
+        mode: BuiltinExtensionMode::RunMatOnly,
+        description: "buttord with complex passband or stopband edges is a RunMat extension",
+        error_identifier: Some("RunMat:compatibility:ButtordComplexFrequencyExtension"),
+    };
+const BUTTORD_INTEGER_ATTENUATION_EXTENSION: BuiltinExtensionDescriptor =
+    BuiltinExtensionDescriptor {
+        id: "buttord-integer-attenuation",
+        mode: BuiltinExtensionMode::RunMatOnly,
+        description: "buttord with typed-integer ripple or attenuation is a RunMat extension",
+        error_identifier: Some("RunMat:compatibility:ButtordIntegerAttenuationExtension"),
+    };
+const BUTTORD_LOGICAL_ATTENUATION_EXTENSION: BuiltinExtensionDescriptor =
+    BuiltinExtensionDescriptor {
+        id: "buttord-logical-attenuation",
+        mode: BuiltinExtensionMode::RunMatOnly,
+        description: "buttord with logical ripple or attenuation is a RunMat extension",
+        error_identifier: Some("RunMat:compatibility:ButtordLogicalAttenuationExtension"),
+    };
+const BUTTORD_GPU_INPUT_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
+    id: "buttord-gpu-input",
+    mode: BuiltinExtensionMode::RunMatOnly,
+    description: "buttord with resident GPU-array design arguments is a RunMat extension",
+    error_identifier: Some("RunMat:compatibility:ButtordGpuInputExtension"),
+};
+
+pub const BUTTORD_EXTENSIONS: [BuiltinExtensionDescriptor; 6] = [
+    BUTTORD_INTEGER_FREQUENCY_EXTENSION,
+    BUTTORD_LOGICAL_FREQUENCY_EXTENSION,
+    BUTTORD_COMPLEX_FREQUENCY_EXTENSION,
+    BUTTORD_INTEGER_ATTENUATION_EXTENSION,
+    BUTTORD_LOGICAL_ATTENUATION_EXTENSION,
+    BUTTORD_GPU_INPUT_EXTENSION,
+];
+
+const BUTTORD_INTEGER_FREQUENCY_INPUTS: [BuiltinIntegerInputCapability; 2] = [
+    BuiltinIntegerInputCapability {
+        name: "Wp",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::RunMatOnly,
+        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
+        notes: "The documented passband-edge datatypes are single and double; RunMat mode additionally accepts scalar or two-element typed-integer storage.",
+    },
+    BuiltinIntegerInputCapability {
+        name: "Ws",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::RunMatOnly,
+        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
+        notes: "The documented stopband-edge datatypes are single and double; RunMat mode additionally accepts scalar or two-element typed-integer storage.",
+    },
+];
+const BUTTORD_INTEGER_ATTENUATION_INPUTS: [BuiltinIntegerInputCapability; 2] = [
+    BuiltinIntegerInputCapability {
+        name: "Rp",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::RunMatOnly,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "The documented passband-ripple datatypes are single and double; RunMat mode additionally accepts every scalar integer class.",
+    },
+    BuiltinIntegerInputCapability {
+        name: "Rs",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::RunMatOnly,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "The documented stopband-attenuation datatypes are single and double; RunMat mode additionally accepts every scalar integer class.",
+    },
+];
+
+pub const BUTTORD_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 2] = [
+    BuiltinIntegerCapabilityDescriptor {
+        form: "[n,Wn] = buttord(integer_Wp,integer_Ws,Rp,Rs,...)",
+        inputs: &BUTTORD_INTEGER_FREQUENCY_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::FloatingPoint,
+        output_class: BuiltinIntegerOutputClassRule::Double,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::FunctionSpecific,
+        notes: "Integer frequency edges cross the explicit binary64 Butterworth analysis boundary after compatibility and residency checks. Both n and Wn remain host double values.",
+    },
+    BuiltinIntegerCapabilityDescriptor {
+        form: "[n,Wn] = buttord(Wp,Ws,integer_Rp,integer_Rs,...)",
+        inputs: &BUTTORD_INTEGER_ATTENUATION_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::FloatingPoint,
+        output_class: BuiltinIntegerOutputClassRule::Double,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::FunctionSpecific,
+        notes: "Integer ripple and attenuation controls cross the explicit binary64 decibel-analysis boundary after compatibility and residency checks. Both n and Wn remain host double values.",
+    },
 ];
 
 pub const BUTTORD_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
@@ -194,14 +316,6 @@ pub const BUTTORD_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &BUTTORD_ERRORS,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FilterKind {
-    Lowpass,
-    Highpass,
-    Bandpass,
-    Bandstop,
-}
 
 #[derive(Clone, Debug)]
 struct ButtordResult {
@@ -238,6 +352,8 @@ fn buttord_error_with_message(
     keywords = "buttord,butterworth,filter order,signal processing",
     type_resolver(buttord_type),
     descriptor(crate::builtins::math::signal::buttord::BUTTORD_DESCRIPTOR),
+    extensions(crate::builtins::math::signal::buttord::BUTTORD_EXTENSIONS),
+    integer_capabilities(crate::builtins::math::signal::buttord::BUTTORD_INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::math::signal::buttord"
 )]
 async fn buttord_builtin(
@@ -260,6 +376,7 @@ pub async fn evaluate(
     if rest.len() > 1 {
         return Err(buttord_error(&BUTTORD_ERROR_ARG_COUNT));
     }
+    ensure_input_extensions(&wp, &ws, &rp, &rs)?;
     let analog = if let Some(option) = rest.first() {
         match option_text(option).as_deref() {
             Some("s") => true,
@@ -269,16 +386,103 @@ pub async fn evaluate(
     } else {
         false
     };
-    let wp = real_edges("Wp", wp).await?;
-    let ws = real_edges("Ws", ws).await?;
-    let rp = parse_positive_db("Rp", &rp)?;
-    let rs = parse_positive_db("Rs", &rs)?;
+    let wp = real_edges(BUILTIN_NAME, "Wp", wp)
+        .await
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
+    let ws = real_edges(BUILTIN_NAME, "Ws", ws)
+        .await
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
+    let rp = gather_value(&rp).await?;
+    let rs = gather_value(&rs).await?;
+    let rp = parse_positive_db(BUILTIN_NAME, "Rp", &rp)
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_ATTENUATION, detail))?;
+    let rs = parse_positive_db(BUILTIN_NAME, "Rs", &rs)
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_ATTENUATION, detail))?;
     if rs <= rp {
         return Err(buttord_error(&BUTTORD_ERROR_INVALID_ATTENUATION));
     }
 
     let result = compute_buttord(&wp, &ws, rp, rs, analog)?;
     output_result(result)
+}
+
+fn is_typed_integer_value(value: &Value) -> bool {
+    matches!(value, Value::Int(_))
+        || matches!(value, Value::Tensor(tensor) if tensor.integer_storage().is_some())
+        || matches!(value, Value::GpuTensor(handle) if runmat_accelerate_api::handle_integer_type(handle).is_some())
+}
+
+fn is_logical_value(value: &Value) -> bool {
+    matches!(value, Value::Bool(_) | Value::LogicalArray(_))
+        || matches!(value, Value::GpuTensor(handle) if runmat_accelerate_api::handle_is_logical(handle))
+}
+
+fn is_complex_value(value: &Value) -> bool {
+    matches!(value, Value::Complex(_, _) | Value::ComplexTensor(_))
+        || matches!(value, Value::GpuTensor(handle)
+            if runmat_accelerate_api::handle_storage(handle)
+                == runmat_accelerate_api::GpuTensorStorage::ComplexInterleaved)
+}
+
+fn ensure_input_extensions(wp: &Value, ws: &Value, rp: &Value, rs: &Value) -> BuiltinResult<()> {
+    for value in [wp, ws] {
+        if is_typed_integer_value(value) {
+            crate::compatibility::ensure_builtin_extension_enabled(
+                &BUTTORD_INTEGER_FREQUENCY_EXTENSION,
+                BUILTIN_NAME,
+            )?;
+        }
+        if is_logical_value(value) {
+            crate::compatibility::ensure_builtin_extension_enabled(
+                &BUTTORD_LOGICAL_FREQUENCY_EXTENSION,
+                BUILTIN_NAME,
+            )?;
+        }
+        if is_complex_value(value) {
+            crate::compatibility::ensure_builtin_extension_enabled(
+                &BUTTORD_COMPLEX_FREQUENCY_EXTENSION,
+                BUILTIN_NAME,
+            )?;
+        }
+    }
+    for value in [rp, rs] {
+        if is_typed_integer_value(value) {
+            crate::compatibility::ensure_builtin_extension_enabled(
+                &BUTTORD_INTEGER_ATTENUATION_EXTENSION,
+                BUILTIN_NAME,
+            )?;
+        }
+        if is_logical_value(value) {
+            crate::compatibility::ensure_builtin_extension_enabled(
+                &BUTTORD_LOGICAL_ATTENUATION_EXTENSION,
+                BUILTIN_NAME,
+            )?;
+        }
+    }
+    if [wp, ws, rp, rs]
+        .into_iter()
+        .any(|value| matches!(value, Value::GpuTensor(_)))
+    {
+        crate::compatibility::ensure_builtin_extension_enabled(
+            &BUTTORD_GPU_INPUT_EXTENSION,
+            BUILTIN_NAME,
+        )?;
+    }
+    Ok(())
+}
+
+async fn gather_value(value: &Value) -> BuiltinResult<Value> {
+    match value {
+        Value::GpuTensor(handle) => {
+            let tensor = crate::builtins::common::gpu_helpers::gather_tensor_async(handle)
+                .await
+                .map_err(|flow| {
+                    crate::builtins::common::map_control_flow_with_builtin(flow, BUILTIN_NAME)
+                })?;
+            Ok(crate::builtins::common::tensor::tensor_into_value(tensor))
+        }
+        other => Ok(other.clone()),
+    }
 }
 
 fn output_result(result: ButtordResult) -> BuiltinResult<Value> {
@@ -296,71 +500,12 @@ fn output_result(result: ButtordResult) -> BuiltinResult<Value> {
         if out_count == 1 {
             return Ok(Value::OutputList(vec![order]));
         }
-        return Ok(crate::output_count::output_list_with_padding(
-            out_count,
-            vec![order, wn],
-        ));
+        if out_count == 2 {
+            return Ok(Value::OutputList(vec![order, wn]));
+        }
+        return Err(buttord_error(&BUTTORD_ERROR_TOO_MANY_OUTPUTS));
     }
     Ok(order)
-}
-
-async fn real_edges(label: &'static str, value: Value) -> BuiltinResult<Vec<f64>> {
-    let input = value_to_complex_vector(BUILTIN_NAME, label, value)
-        .await
-        .map_err(|err| {
-            buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, err.message())
-        })?;
-    if input.data.len() != 1 && input.data.len() != 2 {
-        return Err(buttord_error_with_detail(
-            &BUTTORD_ERROR_INVALID_FREQUENCY,
-            format!("{label} must be a scalar or two-element vector"),
-        ));
-    }
-    let mut out = Vec::with_capacity(input.data.len());
-    for value in input.data {
-        if value.im.abs() > EPS || !value.re.is_finite() || value.re <= 0.0 {
-            return Err(buttord_error_with_detail(
-                &BUTTORD_ERROR_INVALID_FREQUENCY,
-                format!("{label} entries must be positive finite real values"),
-            ));
-        }
-        out.push(value.re);
-    }
-    if out.len() == 2 && out[0] >= out[1] {
-        return Err(buttord_error_with_detail(
-            &BUTTORD_ERROR_INVALID_FREQUENCY,
-            format!("{label} edge vector must be strictly increasing"),
-        ));
-    }
-    Ok(out)
-}
-
-fn parse_positive_db(label: &'static str, value: &Value) -> BuiltinResult<f64> {
-    let parsed = parse_scalar_f64(BUILTIN_NAME, label, value).map_err(|err| {
-        buttord_error_with_detail(&BUTTORD_ERROR_INVALID_ATTENUATION, err.message())
-    })?;
-    if parsed <= 0.0 {
-        return Err(buttord_error(&BUTTORD_ERROR_INVALID_ATTENUATION));
-    }
-    Ok(parsed)
-}
-
-fn option_text(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.trim().to_ascii_lowercase()),
-        Value::StringArray(array) if array.data.len() == 1 => {
-            Some(array.data[0].trim().to_ascii_lowercase())
-        }
-        Value::CharArray(chars) if chars.rows <= 1 => Some(
-            chars
-                .data
-                .iter()
-                .collect::<String>()
-                .trim()
-                .to_ascii_lowercase(),
-        ),
-        _ => None,
-    }
 }
 
 fn compute_buttord(
@@ -376,108 +521,57 @@ fn compute_buttord(
             "Wp and Ws must have the same length",
         ));
     }
-    let kind = classify_kind(wp, ws)?;
-    validate_domain(wp, analog, "Wp")?;
-    validate_domain(ws, analog, "Ws")?;
+    let kind = classify_kind(wp, ws)
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
+    crate::builtins::math::signal::order_selection::validate_domain(wp, analog, "Wp")
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
+    crate::builtins::math::signal::order_selection::validate_domain(ws, analog, "Ws")
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
 
     let wp_work = transform_edges(wp, analog);
     let ws_work = transform_edges(ws, analog);
-    let epsilon = (10.0f64.powf(rp / 10.0) - 1.0).sqrt();
-    let stop = 10.0f64.powf(rs / 10.0) - 1.0;
-    let nat = stopband_ratio(kind, &wp_work, &ws_work)?;
-    if nat <= 1.0 || !nat.is_finite() {
-        return Err(buttord_error_with_detail(
-            &BUTTORD_ERROR_INVALID_FREQUENCY,
-            "stopband must be separated from passband",
-        ));
-    }
-    let order = ((stop / (epsilon * epsilon)).log10() / (2.0 * nat.log10())).ceil() as usize;
-    let order = order.max(1);
-    let natural = natural_frequency(kind, &wp_work, &ws_work, epsilon, order)?;
-    let wn = if analog {
+    let epsilon = db_excess(rp)
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_ATTENUATION, detail))?
+        .sqrt();
+    let log_ratio = db_excess_log_ratio(rp, rs)
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_ATTENUATION, detail))?;
+    let (nat, passband) =
+        find_natural_frequency(kind, &wp_work, &ws_work, rp, rs, OrderFamily::Butterworth)
+            .map_err(|detail| {
+                buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail)
+            })?;
+    let order = checked_order(log_ratio / (2.0 * nat.ln()))
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
+    let natural = natural_frequency(kind, &passband, epsilon, order)?;
+    let wn: Vec<f64> = if analog {
         natural
     } else {
         natural.into_iter().map(unwarp_frequency).collect()
     };
+    validate_critical_frequencies(&wn, analog)
+        .map_err(|detail| buttord_error_with_detail(&BUTTORD_ERROR_INVALID_FREQUENCY, detail))?;
     Ok(ButtordResult { order, wn })
-}
-
-fn classify_kind(wp: &[f64], ws: &[f64]) -> BuiltinResult<FilterKind> {
-    match (wp.len(), ws.len()) {
-        (1, 1) if wp[0] < ws[0] => Ok(FilterKind::Lowpass),
-        (1, 1) if wp[0] > ws[0] => Ok(FilterKind::Highpass),
-        (2, 2) if ws[0] < wp[0] && wp[1] < ws[1] => Ok(FilterKind::Bandpass),
-        (2, 2) if wp[0] < ws[0] && ws[1] < wp[1] => Ok(FilterKind::Bandstop),
-        _ => Err(buttord_error_with_detail(
-            &BUTTORD_ERROR_INVALID_FREQUENCY,
-            "passband and stopband edges do not define a supported Butterworth response",
-        )),
-    }
-}
-
-fn validate_domain(edges: &[f64], analog: bool, label: &'static str) -> BuiltinResult<()> {
-    if !analog && edges.iter().any(|&edge| edge >= 1.0) {
-        return Err(buttord_error_with_detail(
-            &BUTTORD_ERROR_INVALID_FREQUENCY,
-            format!("{label} digital frequencies must be between 0 and 1"),
-        ));
-    }
-    Ok(())
-}
-
-fn transform_edges(edges: &[f64], analog: bool) -> Vec<f64> {
-    if analog {
-        edges.to_vec()
-    } else {
-        edges.iter().map(|&edge| prewarp_frequency(edge)).collect()
-    }
-}
-
-fn prewarp_frequency(edge: f64) -> f64 {
-    (std::f64::consts::PI * edge / 2.0).tan()
-}
-
-fn unwarp_frequency(edge: f64) -> f64 {
-    2.0 * edge.atan() / std::f64::consts::PI
-}
-
-fn stopband_ratio(kind: FilterKind, wp: &[f64], ws: &[f64]) -> BuiltinResult<f64> {
-    match kind {
-        FilterKind::Lowpass => Ok(ws[0] / wp[0]),
-        FilterKind::Highpass => Ok(wp[0] / ws[0]),
-        FilterKind::Bandpass => {
-            let bandwidth = wp[1] - wp[0];
-            let center_sq = wp[0] * wp[1];
-            Ok(ws
-                .iter()
-                .map(|&edge| ((edge * edge - center_sq) / (bandwidth * edge)).abs())
-                .fold(f64::INFINITY, f64::min))
-        }
-        FilterKind::Bandstop => {
-            let bandwidth = wp[1] - wp[0];
-            let center_sq = wp[0] * wp[1];
-            Ok(ws
-                .iter()
-                .map(|&edge| (bandwidth * edge / (edge * edge - center_sq)).abs())
-                .fold(f64::INFINITY, f64::min))
-        }
-    }
 }
 
 fn natural_frequency(
     kind: FilterKind,
-    wp: &[f64],
-    _ws: &[f64],
+    passband: &[f64],
     epsilon: f64,
     order: usize,
 ) -> BuiltinResult<Vec<f64>> {
     let cutoff_scale = epsilon.powf(-1.0 / order as f64);
+    if !cutoff_scale.is_finite() || cutoff_scale <= 0.0 {
+        return Err(buttord_error_with_detail(
+            &BUTTORD_ERROR_INVALID_FREQUENCY,
+            "computed cutoff scale is not finite and positive",
+        ));
+    }
     match kind {
-        FilterKind::Lowpass => Ok(vec![wp[0] * cutoff_scale]),
-        FilterKind::Highpass => Ok(vec![wp[0] / cutoff_scale]),
+        FilterKind::Lowpass => Ok(vec![passband[0] * cutoff_scale]),
+        FilterKind::Highpass => Ok(vec![passband[0] / cutoff_scale]),
         FilterKind::Bandpass => {
-            let bandwidth = wp[1] - wp[0];
-            let center_sq = wp[0] * wp[1];
+            let bandwidth = passband[1] - passband[0];
+            let center_sq = passband[0] * passband[1];
             let disc = (cutoff_scale * bandwidth).powi(2) + 4.0 * center_sq;
             let root = disc.sqrt();
             Ok(vec![
@@ -486,8 +580,8 @@ fn natural_frequency(
             ])
         }
         FilterKind::Bandstop => {
-            let bandwidth = wp[1] - wp[0];
-            let center_sq = wp[0] * wp[1];
+            let bandwidth = passband[1] - passband[0];
+            let center_sq = passband[0] * passband[1];
             let disc = bandwidth * bandwidth + 4.0 * cutoff_scale * cutoff_scale * center_sq;
             let root = disc.sqrt();
             Ok(vec![
@@ -502,7 +596,8 @@ fn natural_frequency(
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{builtin_function_by_name, Tensor};
+    use runmat_builtins::builtin_function_by_name;
+    use runmat_value::{IntValue, IntegerStorage, NumericDType, Tensor};
 
     fn call(
         wp: Value,
@@ -526,10 +621,23 @@ mod tests {
         };
         let wn = match &values[1] {
             Value::Num(value) => vec![*value],
-            Value::Tensor(tensor) => tensor.data.clone(),
+            Value::Tensor(tensor) => tensor.materialize_f64().clone(),
             other => panic!("expected Wn, got {other:?}"),
         };
         (order, wn)
+    }
+
+    fn integer_tensor(storage: IntegerStorage, shape: Vec<usize>) -> Tensor {
+        Tensor::new_integer(storage, shape).expect("typed integer tensor")
+    }
+
+    #[cfg(feature = "wgpu")]
+    fn register_wgpu_provider_available() -> bool {
+        runmat_accelerate::backend::wgpu::provider::register_wgpu_provider(
+            runmat_accelerate::backend::wgpu::provider::WgpuProviderOptions::default(),
+        )
+        .is_ok()
+            && runmat_accelerate_api::provider().is_some()
     }
 
     #[test]
@@ -540,6 +648,12 @@ mod tests {
             .signatures
             .iter()
             .any(|sig| sig.label == "[n, Wn] = buttord(Wp, Ws, Rp, Rs)"));
+        assert_eq!(builtin.extensions.len(), 6);
+        assert_eq!(builtin.integer_capabilities.len(), 2);
+        assert!(builtin
+            .integer_capabilities
+            .iter()
+            .all(|capability| capability.output_class == BuiltinIntegerOutputClassRule::Double));
     }
 
     #[test]
@@ -595,6 +709,208 @@ mod tests {
     }
 
     #[test]
+    fn analog_lowpass_reads_typed_integer_design_args_exactly() {
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
+        let out = call(
+            Value::Tensor(integer_tensor(IntegerStorage::I16(vec![10]), vec![1, 1])),
+            Value::Tensor(integer_tensor(IntegerStorage::I16(vec![20]), vec![1, 1])),
+            Value::Tensor(integer_tensor(IntegerStorage::U16(vec![1]), vec![1, 1])),
+            Value::Tensor(integer_tensor(IntegerStorage::U16(vec![40]), vec![1, 1])),
+            &[Value::from("s")],
+            Some(2),
+        )
+        .unwrap();
+        let (n, wn) = outputs(out);
+        assert_eq!(n, 8.0);
+        assert_eq!(wn.len(), 1);
+        assert!(wn[0] > 10.0);
+        assert!(wn[0] < 12.0);
+    }
+
+    #[test]
+    fn buttord_accepts_all_integer_frequency_and_attenuation_classes_only_in_runmat_mode() {
+        let integer_values = || {
+            [
+                Value::Int(IntValue::I8(1)),
+                Value::Int(IntValue::I16(1)),
+                Value::Int(IntValue::I32(1)),
+                Value::Int(IntValue::I64(1)),
+                Value::Int(IntValue::U8(1)),
+                Value::Int(IntValue::U16(1)),
+                Value::Int(IntValue::U32(1)),
+                Value::Int(IntValue::U64(1)),
+            ]
+        };
+        {
+            let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+            let err = call(
+                Value::Int(IntValue::U64(1)),
+                Value::Num(2.0),
+                Value::Num(1.0),
+                Value::Num(40.0),
+                &[Value::from("s")],
+                Some(2),
+            )
+            .expect_err("integer frequency must be gated");
+            assert_eq!(
+                err.identifier(),
+                Some("RunMat:compatibility:ButtordIntegerFrequencyExtension")
+            );
+            let err = call(
+                Value::Num(1.0),
+                Value::Num(2.0),
+                Value::Int(IntValue::U64(1)),
+                Value::Num(40.0),
+                &[Value::from("s")],
+                Some(2),
+            )
+            .expect_err("integer attenuation must be gated");
+            assert_eq!(
+                err.identifier(),
+                Some("RunMat:compatibility:ButtordIntegerAttenuationExtension")
+            );
+        }
+
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
+        for wp in integer_values() {
+            let out = call(
+                wp,
+                Value::Num(2.0),
+                Value::Num(1.0),
+                Value::Num(40.0),
+                &[Value::from("s")],
+                Some(2),
+            )
+            .expect("integer frequency");
+            let Value::OutputList(values) = out else {
+                panic!("expected output list");
+            };
+            assert!(values.iter().all(|value| matches!(value, Value::Num(_))));
+        }
+        for rp in integer_values() {
+            let out = call(
+                Value::Num(1.0),
+                Value::Num(2.0),
+                rp,
+                Value::Num(40.0),
+                &[Value::from("s")],
+                Some(2),
+            )
+            .expect("integer attenuation");
+            let Value::OutputList(values) = out else {
+                panic!("expected output list");
+            };
+            assert!(values.iter().all(|value| matches!(value, Value::Num(_))));
+        }
+    }
+
+    #[test]
+    fn buttord_logical_and_complex_extensions_are_independently_gated() {
+        let cases = [
+            (
+                Value::Bool(true),
+                Value::Num(2.0),
+                Value::Num(1.0),
+                Value::Num(40.0),
+                "RunMat:compatibility:ButtordLogicalFrequencyExtension",
+            ),
+            (
+                Value::Complex(1.0, 0.0),
+                Value::Num(2.0),
+                Value::Num(1.0),
+                Value::Num(40.0),
+                "RunMat:compatibility:ButtordComplexFrequencyExtension",
+            ),
+            (
+                Value::Num(1.0),
+                Value::Num(2.0),
+                Value::Bool(true),
+                Value::Num(40.0),
+                "RunMat:compatibility:ButtordLogicalAttenuationExtension",
+            ),
+        ];
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+        for (wp, ws, rp, rs, identifier) in cases {
+            let err = call(wp, ws, rp, rs, &[Value::from("s")], Some(2))
+                .expect_err("extension must be gated");
+            assert_eq!(err.identifier(), Some(identifier));
+        }
+    }
+
+    #[test]
+    fn buttord_documented_single_inputs_return_double_outputs_in_compatibility_mode() {
+        let scalar = |value| {
+            Value::Tensor(Tensor::from_f32(vec![value], vec![1, 1]).expect("single scalar"))
+        };
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+        let Value::OutputList(values) = call(
+            scalar(1.0),
+            scalar(2.0),
+            scalar(1.0),
+            scalar(40.0),
+            &[Value::from("s")],
+            Some(2),
+        )
+        .expect("documented single form") else {
+            panic!("expected output list");
+        };
+        assert!(values.iter().all(|value| {
+            matches!(value, Value::Num(_))
+                || matches!(value, Value::Tensor(tensor) if tensor.numeric_dtype() == NumericDType::F64)
+        }));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    fn buttord_gpu_inputs_are_gated_before_gather_and_runmat_fallback_is_host_double() {
+        let _lock = crate::builtins::common::test_support::accel_test_lock();
+        if !register_wgpu_provider_available() {
+            return;
+        }
+        let provider = runmat_accelerate_api::provider().expect("provider");
+        let upload = |value| {
+            let tensor = Tensor::new(vec![value], vec![1, 1]).expect("scalar");
+            crate::builtins::common::gpu_helpers::upload_tensor(provider, &tensor).expect("upload")
+        };
+        let wp = upload(1.0);
+        let ws = upload(2.0);
+        let rp = upload(1.0);
+        let rs = upload(40.0);
+        {
+            let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+            let err = call(
+                Value::GpuTensor(wp.clone()),
+                Value::Num(2.0),
+                Value::Num(1.0),
+                Value::Num(40.0),
+                &[Value::from("s")],
+                Some(2),
+            )
+            .expect_err("gpu input must be gated");
+            assert_eq!(
+                err.identifier(),
+                Some("RunMat:compatibility:ButtordGpuInputExtension")
+            );
+        }
+        let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
+        let Value::OutputList(values) = call(
+            Value::GpuTensor(wp),
+            Value::GpuTensor(ws),
+            Value::GpuTensor(rp),
+            Value::GpuTensor(rs),
+            &[Value::from("s")],
+            Some(2),
+        )
+        .expect("host fallback") else {
+            panic!("expected output list");
+        };
+        assert!(values.iter().all(|value| {
+            matches!(value, Value::Num(_))
+                || matches!(value, Value::Tensor(tensor) if tensor.numeric_dtype() == NumericDType::F64)
+        }));
+    }
+
+    #[test]
     fn bandpass_returns_two_cutoff_edges() {
         let wp = Tensor::new(vec![0.3, 0.5], vec![1, 2]).unwrap();
         let ws = Tensor::new(vec![0.2, 0.6], vec![1, 2]).unwrap();
@@ -640,6 +956,17 @@ mod tests {
         let err = call(
             Value::Num(0.2),
             Value::Num(0.3),
+            Value::Num(1.0),
+            Value::Num(40.0),
+            &[],
+            Some(3),
+        )
+        .unwrap_err();
+        assert_eq!(err.identifier(), Some("RunMat:buttord:TooManyOutputs"));
+
+        let err = call(
+            Value::Num(0.2),
+            Value::Num(0.3),
             Value::Num(40.0),
             Value::Num(1.0),
             &[],
@@ -653,6 +980,17 @@ mod tests {
             Value::Num(1.4),
             Value::Num(1.0),
             Value::Num(20.0),
+            &[],
+            Some(2),
+        )
+        .unwrap_err();
+        assert_eq!(err.identifier(), Some("RunMat:buttord:InvalidFrequency"));
+
+        let err = call(
+            Value::Num(0.2),
+            Value::Num(0.2000001),
+            Value::Num(1.0),
+            Value::Num(1.0e6),
             &[],
             Some(2),
         )

@@ -5,13 +5,17 @@
 //! path if kernels are missing or outputs must become host-resident.
 
 use num_complex::Complex64;
-use runmat_accelerate_api::{GpuTensorHandle, HostTensorView};
+use runmat_accelerate_api::GpuTensorHandle;
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, ComplexTensor, Tensor, Value,
+    BuiltinErrorDescriptor, ATAN_CHARACTER_INPUT_EXTENSION, ATAN_ERROR_ARG_COUNT,
+    ATAN_ERROR_GPU_UNAVAILABLE, ATAN_ERROR_INTERNAL, ATAN_ERROR_INVALID_INPUT,
+    ATAN_ERROR_INVALID_OPTION, ATAN_ERROR_LIKE_PROTOTYPE, ATAN_INTEGER_INPUT_EXTENSION,
+    ATAN_LIKE_EXTENSION, ATAN_LOGICAL_INPUT_EXTENSION,
 };
+#[cfg(test)]
+use runmat_builtins::{ATAN_DESCRIPTOR, ATAN_ERROR_TOO_MANY_OUTPUTS};
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, ComplexTensor, Tensor, Value};
 
 use crate::builtins::common::random_args::{complex_tensor_into_value, keyword_of};
 use crate::builtins::common::spec::{
@@ -20,122 +24,10 @@ use crate::builtins::common::spec::{
     ResidencyPolicy, ScalarType, ShapeRequirements,
 };
 use crate::builtins::common::{gpu_helpers, tensor};
-use crate::builtins::math::type_resolvers::numeric_unary_type;
 use crate::dispatcher;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "atan";
-
-const ATAN_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "Y",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Element-wise inverse tangent result.",
-}];
-
-const ATAN_INPUTS_X: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "X",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Input scalar, array, char array, complex value, or gpuArray.",
-}];
-
-const ATAN_INPUTS_X_LIKE_P: [BuiltinParamDescriptor; 3] = [
-    BuiltinParamDescriptor {
-        name: "X",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Input scalar, array, char array, complex value, or gpuArray.",
-    },
-    BuiltinParamDescriptor {
-        name: "like",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: Some("\"like\""),
-        description: "Output template selector keyword.",
-    },
-    BuiltinParamDescriptor {
-        name: "P",
-        ty: BuiltinParamType::LikePrototype,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Prototype determining host/gpu residency and real/complex output class.",
-    },
-];
-
-const ATAN_SIGNATURES: [BuiltinSignatureDescriptor; 2] = [
-    BuiltinSignatureDescriptor {
-        label: "Y = atan(X)",
-        inputs: &ATAN_INPUTS_X,
-        outputs: &ATAN_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "Y = atan(X, \"like\", P)",
-        inputs: &ATAN_INPUTS_X_LIKE_P,
-        outputs: &ATAN_OUTPUT,
-    },
-];
-
-const ATAN_ERROR_INVALID_INPUT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ATAN.INVALID_INPUT",
-    identifier: Some("RunMat:atan:InvalidInput"),
-    when: "Input cannot be interpreted as supported numeric/char/complex data.",
-    message: "atan: invalid input",
-};
-
-const ATAN_ERROR_INVALID_OPTION: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ATAN.INVALID_OPTION",
-    identifier: Some("RunMat:atan:InvalidOption"),
-    when: "Optional arguments after X are malformed or unsupported.",
-    message: "atan: invalid option",
-};
-
-const ATAN_ERROR_ARG_COUNT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ATAN.ARG_COUNT",
-    identifier: Some("RunMat:atan:ArgCount"),
-    when: "Too many input arguments were supplied.",
-    message: "atan: too many input arguments",
-};
-
-const ATAN_ERROR_LIKE_PROTOTYPE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ATAN.LIKE_PROTOTYPE",
-    identifier: Some("RunMat:atan:LikePrototype"),
-    when: "The \"like\" prototype or requested output class is unsupported.",
-    message: "atan: invalid \"like\" prototype",
-};
-
-const ATAN_ERROR_GPU_UNAVAILABLE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ATAN.GPU_UNAVAILABLE",
-    identifier: Some("RunMat:atan:GpuUnavailable"),
-    when: "GPU output was requested via \"like\" but no active provider is available.",
-    message: "atan: GPU provider unavailable",
-};
-
-const ATAN_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ATAN.INTERNAL",
-    identifier: Some("RunMat:atan:Internal"),
-    when: "Internal gather/conversion/allocation/provider flow failed.",
-    message: "atan: internal error",
-};
-
-const ATAN_ERRORS: [BuiltinErrorDescriptor; 6] = [
-    ATAN_ERROR_INVALID_INPUT,
-    ATAN_ERROR_INVALID_OPTION,
-    ATAN_ERROR_ARG_COUNT,
-    ATAN_ERROR_LIKE_PROTOTYPE,
-    ATAN_ERROR_GPU_UNAVAILABLE,
-    ATAN_ERROR_INTERNAL,
-];
-
-pub const ATAN_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &ATAN_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &ATAN_ERRORS,
-};
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::math::trigonometry::atan")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -192,16 +84,23 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "atan",
-    category = "math/trigonometry",
-    summary = "Element-wise inverse tangent.",
-    keywords = "atan,arctangent,inverse tangent,trigonometry,gpu",
-    accel = "unary",
-    type_resolver(numeric_unary_type),
-    descriptor(crate::builtins::math::trigonometry::atan::ATAN_DESCRIPTOR),
+    binding_variant = "default",
     builtin_path = "crate::builtins::math::trigonometry::atan"
 )]
 async fn atan_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+    super::inverse_helpers::reject_excess_outputs(BUILTIN_NAME)?;
+    super::inverse_helpers::ensure_input_extensions(
+        &value,
+        BUILTIN_NAME,
+        &ATAN_INTEGER_INPUT_EXTENSION,
+        &ATAN_LOGICAL_INPUT_EXTENSION,
+        &ATAN_CHARACTER_INPUT_EXTENSION,
+    )?;
+    if !rest.is_empty() {
+        crate::compatibility::ensure_builtin_extension_enabled(&ATAN_LIKE_EXTENSION, BUILTIN_NAME)?;
+    }
     let template = parse_output_template(&rest)?;
+    crate::builtins::common::validation::reject_typed_complex_integer(&value, "atan")?;
     let base = match value {
         Value::GpuTensor(handle) => atan_gpu(handle).await?,
         Value::Complex(re, im) => {
@@ -222,13 +121,41 @@ async fn atan_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
 }
 
 async fn atan_gpu(handle: GpuTensorHandle) -> BuiltinResult<Value> {
+    if runmat_accelerate_api::handle_integer_type(&handle).is_some()
+        || runmat_accelerate_api::handle_is_logical(&handle)
+    {
+        return crate::builtins::common::provider_restore::gather_compute_restore(
+            handle,
+            BUILTIN_NAME,
+            |tensor| atan_tensor(tensor).map(tensor::tensor_into_value),
+        )
+        .await;
+    }
     if let Some(provider) = runmat_accelerate_api::provider_for_handle(&handle) {
-        if let Ok(out) = provider.unary_atan(&handle).await {
-            return Ok(Value::GpuTensor(out));
+        match provider.unary_atan(&handle).await {
+            Ok(output) => {
+                return crate::builtins::common::provider_restore::validate_real_unary_provider_output(
+                    provider,
+                    &handle,
+                    output,
+                    BUILTIN_NAME,
+                )
+            }
+            Err(error) if gpu_helpers::provider_hook_is_unsupported(&error) => {}
+            Err(error) => {
+                return Err(atan_error_with_detail(
+                    &ATAN_ERROR_INTERNAL,
+                    format!("provider unary_atan failed: {error}"),
+                ))
+            }
         }
     }
-    let tensor = gpu_helpers::gather_tensor_async(&handle).await?;
-    atan_tensor(tensor).map(tensor::tensor_into_value)
+    crate::builtins::common::provider_restore::gather_compute_restore(
+        handle,
+        BUILTIN_NAME,
+        |tensor| atan_tensor(tensor).map(tensor::tensor_into_value),
+    )
+    .await
 }
 
 fn atan_real(value: Value) -> BuiltinResult<Value> {
@@ -238,19 +165,19 @@ fn atan_real(value: Value) -> BuiltinResult<Value> {
 }
 
 fn atan_tensor(tensor: Tensor) -> BuiltinResult<Tensor> {
-    let data = tensor.data.iter().map(|&v| v.atan()).collect::<Vec<_>>();
-    Tensor::new(data, tensor.shape.clone())
-        .map_err(|e| atan_error_with_detail(&ATAN_ERROR_INTERNAL, e))
+    super::inverse_helpers::map_real_tensor(tensor, BUILTIN_NAME, f64::atan, f32::atan)
 }
 
 fn atan_complex_tensor(ct: ComplexTensor) -> BuiltinResult<Value> {
-    let mapped = ct
-        .data
-        .iter()
-        .map(|&(re, im)| atan_complex_components(re, im))
-        .collect::<Vec<_>>();
-    let tensor = ComplexTensor::new(mapped, ct.shape.clone())
-        .map_err(|e| atan_error_with_detail(&ATAN_ERROR_INTERNAL, e))?;
+    let tensor = super::inverse_helpers::map_complex_tensor(
+        ct,
+        BUILTIN_NAME,
+        |(real, imag)| atan_complex_components(real, imag),
+        |(real, imag)| {
+            let result = num_complex::Complex32::new(real, imag).atan();
+            (result.re, result.im)
+        },
+    )?;
     Ok(complex_tensor_into_value(tensor))
 }
 
@@ -277,10 +204,10 @@ enum OutputTemplate {
     Like(Value),
 }
 
-#[derive(Clone, Copy)]
-enum DevicePreference {
+#[derive(Clone)]
+enum PlacementPreference {
     Host,
-    Gpu,
+    Provider(GpuTensorHandle),
 }
 
 #[derive(Clone, Copy)]
@@ -290,7 +217,7 @@ enum PrototypeClass {
 }
 
 struct LikeAnalysis {
-    device: DevicePreference,
+    placement: PlacementPreference,
     class: PrototypeClass,
 }
 
@@ -338,11 +265,13 @@ async fn apply_output_template(value: Value, template: &OutputTemplate) -> Built
 
 async fn apply_like_template(value: Value, prototype: &Value) -> BuiltinResult<Value> {
     let analysis = analyse_like_prototype(prototype).await?;
-    match (analysis.class, analysis.device) {
-        (PrototypeClass::Real, DevicePreference::Host) => ensure_host_real(value).await,
-        (PrototypeClass::Real, DevicePreference::Gpu) => ensure_gpu_real(value),
-        (PrototypeClass::Complex, DevicePreference::Host) => ensure_host_complex(value).await,
-        (PrototypeClass::Complex, DevicePreference::Gpu) => Err(atan_error_with_detail(
+    match (analysis.class, analysis.placement) {
+        (PrototypeClass::Real, PlacementPreference::Host) => ensure_host_real(value).await,
+        (PrototypeClass::Real, PlacementPreference::Provider(prototype)) => {
+            ensure_provider_real(value, &prototype).await
+        }
+        (PrototypeClass::Complex, PlacementPreference::Host) => ensure_host_complex(value).await,
+        (PrototypeClass::Complex, PlacementPreference::Provider(_)) => Err(atan_error_with_detail(
             &ATAN_ERROR_LIKE_PROTOTYPE,
             "GPU 'like' prototypes with complex outputs are not supported",
         )),
@@ -352,8 +281,8 @@ async fn apply_like_template(value: Value, prototype: &Value) -> BuiltinResult<V
 #[async_recursion::async_recursion(?Send)]
 async fn analyse_like_prototype(prototype: &Value) -> BuiltinResult<LikeAnalysis> {
     match prototype {
-        Value::GpuTensor(_) => Ok(LikeAnalysis {
-            device: DevicePreference::Gpu,
+        Value::GpuTensor(handle) => Ok(LikeAnalysis {
+            placement: PlacementPreference::Provider(handle.clone()),
             class: PrototypeClass::Real,
         }),
         Value::Tensor(_)
@@ -361,11 +290,11 @@ async fn analyse_like_prototype(prototype: &Value) -> BuiltinResult<LikeAnalysis
         | Value::Int(_)
         | Value::Bool(_)
         | Value::LogicalArray(_) => Ok(LikeAnalysis {
-            device: DevicePreference::Host,
+            placement: PlacementPreference::Host,
             class: PrototypeClass::Real,
         }),
         Value::Complex(_, _) | Value::ComplexTensor(_) => Ok(LikeAnalysis {
-            device: DevicePreference::Host,
+            placement: PlacementPreference::Host,
             class: PrototypeClass::Complex,
         }),
         Value::CharArray(_) | Value::String(_) | Value::StringArray(_) => {
@@ -416,17 +345,26 @@ async fn ensure_host_complex(value: Value) -> BuiltinResult<Value> {
     }
 }
 
-fn ensure_gpu_real(value: Value) -> BuiltinResult<Value> {
+async fn ensure_provider_real(value: Value, prototype: &GpuTensorHandle) -> BuiltinResult<Value> {
     if is_complex_value(&value) {
         return Err(atan_error_with_detail(
             &ATAN_ERROR_LIKE_PROTOTYPE,
             "GPU 'like' prototypes do not support complex outputs",
         ));
     }
-    match value {
-        Value::GpuTensor(_) => Ok(value),
-        other => convert_real_value_to_gpu(other),
-    }
+    let host = ensure_host_value(value).await?;
+    let provider = runmat_accelerate_api::provider_for_handle(prototype).ok_or_else(|| {
+        atan_error_with_detail(
+            &ATAN_ERROR_GPU_UNAVAILABLE,
+            "provider output requested via 'like' but the prototype has no owner",
+        )
+    })?;
+    crate::builtins::common::provider_restore::upload_value_like(
+        provider,
+        host,
+        BUILTIN_NAME,
+        prototype,
+    )
 }
 
 fn is_complex_value(value: &Value) -> bool {
@@ -438,7 +376,8 @@ fn convert_real_to_complex(value: Value) -> BuiltinResult<Value> {
         Value::Complex(_, _) | Value::ComplexTensor(_) => Ok(value),
         Value::Num(n) => Ok(Value::Complex(n, 0.0)),
         Value::Tensor(tensor) => {
-            let data: Vec<(f64, f64)> = tensor.data.iter().map(|&v| (v, 0.0)).collect();
+            let values = tensor::tensor_values_f64_cow(&tensor);
+            let data: Vec<(f64, f64)> = values.iter().map(|&v| (v, 0.0)).collect();
             let tensor = ComplexTensor::new(data, tensor.shape.clone())
                 .map_err(|e| atan_error_with_detail(&ATAN_ERROR_INTERNAL, e))?;
             Ok(complex_tensor_into_value(tensor))
@@ -467,93 +406,75 @@ fn convert_real_to_complex(value: Value) -> BuiltinResult<Value> {
     }
 }
 
-fn convert_real_value_to_gpu(value: Value) -> BuiltinResult<Value> {
-    let provider = runmat_accelerate_api::provider().ok_or_else(|| {
-        atan_error_with_detail(
-            &ATAN_ERROR_GPU_UNAVAILABLE,
-            "GPU output requested via 'like' but no acceleration provider is active",
-        )
-    })?;
-    match value {
-        Value::Tensor(tensor) => {
-            let view = HostTensorView {
-                data: &tensor.data,
-                shape: &tensor.shape,
-            };
-            let handle = provider.upload(&view).map_err(|e| {
-                atan_error_with_detail(
-                    &ATAN_ERROR_INTERNAL,
-                    format!("failed to upload GPU result: {e}"),
-                )
-            })?;
-            Ok(Value::GpuTensor(handle))
-        }
-        Value::Num(n) => {
-            let tensor = Tensor::new(vec![n], vec![1, 1])
-                .map_err(|e| atan_error_with_detail(&ATAN_ERROR_INTERNAL, e))?;
-            convert_real_value_to_gpu(Value::Tensor(tensor))
-        }
-        Value::Int(i) => convert_real_value_to_gpu(Value::Num(i.to_f64())),
-        Value::Bool(b) => convert_real_value_to_gpu(Value::Num(if b { 1.0 } else { 0.0 })),
-        Value::LogicalArray(logical) => {
-            let tensor = tensor::logical_to_tensor(&logical)
-                .map_err(|e| atan_error_with_detail(&ATAN_ERROR_INTERNAL, e))?;
-            convert_real_value_to_gpu(Value::Tensor(tensor))
-        }
-        Value::GpuTensor(_) => Ok(value),
-        Value::Complex(_, _) | Value::ComplexTensor(_) => Err(atan_error_with_detail(
-            &ATAN_ERROR_LIKE_PROTOTYPE,
-            "GPU 'like' prototypes do not support complex outputs",
-        )),
-        Value::String(_) | Value::StringArray(_) | Value::CharArray(_) => {
-            Err(atan_error_with_detail(
-                &ATAN_ERROR_LIKE_PROTOTYPE,
-                "'like' prototype must be numeric",
-            ))
-        }
-        other => Err(atan_error_with_detail(
-            &ATAN_ERROR_INTERNAL,
-            format!("unsupported result type {other:?} for GPU output via 'like'"),
-        )),
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
-    use runmat_builtins::{IntValue, ResolveContext, Tensor, Type};
+    use runmat_accelerate_api::HostTensorView;
+    use runmat_value::{IntValue, Tensor};
 
     fn atan_builtin(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(true);
         block_on(super::atan_builtin(value, rest))
     }
 
     #[test]
-    fn atan_type_preserves_tensor_shape() {
-        let out = numeric_unary_type(
-            &[Type::Tensor {
-                shape: Some(vec![Some(2), Some(3)]),
-            }],
-            &ResolveContext::new(Vec::new()),
-        );
+    fn atan_extensions_like_and_output_arity_are_gated() {
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+        let integer = block_on(super::atan_builtin(
+            Value::Int(runmat_value::IntValue::I8(1)),
+            Vec::new(),
+        ))
+        .expect_err("integer input must be gated");
         assert_eq!(
-            out,
-            Type::Tensor {
-                shape: Some(vec![Some(2), Some(3)])
-            }
+            integer.identifier(),
+            ATAN_INTEGER_INPUT_EXTENSION.error_identifier
         );
+        let logical = block_on(super::atan_builtin(Value::Bool(true), Vec::new()))
+            .expect_err("logical input must be gated");
+        assert_eq!(
+            logical.identifier(),
+            ATAN_LOGICAL_INPUT_EXTENSION.error_identifier
+        );
+        let chars = CharArray::new("A".chars().collect(), 1, 1).unwrap();
+        let character = block_on(super::atan_builtin(Value::CharArray(chars), Vec::new()))
+            .expect_err("character input must be gated");
+        assert_eq!(
+            character.identifier(),
+            ATAN_CHARACTER_INPUT_EXTENSION.error_identifier
+        );
+        let like = block_on(super::atan_builtin(
+            Value::Num(1.0),
+            vec![Value::from("like"), Value::Num(0.0)],
+        ))
+        .expect_err("like form must be gated");
+        assert_eq!(like.identifier(), ATAN_LIKE_EXTENSION.error_identifier);
+        let _outputs = crate::output_count::push_output_count(Some(2));
+        let arity = block_on(super::atan_builtin(Value::Num(0.0), Vec::new()))
+            .expect_err("excess outputs must reject");
+        assert_eq!(arity.identifier(), ATAN_ERROR_TOO_MANY_OUTPUTS.identifier);
     }
 
     #[test]
-    fn atan_type_scalar_tensor_returns_num() {
-        let out = numeric_unary_type(
-            &[Type::Tensor {
-                shape: Some(vec![Some(1), Some(1)]),
-            }],
-            &ResolveContext::new(Vec::new()),
+    fn atan_preserves_native_single_real_and_complex_storage() {
+        let real = Tensor::from_f32(vec![0.5, 2.0], vec![2, 1]).unwrap();
+        let Value::Tensor(real_output) =
+            atan_builtin(Value::Tensor(real), Vec::new()).expect("single atan")
+        else {
+            panic!("expected single tensor");
+        };
+        assert_eq!(real_output.numeric_dtype(), runmat_value::NumericDType::F32);
+        let complex = ComplexTensor::from_f32(vec![(0.5, 0.25), (2.0, -1.0)], vec![2, 1]).unwrap();
+        let Value::ComplexTensor(complex_output) =
+            atan_builtin(Value::ComplexTensor(complex), Vec::new()).expect("complex-single atan")
+        else {
+            panic!("expected complex-single tensor");
+        };
+        assert_eq!(
+            complex_output.numeric_dtype(),
+            runmat_value::NumericDType::F32
         );
-        assert_eq!(out, Type::Num);
     }
 
     fn error_message(err: RuntimeError) -> String {
@@ -589,7 +510,11 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(out) => {
                 assert_eq!(out.shape, vec![3, 1]);
-                for (value, expected) in out.data.iter().zip(tensor.data.iter().map(|v| v.atan())) {
+                for (value, expected) in out
+                    .materialize_f64()
+                    .iter()
+                    .zip(tensor.materialize_f64().iter().map(|v| v.atan()))
+                {
                     assert!((value - expected).abs() < 1e-12);
                 }
             }
@@ -599,12 +524,75 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn atan_int_value_promotes() {
-        let result = atan_builtin(Value::Int(IntValue::I32(-1)), Vec::new()).expect("atan");
+    fn atan_reads_typed_integer_tensor_storage_exactly() {
+        let tensor =
+            Tensor::new_integer(runmat_value::IntegerStorage::I16(vec![0, 1, 2]), vec![3, 1])
+                .expect("integer tensor");
+
+        let result = atan_builtin(Value::Tensor(tensor), Vec::new()).expect("atan");
         match result {
-            Value::Num(v) => assert!((v + std::f64::consts::FRAC_PI_4).abs() < 1e-12),
-            other => panic!("expected scalar result, got {other:?}"),
+            Value::Tensor(out) => {
+                assert_eq!(out.shape, vec![3, 1]);
+                let expected = [0.0, 1.0f64.atan(), 2.0f64.atan()];
+                for (actual, expected) in out.materialize_f64().iter().zip(expected.iter()) {
+                    assert!((actual - expected).abs() < 1e-12);
+                }
+                assert!(out.integer_storage().is_none());
+            }
+            other => panic!("expected tensor result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn atan_like_complex_reads_typed_integer_storage_exactly() {
+        let tensor = Tensor::new_integer(
+            runmat_value::IntegerStorage::I64(vec![-3, 0, 5]),
+            vec![3, 1],
+        )
+        .expect("integer tensor");
+
+        let result = atan_builtin(
+            Value::Tensor(tensor),
+            vec![Value::from("like"), Value::Complex(0.0, 1.0)],
+        )
+        .expect("atan");
+        let Value::ComplexTensor(out) = result else {
+            panic!("expected complex tensor result");
+        };
+        assert_eq!(out.shape, vec![3, 1]);
+        let expected = [-3.0f64.atan(), 0.0f64.atan(), 5.0f64.atan()];
+        for (actual, expected) in out.materialize_f64().iter().zip(expected) {
+            assert!((actual.0 - expected).abs() < 1e-12);
+            assert_eq!(actual.1, 0.0);
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn atan_all_integer_scalar_classes_cross_the_double_boundary() {
+        for value in [
+            IntValue::I8(1),
+            IntValue::I16(1),
+            IntValue::I32(1),
+            IntValue::I64(1),
+            IntValue::U8(1),
+            IntValue::U16(1),
+            IntValue::U32(1),
+            IntValue::U64(1),
+        ] {
+            let Value::Num(result) =
+                atan_builtin(Value::Int(value), Vec::new()).expect("atan integer")
+            else {
+                panic!("expected real double scalar")
+            };
+            assert_eq!(result, std::f64::consts::FRAC_PI_4);
+        }
+        let Value::Num(result) =
+            atan_builtin(Value::Int(IntValue::U64(u64::MAX)), Vec::new()).expect("wide atan")
+        else {
+            panic!("expected real double scalar")
+        };
+        assert_eq!(result, (u64::MAX as f64).atan());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -629,9 +617,9 @@ pub(crate) mod tests {
         match result {
             Value::ComplexTensor(out) => {
                 assert_eq!(out.shape, vec![2, 1]);
-                for (value, expected) in out.data.iter().zip(
+                for (value, expected) in out.materialize_f64().iter().zip(
                     tensor
-                        .data
+                        .materialize_f64()
                         .iter()
                         .map(|&(r, i)| atan_complex_components(r, i)),
                 ) {
@@ -654,7 +642,7 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, chars.cols]);
-                for (value, ch) in t.data.iter().zip(chars.data.iter()) {
+                for (value, ch) in t.materialize_f64().iter().zip(chars.data.iter()) {
                     let expected = (*ch as u32 as f64).atan();
                     assert!((value - expected).abs() < 1e-12);
                 }
@@ -693,8 +681,9 @@ pub(crate) mod tests {
         .expect("atan");
         match result {
             Value::Tensor(out) => {
-                let expected: Vec<f64> = tensor.data.iter().map(|&v| v.atan()).collect();
-                assert_eq!(out.data, expected);
+                let expected: Vec<f64> =
+                    tensor.materialize_f64().iter().map(|&v| v.atan()).collect();
+                assert_eq!(out.materialize_f64(), expected);
             }
             other => panic!("expected tensor result, got {other:?}"),
         }
@@ -723,15 +712,22 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![-1.0, 0.0, 1.0], vec![3, 1]).unwrap();
             let view = HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");
-            let result = atan_builtin(Value::GpuTensor(handle), Vec::new()).expect("atan");
-            let gathered = test_support::gather(result).expect("gather");
+            let Value::GpuTensor(result_handle) =
+                atan_builtin(Value::GpuTensor(handle), Vec::new()).expect("atan")
+            else {
+                panic!("expected resident result")
+            };
+            assert_eq!(result_handle.device_id, provider.device_id());
+            assert!(runmat_accelerate_api::provider_for_handle(&result_handle)
+                .is_some_and(|owner| std::ptr::eq(owner, provider)));
+            let gathered = test_support::gather(Value::GpuTensor(result_handle)).expect("gather");
             assert_eq!(gathered.shape, vec![3, 1]);
-            let expected: Vec<f64> = tensor.data.iter().map(|&v| v.atan()).collect();
-            assert_eq!(gathered.data, expected);
+            let expected: Vec<f64> = tensor.materialize_f64().iter().map(|&v| v.atan()).collect();
+            assert_eq!(gathered.materialize_f64(), expected);
         });
     }
 
@@ -741,7 +737,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![0.0, 1.0], vec![2, 1]).unwrap();
             let view = HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let input = provider.upload(&view).expect("upload");
@@ -753,9 +749,13 @@ pub(crate) mod tests {
             .expect("atan");
             match result {
                 Value::GpuTensor(handle) => {
+                    assert_eq!(handle.device_id, provider.device_id());
+                    assert!(runmat_accelerate_api::provider_for_handle(&handle)
+                        .is_some_and(|owner| std::ptr::eq(owner, provider)));
                     let gathered = test_support::gather(Value::GpuTensor(handle)).expect("gather");
-                    let expected: Vec<f64> = tensor.data.iter().map(|&v| v.atan()).collect();
-                    assert_eq!(gathered.data, expected);
+                    let expected: Vec<f64> =
+                        tensor.materialize_f64().iter().map(|&v| v.atan()).collect();
+                    assert_eq!(gathered.materialize_f64(), expected);
                 }
                 other => panic!("expected GPU tensor, got {other:?}"),
             }
@@ -780,7 +780,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![0.0], vec![1, 1]).unwrap();
             let view = HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let proto = provider.upload(&view).expect("upload");
@@ -857,29 +857,27 @@ pub(crate) mod tests {
     #[test]
     #[cfg(feature = "wgpu")]
     fn atan_wgpu_matches_cpu_elementwise() {
-        let _ = runmat_accelerate::backend::wgpu::provider::register_wgpu_provider(
-            runmat_accelerate::backend::wgpu::provider::WgpuProviderOptions::default(),
-        );
+        let _guard = test_support::accel_test_lock();
+        let Some(provider) = test_support::wgpu_provider_if_available() else {
+            return;
+        };
         let tensor = Tensor::new(vec![-2.0, -0.5, 0.0, 0.5, 2.0], vec![5, 1]).unwrap();
         let cpu = atan_real(Value::Tensor(tensor.clone())).unwrap();
         let view = HostTensorView {
-            data: &tensor.data,
+            data: &tensor.materialize_f64(),
             shape: &tensor.shape,
         };
-        let handle = runmat_accelerate_api::provider()
-            .unwrap()
-            .upload(&view)
-            .unwrap();
+        let handle = provider.upload(&view).unwrap();
         let gpu = block_on(atan_gpu(handle)).unwrap();
         let gathered = test_support::gather(gpu).expect("gather");
         match (cpu, gathered) {
             (Value::Tensor(ct), gt) => {
                 assert_eq!(gt.shape, ct.shape);
-                let tol = match runmat_accelerate_api::provider().unwrap().precision() {
+                let tol = match provider.precision() {
                     runmat_accelerate_api::ProviderPrecision::F64 => 1e-12,
                     runmat_accelerate_api::ProviderPrecision::F32 => 1e-5,
                 };
-                for (a, b) in gt.data.iter().zip(ct.data.iter()) {
+                for (a, b) in gt.materialize_f64().iter().zip(ct.materialize_f64().iter()) {
                     assert!((a - b).abs() < tol, "|{a} - {b}| >= {tol}");
                 }
             }

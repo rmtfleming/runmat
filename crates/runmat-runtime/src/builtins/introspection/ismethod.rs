@@ -1,0 +1,448 @@
+//! MATLAB-compatible `ismethod` builtin backed by RunMat class metadata.
+use runmat_types::MemberAccess;
+
+use crate::builtins::common::spec::{
+    BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
+    ReductionNaN, ResidencyPolicy, ShapeRequirements,
+};
+use crate::builtins::introspection::type_resolvers::ismethod_type;
+use crate::{build_runtime_error, BuiltinResult, RuntimeError};
+use runmat_builtins::{
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
+};
+use runmat_builtins::{BuiltinIntegerAuditDescriptor, BuiltinIntegerAuditKind};
+use runmat_macros::runtime_builtin;
+use runmat_value::{Listener, MException, Value};
+
+#[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::introspection::ismethod")]
+pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
+    name: "ismethod",
+    op_kind: GpuOpKind::Custom("metadata"),
+    supported_precisions: &[],
+    broadcast: BroadcastSemantics::None,
+    provider_hooks: &[],
+    constant_strategy: ConstantStrategy::InlineLiteral,
+    residency: ResidencyPolicy::InheritInputs,
+    nan_mode: ReductionNaN::Include,
+    two_pass_threshold: None,
+    workgroup_size: None,
+    accepts_nan_mode: false,
+    notes: "Metadata predicate that inspects host class registry entries and returns a host logical scalar; no GPU kernels or gathers are required.",
+};
+
+#[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::introspection::ismethod")]
+pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
+    name: "ismethod",
+    shape: ShapeRequirements::Any,
+    constant_strategy: ConstantStrategy::InlineLiteral,
+    elementwise: None,
+    reduction: None,
+    emits_nan: false,
+    notes: "Not eligible for fusion planning; ismethod executes on the host and produces a logical scalar.",
+};
+
+const ISMETHOD_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
+    name: "tf",
+    ty: BuiltinParamType::LogicalArray,
+    arity: BuiltinParamArity::Required,
+    default: None,
+    description: "True when the object has the requested public method.",
+}];
+
+const ISMETHOD_INPUTS: [BuiltinParamDescriptor; 2] = [
+    BuiltinParamDescriptor {
+        name: "obj",
+        ty: BuiltinParamType::Any,
+        arity: BuiltinParamArity::Required,
+        default: None,
+        description: "Object instance or gpuArray object to inspect.",
+    },
+    BuiltinParamDescriptor {
+        name: "method_name",
+        ty: BuiltinParamType::StringScalar,
+        arity: BuiltinParamArity::Required,
+        default: None,
+        description: "Method name as a string scalar or row character vector.",
+    },
+];
+
+const ISMETHOD_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
+    label: "tf = ismethod(obj, method_name)",
+    inputs: &ISMETHOD_INPUTS,
+    outputs: &ISMETHOD_OUTPUT,
+}];
+
+const BUILTIN_NAME: &str = "ismethod";
+
+const ISMETHOD_ERROR_NAME_INVALID: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.ISMETHOD.NAME_INVALID",
+    identifier: Some("RunMat:IsMethodNameInvalid"),
+    when: "The method-name argument is not a string scalar or row character vector.",
+    message: "ismethod: method name must be a string scalar or character vector",
+};
+const ISMETHOD_ERRORS: [BuiltinErrorDescriptor; 1] = [ISMETHOD_ERROR_NAME_INVALID];
+
+pub const ISMETHOD_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
+    signatures: &ISMETHOD_SIGNATURES,
+    output_mode: BuiltinOutputMode::Fixed,
+    completion_policy: BuiltinCompletionPolicy::Public,
+    errors: &ISMETHOD_ERRORS,
+};
+pub const ISMETHOD_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor =
+    BuiltinIntegerAuditDescriptor {
+        kind: BuiltinIntegerAuditKind::NotApplicable,
+        canonical_builtin: None,
+        notes: "ismethod is an object-method predicate rather than an integer computation: host and internally auto-resident integers return false, while explicit integer gpuArrays use the production gpuArray wrapper method registry without payload access.",
+    };
+
+#[runtime_builtin(
+    name = "ismethod",
+    category = "introspection",
+    summary = "Test whether an object has a public method.",
+    keywords = "ismethod,method,classdef,object,handle,inheritance",
+    accel = "metadata",
+    type_resolver(ismethod_type),
+    descriptor(crate::builtins::introspection::ismethod::ISMETHOD_DESCRIPTOR),
+    integer_audit(crate::builtins::introspection::ismethod::ISMETHOD_INTEGER_AUDIT),
+    builtin_path = "crate::builtins::introspection::ismethod"
+)]
+fn ismethod_builtin(receiver: Value, method_designator: Value) -> crate::BuiltinResult<Value> {
+    let method_name = parse_method_name(&method_designator)?;
+    Ok(Value::Bool(value_has_public_method(
+        &receiver,
+        &method_name,
+    )))
+}
+
+fn parse_method_name(value: &Value) -> BuiltinResult<String> {
+    match value {
+        Value::String(s) => Ok(s.clone()),
+        Value::StringArray(sa) if sa.rows == 1 && sa.cols == 1 && !sa.data.is_empty() => {
+            Ok(sa.data[0].clone())
+        }
+        Value::CharArray(ca) if ca.rows <= 1 => Ok(ca.data.iter().collect::<String>()),
+        _ => Err(ismethod_error(&ISMETHOD_ERROR_NAME_INVALID)),
+    }
+}
+
+fn ismethod_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
+    let mut builder = build_runtime_error(error.message).with_builtin(BUILTIN_NAME);
+    if let Some(identifier) = error.identifier {
+        builder = builder.with_identifier(identifier);
+    }
+    builder.build()
+}
+
+fn value_has_public_method(receiver: &Value, method_name: &str) -> bool {
+    if method_name.is_empty() {
+        return false;
+    }
+
+    let Some(class_name) = receiver_class_name(receiver) else {
+        return false;
+    };
+
+    crate::class_registry::lookup_method(&class_name, &runmat_types::MethodName::from(method_name))
+        .is_some_and(|(method, _owner)| matches!(method.access, MemberAccess::Public))
+}
+
+fn receiver_class_name(receiver: &Value) -> Option<runmat_types::ClassIdentity> {
+    match receiver {
+        Value::ObjectArray(array) => Some(array.class_name().clone()),
+        Value::Object(object) => Some(object.class_name.clone()),
+        Value::HandleObject(handle) => Some(handle.class_name.clone()),
+        Value::GpuTensor(handle) if runmat_accelerate_api::handle_is_explicit(handle) => {
+            Some(runmat_types::standard::GPU_ARRAY.into())
+        }
+        Value::GpuTensor(_) => None,
+        Value::Listener(Listener { .. }) => Some(runmat_types::standard::EVENT_LISTENER.into()),
+        Value::ClassRef(_) => None,
+        Value::MException(MException { .. }) => Some(runmat_types::standard::MEXCEPTION.into()),
+        Value::String(_) | Value::StringArray(_) | Value::CharArray(_) => None,
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builtins::common::test_support;
+    use runmat_accelerate_api::HostTensorView;
+    use runmat_value::{
+        CharArray, HandleRef, IntValue, IntegerStorage, ObjectInstance, StringArray, Tensor,
+    };
+    use std::collections::HashMap;
+
+    fn unique_class_name(label: &str) -> String {
+        format!(
+            "Ismethod{}{}",
+            label,
+            std::thread::current().name().unwrap_or("thread")
+        )
+    }
+
+    fn method(
+        name: &str,
+        access: MemberAccess,
+        is_static: bool,
+    ) -> crate::class_registry::RuntimeMethod {
+        crate::class_registry::RuntimeMethod {
+            name: name.into(),
+            is_static,
+            is_abstract: false,
+            is_sealed: false,
+            access,
+            function_name: format!("{name}_impl"),
+            implicit_class_argument: None,
+        }
+    }
+
+    fn register_pair(label: &str) -> (String, String) {
+        let parent = unique_class_name(&format!("{label}Parent"));
+        let child = unique_class_name(&format!("{label}Child"));
+
+        let mut parent_methods = HashMap::new();
+        parent_methods.insert(
+            "inherited".into(),
+            method("inherited", MemberAccess::Public, false),
+        );
+        parent_methods.insert(
+            "hidden".into(),
+            method("hidden", MemberAccess::Private, false),
+        );
+
+        crate::class_registry::register_class(crate::class_registry::RuntimeClass {
+            name: parent.clone().into(),
+            parent: None,
+            properties: HashMap::new(),
+            methods: parent_methods,
+        });
+
+        let mut child_methods = HashMap::new();
+        child_methods.insert("run".into(), method("run", MemberAccess::Public, false));
+        child_methods.insert("make".into(), method("make", MemberAccess::Public, true));
+        child_methods.insert(
+            "secret".into(),
+            method("secret", MemberAccess::Protected, false),
+        );
+
+        crate::class_registry::register_class(crate::class_registry::RuntimeClass {
+            name: child.clone().into(),
+            parent: Some(parent.clone().into()),
+            properties: HashMap::new(),
+            methods: child_methods,
+        });
+
+        (parent, child)
+    }
+
+    fn object(class_name: &str) -> Value {
+        Value::Object(ObjectInstance::new(class_name.to_string()))
+    }
+
+    fn handle_object(class_name: &str) -> Value {
+        let target =
+            runmat_gc::gc_allocate(Value::Object(ObjectInstance::new(class_name.to_string())))
+                .expect("gc allocation");
+        Value::HandleObject(HandleRef {
+            class_name: class_name.into(),
+            target,
+            valid: true,
+        })
+    }
+
+    fn call(receiver: Value, method_name: Value) -> bool {
+        let Value::Bool(result) = ismethod_builtin(receiver, method_name).expect("ismethod") else {
+            panic!("ismethod should return bool");
+        };
+        result
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_finds_public_instance_static_and_inherited_methods() {
+        let (_parent, child) = register_pair("Public");
+        let receiver = object(&child);
+
+        assert!(call(receiver.clone(), Value::String("run".to_string())));
+        assert!(call(receiver.clone(), Value::String("make".to_string())));
+        assert!(call(receiver, Value::String("inherited".to_string())));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_respects_public_visibility() {
+        let (_parent, child) = register_pair("MemberAccess");
+        let receiver = object(&child);
+
+        assert!(!call(receiver.clone(), Value::String("secret".to_string())));
+        assert!(!call(receiver, Value::String("hidden".to_string())));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_supports_handle_objects_and_scalar_text_forms() {
+        let (_parent, child) = register_pair("Handle");
+        let receiver = handle_object(&child);
+
+        assert!(call(
+            receiver.clone(),
+            Value::CharArray(CharArray::new_row("inherited"))
+        ));
+        assert!(call(
+            receiver,
+            Value::StringArray(
+                StringArray::new(vec!["run".to_string()], vec![1, 1]).expect("string scalar")
+            )
+        ));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_rejects_class_name_text_and_class_refs_as_receivers() {
+        let (_parent, child) = register_pair("ClassName");
+
+        assert!(!call(
+            Value::String(child.clone()),
+            Value::String("run".to_string())
+        ));
+        assert!(!call(
+            Value::CharArray(CharArray::new_row(&child)),
+            Value::String("make".to_string())
+        ));
+        assert!(!call(
+            Value::StringArray(
+                StringArray::new(vec![child.clone()], vec![1, 1]).expect("class scalar")
+            ),
+            Value::String("inherited".to_string())
+        ));
+        assert!(!call(
+            Value::ClassRef(child.into()),
+            Value::String("run".to_string())
+        ));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_uses_production_gpuarray_metadata_without_gather() {
+        test_support::with_test_provider(|provider| {
+            let tensor = Tensor::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
+            let view = HostTensorView {
+                data: &tensor.materialize_f64(),
+                shape: &tensor.shape,
+            };
+            let handle = provider.upload(&view).expect("upload");
+            assert!(!call(
+                Value::GpuTensor(handle.clone()),
+                Value::from("gather")
+            ));
+            let handle =
+                handle.with_provenance(runmat_accelerate_api::GpuHandleProvenance::Explicit);
+            for method in [
+                "arrayfun",
+                "existsOnGPU",
+                "gather",
+                "isgpuarray",
+                "isUnderlyingType",
+                "ndims",
+                "pagefun",
+                "size",
+                "underlyingType",
+            ] {
+                assert!(call(Value::GpuTensor(handle.clone()), Value::from(method)));
+            }
+            assert!(!call(
+                Value::GpuTensor(handle),
+                Value::from("notARealGpuArrayMethod")
+            ));
+        });
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_returns_false_for_missing_empty_and_nonobject_values() {
+        let (_parent, child) = register_pair("Negative");
+
+        assert!(!call(object(&child), Value::String("missing".to_string())));
+        assert!(!call(object(&child), Value::String(String::new())));
+        assert!(!call(object(&child), Value::String(" run ".to_string())));
+        assert!(!call(Value::Num(1.0), Value::String("run".to_string())));
+        assert!(!call(
+            Value::String("MissingClassForIsmethod".to_string()),
+            Value::String("run".to_string())
+        ));
+    }
+
+    #[test]
+    fn ismethod_reports_false_for_all_fundamental_integer_classes() {
+        for value in [
+            IntValue::I8(-1),
+            IntValue::I16(-2),
+            IntValue::I32(-3),
+            IntValue::I64(i64::MIN),
+            IntValue::U8(1),
+            IntValue::U16(2),
+            IntValue::U32(3),
+            IntValue::U64(u64::MAX),
+        ] {
+            assert_eq!(
+                ismethod_builtin(Value::Int(value), Value::from("run"))
+                    .expect("fundamental integer has no public method"),
+                Value::Bool(false)
+            );
+        }
+    }
+
+    #[test]
+    fn ismethod_only_exposes_gpuarray_wrapper_for_explicit_residency() {
+        test_support::with_test_provider(|provider| {
+            for storage in [
+                IntegerStorage::I8(vec![-1]),
+                IntegerStorage::I16(vec![-2]),
+                IntegerStorage::I32(vec![-3]),
+                IntegerStorage::I64(vec![i64::MIN]),
+                IntegerStorage::U8(vec![1]),
+                IntegerStorage::U16(vec![2]),
+                IntegerStorage::U32(vec![3]),
+                IntegerStorage::U64(vec![u64::MAX]),
+            ] {
+                let tensor = Tensor::new_integer(storage, vec![1, 1]).unwrap();
+                let handle = crate::builtins::common::gpu_helpers::upload_tensor(provider, &tensor)
+                    .expect("upload integer");
+                assert_eq!(
+                    ismethod_builtin(Value::GpuTensor(handle.clone()), Value::from("gather"))
+                        .unwrap(),
+                    Value::Bool(false)
+                );
+                let handle =
+                    handle.with_provenance(runmat_accelerate_api::GpuHandleProvenance::Explicit);
+                assert_eq!(
+                    ismethod_builtin(Value::GpuTensor(handle.clone()), Value::from("gather"))
+                        .unwrap(),
+                    Value::Bool(true)
+                );
+                provider.free(&handle).ok();
+            }
+        });
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn ismethod_rejects_nonscalar_method_name() {
+        let (_parent, child) = register_pair("Invalid");
+        let err = ismethod_builtin(
+            object(&child),
+            Value::StringArray(
+                StringArray::new(vec!["run".to_string(), "make".to_string()], vec![1, 2])
+                    .expect("string array"),
+            ),
+        )
+        .expect_err("non-scalar string array should fail");
+
+        assert_eq!(
+            err.identifier.as_deref(),
+            Some("RunMat:IsMethodNameInvalid")
+        );
+    }
+}

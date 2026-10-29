@@ -9,8 +9,8 @@ use wasm_bindgen::prelude::JsValue;
 #[derive(Clone, Copy)]
 pub(crate) enum InitErrorCode {
     InvalidOptions,
-    SnapshotResolution,
     FilesystemProvider,
+    PackageCacheProvider,
     SessionCreation,
 }
 
@@ -18,8 +18,8 @@ impl InitErrorCode {
     fn as_str(self) -> &'static str {
         match self {
             InitErrorCode::InvalidOptions => "InvalidOptions",
-            InitErrorCode::SnapshotResolution => "SnapshotResolution",
             InitErrorCode::FilesystemProvider => "FilesystemProvider",
+            InitErrorCode::PackageCacheProvider => "PackageCacheProvider",
             InitErrorCode::SessionCreation => "SessionCreation",
         }
     }

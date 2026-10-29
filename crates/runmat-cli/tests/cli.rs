@@ -22,9 +22,44 @@ fn run_runmat(args: &[&str]) -> std::process::Output {
     Command::new(get_binary_path())
         .args(args)
         .env("RUNMAT_CONFIG", &config_path)
+        .env(
+            "RUNMAT_EXECUTION_STATE_DIR",
+            temp_dir.path().join("execution-state"),
+        )
         .env("NO_GUI", "1")
         .output()
         .expect("Failed to execute runmat binary")
+}
+
+fn run_repl_with_piped_input(
+    input: &str,
+    current_dir: Option<&Path>,
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let config_path = write_test_config(temp_dir.path());
+    let mut command = Command::new(get_binary_path());
+    command
+        .args(["repl"])
+        .env("RUNMAT_CONFIG", &config_path)
+        .env(
+            "RUNMAT_EXECUTION_STATE_DIR",
+            temp_dir.path().join("execution-state"),
+        )
+        .env("NO_GUI", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(current_dir) = current_dir {
+        command.current_dir(current_dir);
+    }
+
+    let mut child = command.spawn()?;
+    let mut stdin = child.stdin.take().expect("stdin should be piped");
+    let input = input.to_owned();
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+    let output = child.wait_with_output()?;
+    writer.join().expect("stdin writer thread panicked")?;
+    Ok(output)
 }
 
 fn write_test_config(dir: &Path) -> PathBuf {
@@ -53,6 +88,91 @@ fn test_help_command() {
     assert!(stdout.contains("--no-jit"));
     assert!(stdout.contains("--gc-preset"));
     assert!(stdout.contains("--jit-opt-level"));
+}
+
+#[test]
+fn help_and_argument_errors_follow_color_choice() {
+    let forced_help = run_runmat(&["--color=always", "--help"]);
+    assert!(forced_help.status.success());
+    assert!(forced_help.stdout.windows(2).any(|bytes| bytes == b"\x1b["));
+
+    let plain_help = run_runmat(&["--color=never", "--help"]);
+    assert!(plain_help.status.success());
+    assert!(!plain_help.stdout.windows(2).any(|bytes| bytes == b"\x1b["));
+
+    let forced_error = run_runmat(&["--color=always", "--definitely-invalid"]);
+    assert!(!forced_error.status.success());
+    assert!(forced_error
+        .stderr
+        .windows(2)
+        .any(|bytes| bytes == b"\x1b["));
+
+    let plain_error = run_runmat(&["--color=never", "--definitely-invalid"]);
+    assert!(!plain_error.status.success());
+    assert!(!plain_error.stderr.windows(2).any(|bytes| bytes == b"\x1b["));
+}
+
+#[test]
+fn forced_color_does_not_style_program_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let script_path = temp_dir.path().join("program_output.m");
+    fs::write(&script_path, "disp('PROGRAM_OUTPUT_SENTINEL');").unwrap();
+
+    let output = run_runmat(&["--color=always", "run", script_path.to_str().unwrap()]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("PROGRAM_OUTPUT_SENTINEL"));
+    assert!(!output.stdout.windows(2).any(|bytes| bytes == b"\x1b["));
+}
+
+#[cfg(unix)]
+#[test]
+fn session_startup_does_not_depend_on_a_host_global_temp_parent() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let temporary = TempDir::new().unwrap();
+    let foreign_parent = temporary.path().join("runmat-execution");
+    fs::create_dir(&foreign_parent).unwrap();
+    fs::set_permissions(&foreign_parent, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let script_path = temporary.path().join("session_store.m");
+    fs::write(&script_path, "disp('PER_USER_SESSION_STORE');").unwrap();
+    let config_path = write_test_config(temporary.path());
+    let output = Command::new(get_binary_path())
+        .args(["run", script_path.to_str().unwrap()])
+        .env("RUNMAT_CONFIG", config_path)
+        .env(
+            "RUNMAT_EXECUTION_STATE_DIR",
+            temporary.path().join("execution-state"),
+        )
+        .env("NO_GUI", "1")
+        .env("TMPDIR", temporary.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("PER_USER_SESSION_STORE"));
+}
+
+#[test]
+fn forced_color_does_not_style_config_or_bytecode_data() {
+    let config = run_runmat(&["--color=always", "config", "show", "--format", "json"]);
+    assert!(config.status.success(), "{config:?}");
+    assert!(!config.stdout.windows(2).any(|bytes| bytes == b"\x1b["));
+    assert!(!config.stderr.windows(2).any(|bytes| bytes == b"\x1b["));
+    serde_json::from_slice::<serde_json::Value>(&config.stdout).unwrap();
+
+    let temp_dir = TempDir::new().unwrap();
+    let script_path = temp_dir.path().join("bytecode_data.m");
+    fs::write(&script_path, "value = 1 + 2;").unwrap();
+    let bytecode = run_runmat(&[
+        "--color=always",
+        "--emit-bytecode",
+        script_path.to_str().unwrap(),
+    ]);
+    assert!(bytecode.status.success(), "{bytecode:?}");
+    assert!(String::from_utf8_lossy(&bytecode.stdout).contains("# Bytecode"));
+    assert!(!bytecode.stdout.windows(2).any(|bytes| bytes == b"\x1b["));
+    assert!(!bytecode.stderr.windows(2).any(|bytes| bytes == b"\x1b["));
 }
 
 #[test]
@@ -359,24 +479,103 @@ fn test_repl_command() {
 
 #[test]
 fn test_repl_processes_piped_input() -> Result<(), Box<dyn std::error::Error>> {
-    let temp_dir = TempDir::new()?;
-    let config_path = write_test_config(temp_dir.path());
-    let mut child = Command::new(get_binary_path())
-        .args(["repl"])
-        .env("RUNMAT_CONFIG", &config_path)
-        .env("NO_GUI", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
-    if let Some(stdin) = child.stdin.as_mut() {
-        stdin.write_all(b"1+1\n")?;
-    }
-    drop(child.stdin.take());
-    let output = child.wait_with_output()?;
+    let output = run_repl_with_piped_input("1+1\n", None)?;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("ans = 2"));
     Ok(())
+}
+
+#[test]
+fn test_repl_shell_escape_runs_pwd() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_dir = TempDir::new()?;
+    let command = if cfg!(windows) { "!cd\n" } else { "!pwd\n" };
+    let output = run_repl_with_piped_input(command, Some(temp_dir.path()))?;
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let dir_name = temp_dir
+        .path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("temp dir should have a UTF-8 final component");
+    assert!(
+        stdout.contains(dir_name),
+        "stdout did not include current directory component `{dir_name}`:\n{stdout}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_repl_shell_escape_handles_quoted_args() -> Result<(), Box<dyn std::error::Error>> {
+    let output = run_repl_with_piped_input("!echo \"runmat bang quoted arg\"\n", None)?;
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("runmat bang quoted arg"),
+        "stdout did not include quoted echo output:\n{stdout}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_repl_shell_escape_reports_nonzero_and_continues() -> Result<(), Box<dyn std::error::Error>>
+{
+    let command = if cfg!(windows) {
+        "!exit 7\n1+1\n"
+    } else {
+        "!false\n1+1\n"
+    };
+    let output = run_repl_with_piped_input(command, None)?;
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ans = 2"),
+        "REPL did not continue after non-zero shell command:\n{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Shell command exited with status"),
+        "stderr did not report non-zero shell status:\n{stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_repl_shell_escape_reports_empty_command_and_continues(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let output = run_repl_with_piped_input("!   \n1+1\n", None)?;
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ans = 2"),
+        "REPL did not continue after empty shell command:\n{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Shell command is empty"),
+        "stderr did not report empty shell command:\n{stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_script_leading_bang_is_not_repl_shell_escape() {
+    let temp_dir = TempDir::new().unwrap();
+    let script_path = temp_dir.path().join("bang_script.m");
+    fs::write(&script_path, "!echo runmat-script-should-not-shell").unwrap();
+
+    let output = run_runmat(&["run", script_path.to_str().unwrap()]);
+    assert!(!output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("runmat-script-should-not-shell"),
+        "script execution unexpectedly treated leading bang as shell escape:\n{stdout}"
+    );
 }
 
 #[test]

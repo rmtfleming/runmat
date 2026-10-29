@@ -3,9 +3,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CellArray, CharArray, LogicalArray, StringArray, StructValue, Tensor, Value,
 };
+use runmat_builtins::{BuiltinIntegerAuditDescriptor, BuiltinIntegerAuditKind};
 use runmat_macros::runtime_builtin;
+use runmat_value::{CellArray, CharArray, LogicalArray, StringArray, StructValue, Tensor, Value};
 use serde_json::Value as JsonValue;
 
 use crate::builtins::common::spec::{
@@ -72,6 +73,13 @@ pub const JSONDECODE_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     errors: &JSONDECODE_ERRORS,
 };
 
+pub const JSONDECODE_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor =
+    BuiltinIntegerAuditDescriptor {
+        kind: BuiltinIntegerAuditKind::NotApplicable,
+        canonical_builtin: None,
+        notes: "jsondecode accepts JSON text only. Integer and resident numeric inputs reject before conversion or provider access; JSON numeric literals decode to double values by the documented contract.",
+    };
+
 #[allow(clippy::too_many_lines)]
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::io::json::jsondecode")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -86,7 +94,7 @@ pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     two_pass_threshold: None,
     workgroup_size: None,
     accepts_nan_mode: false,
-    notes: "No GPU kernels: jsondecode gathers gpuArray input to host memory before parsing the JSON text.",
+    notes: "No GPU kernels: jsondecode accepts host character vectors or string scalars only; numeric resident handles reject before provider access.",
 };
 
 fn jsondecode_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
@@ -148,9 +156,13 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     accel = "sink",
     type_resolver(crate::builtins::io::type_resolvers::jsondecode_type),
     descriptor(crate::builtins::io::json::jsondecode::JSONDECODE_DESCRIPTOR),
+    integer_audit(crate::builtins::io::json::jsondecode::JSONDECODE_INTEGER_AUDIT),
     builtin_path = "crate::builtins::io::json::jsondecode"
 )]
 async fn jsondecode_builtin(text: Value) -> crate::BuiltinResult<Value> {
+    if crate::dispatcher::value_contains_gpu(&text) {
+        return Err(jsondecode_error(&JSONDECODE_ERROR_INPUT_TYPE));
+    }
     let gathered = gather_if_needed_async(&text)
         .await
         .map_err(jsondecode_flow_with_context)?;
@@ -297,6 +309,10 @@ fn decode_json_array(values: &[JsonValue]) -> BuiltinResult<Value> {
         return Ok(Value::StringArray(array));
     }
 
+    if let Some(structures) = parse_struct_array(values)? {
+        return Ok(structures);
+    }
+
     if let Some(cell) = parse_rectangular_cell_array(values)? {
         return Ok(cell);
     }
@@ -305,7 +321,48 @@ fn decode_json_array(values: &[JsonValue]) -> BuiltinResult<Value> {
     for element in values {
         elements.push(value_from_json(element)?);
     }
-    cell_row(elements)
+    if values.iter().all(JsonValue::is_object) {
+        cell_matrix(elements, values.len(), 1)
+    } else {
+        cell_row(elements)
+    }
+}
+
+fn parse_struct_array(values: &[JsonValue]) -> BuiltinResult<Option<Value>> {
+    let Some((json_shape, leaves)) = super::layout::rectangular_leaves(values) else {
+        return Ok(None);
+    };
+    let Some(first) = leaves.first().and_then(|value| value.as_object()) else {
+        return Ok(None);
+    };
+    let field_names = first.keys().cloned().collect::<Vec<_>>();
+    let expected = field_names.iter().collect::<std::collections::HashSet<_>>();
+    let mut row_major = Vec::with_capacity(leaves.len());
+    for leaf in leaves {
+        let Some(object) = leaf.as_object() else {
+            return Ok(None);
+        };
+        if object.len() != field_names.len()
+            || object.keys().collect::<std::collections::HashSet<_>>() != expected
+        {
+            return Ok(None);
+        }
+        let mut structure = StructValue::new();
+        for name in &field_names {
+            structure.insert(name.clone(), value_from_json(&object[name])?);
+        }
+        row_major.push(structure);
+    }
+    let shape = if json_shape.len() == 1 {
+        vec![json_shape[0], 1]
+    } else {
+        json_shape
+    };
+    let column_major = super::layout::row_to_column_major(row_major, &shape)
+        .map_err(|error| jsondecode_error_with(&JSONDECODE_ERROR_INTERNAL, error))?;
+    runmat_value::StructArray::normalize(field_names, column_major, shape)
+        .map(Some)
+        .map_err(|error| jsondecode_error_with(&JSONDECODE_ERROR_INTERNAL, error))
 }
 
 fn empty_double() -> BuiltinResult<Value> {
@@ -379,7 +436,14 @@ fn parse_numeric_array(values: &[JsonValue]) -> BuiltinResult<Option<NumericTens
         shape.push(children.len());
         shape.extend(first_shape.clone());
 
-        let total: usize = shape.iter().product();
+        let total = shape.iter().try_fold(1usize, |count, extent| {
+            count.checked_mul(*extent).ok_or_else(|| {
+                jsondecode_error_with(
+                    &JSONDECODE_ERROR_INTERNAL,
+                    "jsondecode: numeric array shape exceeds addressable memory",
+                )
+            })
+        })?;
         let rows = shape[0];
         if rows == 0 {
             return Ok(None);
@@ -439,7 +503,9 @@ fn parse_logical_array(values: &[JsonValue]) -> Option<LogicalTensor> {
         shape.push(children.len());
         shape.extend(first_shape.clone());
 
-        let total: usize = shape.iter().product();
+        let total = shape
+            .iter()
+            .try_fold(1usize, |count, extent| count.checked_mul(*extent))?;
         let rows = shape[0];
         if rows == 0 {
             return None;
@@ -499,7 +565,9 @@ fn parse_string_array(values: &[JsonValue]) -> Option<StringTensor> {
         shape.push(children.len());
         shape.extend(first_shape.clone());
 
-        let total: usize = shape.iter().product();
+        let total = shape
+            .iter()
+            .try_fold(1usize, |count, extent| count.checked_mul(*extent))?;
         let rows = shape[0];
         if rows == 0 {
             return None;
@@ -563,7 +631,7 @@ fn parse_rectangular_cell_array(values: &[JsonValue]) -> BuiltinResult<Option<Va
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{IntValue, Tensor};
+    use runmat_value::{IntValue, Tensor};
 
     use crate::RuntimeError;
 
@@ -615,7 +683,7 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(tensor) => {
                 assert_eq!(tensor.shape, vec![2, 3]);
-                assert_eq!(tensor.data, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+                assert_eq!(tensor.materialize_f64(), vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
             }
             other => panic!("expected tensor, got {:?}", other),
         }
@@ -629,7 +697,10 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(tensor) => {
                 assert_eq!(tensor.shape, vec![2, 2, 2]);
-                assert_eq!(tensor.data, vec![1.0, 5.0, 3.0, 7.0, 2.0, 6.0, 4.0, 8.0]);
+                assert_eq!(
+                    tensor.materialize_f64(),
+                    vec![1.0, 5.0, 3.0, 7.0, 2.0, 6.0, 4.0, 8.0]
+                );
             }
             other => panic!("expected tensor, got {:?}", other),
         }
@@ -645,7 +716,7 @@ pub(crate) mod tests {
                 assert_eq!(tensor.shape, vec![1]);
                 assert_eq!(tensor.rows(), 1);
                 assert_eq!(tensor.cols(), 1);
-                assert_eq!(tensor.data, vec![42.0]);
+                assert_eq!(tensor.materialize_f64(), vec![42.0]);
             }
             other => panic!("expected tensor, got {:?}", other),
         }
@@ -735,7 +806,7 @@ pub(crate) mod tests {
                 match cell.get(1, 1).unwrap() {
                     Value::Tensor(t) => {
                         assert_eq!(t.shape, vec![0, 0]);
-                        assert!(t.data.is_empty());
+                        assert!(t.materialize_f64().is_empty());
                     }
                     other => panic!("expected empty tensor, got {:?}", other),
                 }
@@ -746,40 +817,113 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn jsondecode_array_of_objects_returns_cell() {
-        let text = "[{\"id\":1,\"name\":\"Ada\"},{\"id\":2,\"name\":\"Charles\"}]";
+    fn jsondecode_array_of_objects_returns_typed_column_vector() {
+        let text = "[{\"id\":1,\"name\":\"first\"},{\"name\":\"second\",\"id\":2}]";
         let result = block_on(jsondecode_builtin(char_row(text))).expect("jsondecode object array");
-        match result {
-            Value::Cell(cell) => {
-                assert_eq!(cell.rows, 1);
-                assert_eq!(cell.cols, 2);
+        let Value::StructArray(array) = result else {
+            panic!("expected structure array");
+        };
+        assert_eq!(array.shape(), [2, 1]);
+        assert_eq!(
+            array.field_names().cloned().collect::<Vec<_>>(),
+            ["id", "name"]
+        );
+        assert_eq!(
+            array.get_linear(0).unwrap().fields.get("id"),
+            Some(&Value::Num(1.0))
+        );
+        assert_eq!(
+            array.get_linear(1).unwrap().fields.get("id"),
+            Some(&Value::Num(2.0))
+        );
+    }
 
-                let first = cell.get(0, 0).expect("first struct");
-                match first {
-                    Value::Struct(struct_value) => {
-                        assert_eq!(struct_value.fields.get("id"), Some(&Value::Num(1.0)));
-                        assert_eq!(
-                            struct_value.fields.get("name"),
-                            Some(&Value::CharArray(CharArray::new_row("Ada")))
-                        );
-                    }
-                    other => panic!("expected struct, got {:?}", other),
-                }
+    #[test]
+    fn jsondecode_rectangular_object_array_uses_column_major_order() {
+        let text = "[[{\"id\":1},{\"id\":2}],[{\"id\":3},{\"id\":4}]]";
+        let Value::StructArray(array) =
+            block_on(jsondecode_builtin(char_row(text))).expect("rectangular object array")
+        else {
+            panic!("expected structure array");
+        };
+        assert_eq!(array.shape(), [2, 2]);
+        let ids = array
+            .elements()
+            .map(|element| element.fields["id"].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            [
+                Value::Num(1.0),
+                Value::Num(3.0),
+                Value::Num(2.0),
+                Value::Num(4.0)
+            ]
+        );
+    }
 
-                let second = cell.get(0, 1).expect("second struct");
-                match second {
-                    Value::Struct(struct_value) => {
-                        assert_eq!(struct_value.fields.get("id"), Some(&Value::Num(2.0)));
-                        assert_eq!(
-                            struct_value.fields.get("name"),
-                            Some(&Value::CharArray(CharArray::new_row("Charles")))
-                        );
-                    }
-                    other => panic!("expected struct, got {:?}", other),
-                }
-            }
-            other => panic!("expected cell array, got {:?}", other),
-        }
+    #[test]
+    fn jsondecode_nd_object_array_uses_column_major_order() {
+        let text = concat!(
+            "[[[{\"id\":1},{\"id\":2}],[{\"id\":3},{\"id\":4}]],",
+            "[[{\"id\":5},{\"id\":6}],[{\"id\":7},{\"id\":8}]]]"
+        );
+        let Value::StructArray(array) =
+            block_on(jsondecode_builtin(char_row(text))).expect("N-D object array")
+        else {
+            panic!("expected structure array");
+        };
+        assert_eq!(array.shape(), [2, 2, 2]);
+        let ids = array
+            .elements()
+            .map(|element| element.fields["id"].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            [
+                Value::Num(1.0),
+                Value::Num(5.0),
+                Value::Num(3.0),
+                Value::Num(7.0),
+                Value::Num(2.0),
+                Value::Num(6.0),
+                Value::Num(4.0),
+                Value::Num(8.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn jsondecode_heterogeneous_object_fields_remain_a_cell() {
+        let text = "[{\"left\":1},{\"right\":2}]";
+        let Value::Cell(cell) =
+            block_on(jsondecode_builtin(char_row(text))).expect("heterogeneous object array")
+        else {
+            panic!("expected cell array");
+        };
+        assert_eq!(cell.shape, [2, 1]);
+        assert!(matches!(
+            cell.data.as_slice(),
+            [Value::Struct(_), Value::Struct(_)]
+        ));
+    }
+
+    #[test]
+    fn json_object_array_schema_uses_deterministic_canonical_key_order() {
+        let text = concat!(
+            "[[[{\"zeta\":1,\"ä\":2,\"alpha\":3}]],",
+            "[[{\"ä\":4,\"alpha\":5,\"zeta\":6}]]]"
+        );
+        let Value::StructArray(array) =
+            block_on(jsondecode_builtin(char_row(text))).expect("N-D object array")
+        else {
+            panic!("expected structure array")
+        };
+        assert_eq!(array.shape(), [2, 1, 1]);
+        assert_eq!(
+            array.field_names().map(String::as_str).collect::<Vec<_>>(),
+            ["alpha", "zeta", "ä"]
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -789,7 +933,7 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(tensor) => {
                 assert_eq!(tensor.shape, vec![0, 0]);
-                assert!(tensor.data.is_empty());
+                assert!(tensor.materialize_f64().is_empty());
             }
             other => panic!("expected empty tensor, got {:?}", other),
         }
@@ -824,7 +968,7 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(tensor) => {
                 assert_eq!(tensor.shape, vec![2]);
-                assert_eq!(tensor.data, vec![1.0, 2.0]);
+                assert_eq!(tensor.materialize_f64(), vec![1.0, 2.0]);
             }
             other => panic!("expected tensor, got {:?}", other),
         }
@@ -838,7 +982,7 @@ pub(crate) mod tests {
         match result {
             Value::Tensor(tensor) => {
                 assert_eq!(tensor.shape, vec![2]);
-                assert_eq!(tensor.data, vec![1.0, 2.0]);
+                assert_eq!(tensor.materialize_f64(), vec![1.0, 2.0]);
             }
             other => panic!("expected tensor, got {:?}", other),
         }
@@ -856,10 +1000,40 @@ pub(crate) mod tests {
         let decoded = block_on(jsondecode_builtin(encoded)).expect("decode");
         match decoded {
             Value::Tensor(result) => {
-                assert_eq!(result.data.len(), tensor.data.len());
-                assert_eq!(result.data, tensor.data);
+                assert_eq!(
+                    result.materialize_f64().len(),
+                    tensor.materialize_f64().len()
+                );
+                assert_eq!(result.materialize_f64(), tensor.materialize_f64());
             }
             other => panic!("expected tensor, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn jsondecode_integer_audit_is_explicitly_inapplicable() {
+        assert_eq!(
+            JSONDECODE_INTEGER_AUDIT.kind,
+            BuiltinIntegerAuditKind::NotApplicable
+        );
+        assert!(JSONDECODE_INTEGER_AUDIT.canonical_builtin.is_none());
+        assert!(JSONDECODE_INTEGER_AUDIT.notes.contains("text only"));
+    }
+
+    #[test]
+    fn jsondecode_rejects_integer_and_resident_numeric_before_provider_access() {
+        let integer = block_on(jsondecode_builtin(Value::Int(IntValue::U64(u64::MAX))))
+            .expect_err("integer input must reject");
+        assert_eq!(integer.message(), JSONDECODE_ERROR_INPUT_TYPE.message);
+
+        let resident = Value::GpuTensor(runmat_accelerate_api::GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: u32::MAX,
+            buffer_id: u64::MAX,
+            descriptor: Default::default(),
+        });
+        let error = block_on(jsondecode_builtin(resident))
+            .expect_err("resident numeric input must reject before owner lookup");
+        assert_eq!(error.message(), JSONDECODE_ERROR_INPUT_TYPE.message);
     }
 }

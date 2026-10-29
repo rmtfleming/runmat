@@ -15,10 +15,11 @@ use std::time::Duration;
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_filesystem as fs;
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Value};
 use url::Url;
 
 use super::transport::{

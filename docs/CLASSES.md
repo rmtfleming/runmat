@@ -1,10 +1,3 @@
----
-title: "Classes (classdef)"
-category: "Reference"
-section: "classes"
-last_updated: "June 1, 2026"
----
-
 # Classes (classdef)
 
 RunMat supports MATLAB-style object-oriented programming through `classdef`. You can
@@ -370,6 +363,30 @@ end
 
 Callbacks can be function handles, static methods (`@CB.on_tick`), or function names.
 
+## Dynamic Properties
+
+Handle classes can opt into per-instance dynamic properties by deriving from
+`dynamicprops`. Use `addprop(obj, name)` to add a property at runtime, `findprop`
+to inspect metadata, and `delete(prop)` to remove a dynamic property.
+
+```matlab
+classdef Sensor < dynamicprops
+end
+
+s = new_object('Sensor');
+p = addprop(s, 'gain');
+s.gain = 7;
+p.Hidden = true;
+delete(p);
+```
+
+RunMat stores dynamic property values and metadata on the handle object's target.
+The metadata handle supports common `matlab.metadata.DynamicProperty` fields such
+as `Name`, `GetAccess`, `SetAccess`, `Hidden`, `Transient`, `AbortSet`,
+`SetObservable`, `GetObservable`, and `Description`. Observable get/set listener
+semantics and full dynamic-property persistence across external MATLAB MAT-file
+representations are not implemented yet.
+
 ## Custom indexing
 
 Override `subsref` and `subsasgn` to customize how `.`, `()`, and `{}` behave on your
@@ -488,6 +505,6 @@ See [Module Composition](/docs/runtime/compiler/modules) for package resolution 
   `meta.class` object.
 
 For how `classdef` fits into RunMat's broader MATLAB compatibility, see
-[MATLAB Language Compatability](/docs/runtime/getting-started/compatability). For the
+[MATLAB Language Compatability](/docs/runtime/matlab-compatibility). For the
 runtime internals of object dispatch, see
 [Callable Resolution & Function Dispatch](/docs/runtime/vm/dispatch).

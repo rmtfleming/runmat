@@ -6,68 +6,23 @@
 use num_complex::Complex64;
 use runmat_accelerate_api::{AccelProvider, GpuTensorHandle};
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, ComplexTensor, Tensor, Value,
+    BuiltinErrorDescriptor, ACOSH_CHARACTER_INPUT_EXTENSION, ACOSH_ERROR_INTERNAL,
+    ACOSH_ERROR_INVALID_INPUT, ACOSH_GPU_REAL_COMPLEX_EXTENSION, ACOSH_INTEGER_INPUT_EXTENSION,
+    ACOSH_LOGICAL_INPUT_EXTENSION,
 };
+#[cfg(test)]
+use runmat_builtins::{ACOSH_DESCRIPTOR, ACOSH_ERROR_TOO_MANY_OUTPUTS};
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, ComplexTensor, Tensor, Value};
 
 use crate::builtins::common::spec::{
-    BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, FusionError,
-    FusionExprContext, FusionKernelTemplate, GpuOpKind, ProviderHook, ReductionNaN,
-    ResidencyPolicy, ScalarType, ShapeRequirements,
+    BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
+    ProviderHook, ReductionNaN, ResidencyPolicy, ScalarType, ShapeRequirements,
 };
 use crate::builtins::common::{gpu_helpers, tensor};
-use crate::builtins::math::type_resolvers::numeric_unary_type;
-use crate::{build_runtime_error, dispatcher::download_handle_async, BuiltinResult, RuntimeError};
+use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "acosh";
-const ZERO_EPS: f64 = 1.0e-12;
-
-const ACOSH_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "Y",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Element-wise inverse hyperbolic cosine result.",
-}];
-
-const ACOSH_INPUTS: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "X",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Input scalar, array, char array, complex value, or gpuArray.",
-}];
-
-const ACOSH_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "Y = acosh(X)",
-    inputs: &ACOSH_INPUTS,
-    outputs: &ACOSH_OUTPUT,
-}];
-
-const ACOSH_ERROR_INVALID_INPUT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ACOSH.INVALID_INPUT",
-    identifier: Some("RunMat:acosh:InvalidInput"),
-    when: "Input cannot be interpreted as supported numeric/char/complex data.",
-    message: "acosh: invalid input",
-};
-
-const ACOSH_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.ACOSH.INTERNAL",
-    identifier: Some("RunMat:acosh:Internal"),
-    when: "Internal gather/reduction/conversion/allocation/provider flow failed.",
-    message: "acosh: internal error",
-};
-
-const ACOSH_ERRORS: [BuiltinErrorDescriptor; 2] = [ACOSH_ERROR_INVALID_INPUT, ACOSH_ERROR_INTERNAL];
-
-pub const ACOSH_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &ACOSH_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &ACOSH_ERRORS,
-};
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::math::trigonometry::acosh")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -110,29 +65,27 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     name: "acosh",
     shape: ShapeRequirements::BroadcastCompatible,
     constant_strategy: ConstantStrategy::InlineLiteral,
-    elementwise: Some(FusionKernelTemplate {
-        scalar_precisions: &[ScalarType::F32, ScalarType::F64],
-        wgsl_body: |ctx: &FusionExprContext| {
-            let input = ctx.inputs.first().ok_or(FusionError::MissingInput(0))?;
-            Ok(format!("acosh({input})"))
-        },
-    }),
+    elementwise: None,
     reduction: None,
-    emits_nan: false,
-    notes: "Fusion planner emits WGSL `acosh` calls; providers can substitute custom kernels when available.",
+    emits_nan: true,
+    notes: "Fusion is disabled because real input below one must promote to a complex result instead of producing NaN.",
 };
 
 #[runtime_builtin(
     name = "acosh",
-    category = "math/trigonometry",
-    summary = "Element-wise inverse hyperbolic cosine, with complex promotion for x < 1.",
-    keywords = "acosh,inverse hyperbolic cosine,arccosh,gpu",
-    accel = "unary",
-    type_resolver(numeric_unary_type),
-    descriptor(crate::builtins::math::trigonometry::acosh::ACOSH_DESCRIPTOR),
+    binding_variant = "default",
     builtin_path = "crate::builtins::math::trigonometry::acosh"
 )]
 async fn acosh_builtin(value: Value) -> BuiltinResult<Value> {
+    super::inverse_helpers::reject_excess_outputs(BUILTIN_NAME)?;
+    super::inverse_helpers::ensure_input_extensions(
+        &value,
+        BUILTIN_NAME,
+        &ACOSH_INTEGER_INPUT_EXTENSION,
+        &ACOSH_LOGICAL_INPUT_EXTENSION,
+        &ACOSH_CHARACTER_INPUT_EXTENSION,
+    )?;
+    crate::builtins::common::validation::reject_typed_complex_integer(&value, "acosh")?;
     match value {
         Value::GpuTensor(handle) => acosh_gpu(handle).await,
         Value::Complex(re, im) => Ok(acosh_complex_scalar(re, im)),
@@ -144,34 +97,53 @@ async fn acosh_builtin(value: Value) -> BuiltinResult<Value> {
 }
 
 async fn acosh_gpu(handle: GpuTensorHandle) -> BuiltinResult<Value> {
+    if runmat_accelerate_api::handle_integer_type(&handle).is_some()
+        || runmat_accelerate_api::handle_is_logical(&handle)
+    {
+        return acosh_gather_compute_restore(handle).await;
+    }
     if let Some(provider) = runmat_accelerate_api::provider_for_handle(&handle) {
-        match detect_gpu_requires_complex(provider, &handle).await {
-            Ok(false) => {
-                if let Ok(out) = provider.unary_acosh(&handle).await {
-                    return Ok(gpu_helpers::resident_gpu_value(out));
+        match detect_gpu_requires_complex(provider, &handle).await? {
+            Some(false) => match provider.unary_acosh(&handle).await {
+                Ok(output) => {
+                    return crate::builtins::common::provider_restore::validate_real_unary_provider_output(
+                        provider,
+                        &handle,
+                        output,
+                        BUILTIN_NAME,
+                    )
                 }
-            }
-            Ok(true) => {
-                let tensor = gpu_helpers::gather_tensor_async(&handle).await?;
-                return acosh_tensor_real(tensor);
-            }
-            Err(_) => {
-                // Fall back to host path below.
+                Err(error) if gpu_helpers::provider_hook_is_unsupported(&error) => {}
+                Err(error) => {
+                    return Err(acosh_error_with_detail(
+                        &ACOSH_ERROR_INTERNAL,
+                        format!("provider unary_acosh failed: {error}"),
+                    ))
+                }
+            },
+            Some(true) | None => {
+                return acosh_gather_compute_restore(handle).await;
             }
         }
     }
-    let tensor = gpu_helpers::gather_tensor_async(&handle).await?;
-    acosh_tensor_real(tensor)
+    acosh_gather_compute_restore(handle).await
 }
 
 async fn detect_gpu_requires_complex(
     provider: &'static dyn AccelProvider,
     handle: &GpuTensorHandle,
-) -> BuiltinResult<bool> {
-    let min_handle = provider.reduce_min(handle).await.map_err(|e| {
-        acosh_error_with_detail(&ACOSH_ERROR_INTERNAL, format!("reduce_min failed: {e}"))
-    })?;
-    let min_host = download_handle_async(provider, &min_handle)
+) -> BuiltinResult<Option<bool>> {
+    let min_handle = match provider.reduce_min(handle).await {
+        Ok(handle) => handle,
+        Err(error) if gpu_helpers::provider_hook_is_unsupported(&error) => return Ok(None),
+        Err(error) => {
+            return Err(acosh_error_with_detail(
+                &ACOSH_ERROR_INTERNAL,
+                format!("reduce_min failed: {error}"),
+            ))
+        }
+    };
+    let min_host = gpu_helpers::download_native_values_async(provider, &min_handle)
         .await
         .map_err(|e| {
             let _ = provider.free(&min_handle);
@@ -181,12 +153,34 @@ async fn detect_gpu_requires_complex(
             )
         })?;
     let _ = provider.free(&min_handle);
-    let min_value = min_host.data.iter().copied().fold(f64::INFINITY, f64::min);
-    if !min_value.is_finite() {
-        // NaN or -Inf: force host evaluation to preserve MATLAB semantics.
-        return Ok(true);
+    if min_host.data.iter().any(|value| value.is_nan()) {
+        return Ok(None);
     }
-    Ok(min_value < 1.0)
+    Ok(Some(
+        min_host.data.iter().any(|value| value.is_less_than_one()),
+    ))
+}
+
+async fn acosh_gather_compute_restore(handle: GpuTensorHandle) -> BuiltinResult<Value> {
+    let provider = runmat_accelerate_api::provider_for_handle(&handle).ok_or_else(|| {
+        acosh_error_with_detail(&ACOSH_ERROR_INTERNAL, "GPU input has no owning provider")
+    })?;
+    let tensor = gpu_helpers::gather_tensor_async(&handle)
+        .await
+        .map_err(|error| acosh_error_with_detail(&ACOSH_ERROR_INTERNAL, error))?;
+    let output = acosh_tensor_real(tensor)?;
+    if matches!(output, Value::Complex(_, _) | Value::ComplexTensor(_)) {
+        crate::compatibility::ensure_builtin_extension_enabled(
+            &ACOSH_GPU_REAL_COMPLEX_EXTENSION,
+            BUILTIN_NAME,
+        )?;
+    }
+    crate::builtins::common::provider_restore::upload_value_like(
+        provider,
+        output,
+        BUILTIN_NAME,
+        &handle,
+    )
 }
 
 fn acosh_real(value: Value) -> BuiltinResult<Value> {
@@ -196,84 +190,67 @@ fn acosh_real(value: Value) -> BuiltinResult<Value> {
 }
 
 fn acosh_tensor_real(tensor: Tensor) -> BuiltinResult<Value> {
-    if tensor.data.is_empty() {
-        return Ok(tensor::tensor_into_value(tensor));
-    }
-
-    let mut requires_complex = false;
-    let mut real_data = Vec::with_capacity(tensor.data.len());
-    let mut complex_data = Vec::with_capacity(tensor.data.len());
-
-    for &x in &tensor.data {
-        if x.is_nan() {
-            real_data.push(f64::NAN);
-            complex_data.push((f64::NAN, 0.0));
-            continue;
-        }
-        if x.is_infinite() && x.is_sign_positive() {
-            real_data.push(f64::INFINITY);
-            complex_data.push((f64::INFINITY, 0.0));
-            continue;
-        }
-        if x.is_infinite() && x.is_sign_negative() {
-            requires_complex = true;
-            real_data.push(f64::INFINITY);
-            complex_data.push((f64::INFINITY, std::f64::consts::PI));
-            continue;
-        }
-        if x >= 1.0 {
-            let val = x.acosh();
-            real_data.push(val);
-            complex_data.push((val, 0.0));
-            continue;
-        }
-
-        let result = Complex64::new(x, 0.0).acosh();
-        let re = zero_small(result.re);
-        let im = zero_small(result.im);
-        requires_complex = true;
-        real_data.push(re);
-        complex_data.push((re, im));
-    }
-
-    if requires_complex {
-        if complex_data.len() == 1 {
-            let (re, im) = complex_data[0];
-            Ok(Value::Complex(re, im))
-        } else {
-            let tensor = ComplexTensor::new(complex_data, tensor.shape.clone())
-                .map_err(|e| acosh_error_with_detail(&ACOSH_ERROR_INTERNAL, e))?;
-            Ok(Value::ComplexTensor(tensor))
-        }
-    } else {
-        let tensor = Tensor::new(real_data, tensor.shape.clone())
-            .map_err(|e| acosh_error_with_detail(&ACOSH_ERROR_INTERNAL, e))?;
-        Ok(tensor::tensor_into_value(tensor))
-    }
+    super::inverse_helpers::map_real_tensor_promoting(
+        tensor,
+        BUILTIN_NAME,
+        acosh_real_parts,
+        acosh_real_parts_f32,
+    )
 }
 
 fn acosh_complex_tensor(ct: ComplexTensor) -> BuiltinResult<Value> {
-    if ct.data.is_empty() {
-        return Ok(Value::ComplexTensor(ct));
+    let tensor = super::inverse_helpers::map_complex_tensor(
+        ct,
+        BUILTIN_NAME,
+        |(real, imag)| {
+            let result = Complex64::new(real, imag).acosh();
+            (result.re, result.im)
+        },
+        |(real, imag)| {
+            let result = num_complex::Complex32::new(real, imag).acosh();
+            (result.re, result.im)
+        },
+    )?;
+    Ok(crate::builtins::common::random_args::complex_tensor_into_value(tensor))
+}
+
+fn acosh_real_parts(value: f64) -> (f64, f64) {
+    if value.is_nan() {
+        return (f64::NAN, 0.0);
     }
-    let mut mapped = Vec::with_capacity(ct.data.len());
-    for &(re, im) in &ct.data {
-        let result = Complex64::new(re, im).acosh();
-        mapped.push((zero_small(result.re), zero_small(result.im)));
+    if value.is_infinite() && value.is_sign_positive() {
+        return (f64::INFINITY, 0.0);
     }
-    if mapped.len() == 1 {
-        let (re, im) = mapped[0];
-        Ok(Value::Complex(re, im))
-    } else {
-        let tensor = ComplexTensor::new(mapped, ct.shape.clone())
-            .map_err(|e| acosh_error_with_detail(&ACOSH_ERROR_INTERNAL, e))?;
-        Ok(Value::ComplexTensor(tensor))
+    if value.is_infinite() && value.is_sign_negative() {
+        return (f64::INFINITY, std::f64::consts::PI);
     }
+    if value >= 1.0 {
+        return (value.acosh(), 0.0);
+    }
+    let result = Complex64::new(value, 0.0).acosh();
+    (result.re, result.im)
+}
+
+fn acosh_real_parts_f32(value: f32) -> (f32, f32) {
+    if value.is_nan() {
+        return (f32::NAN, 0.0);
+    }
+    if value.is_infinite() && value.is_sign_positive() {
+        return (f32::INFINITY, 0.0);
+    }
+    if value.is_infinite() && value.is_sign_negative() {
+        return (f32::INFINITY, std::f32::consts::PI);
+    }
+    if value >= 1.0 {
+        return (value.acosh(), 0.0);
+    }
+    let result = num_complex::Complex32::new(value, 0.0).acosh();
+    (result.re, result.im)
 }
 
 fn acosh_complex_scalar(re: f64, im: f64) -> Value {
     let result = Complex64::new(re, im).acosh();
-    Value::Complex(zero_small(result.re), zero_small(result.im))
+    Value::Complex(result.re, result.im)
 }
 
 fn acosh_char_array(ca: CharArray) -> BuiltinResult<Value> {
@@ -288,24 +265,56 @@ fn acosh_char_array(ca: CharArray) -> BuiltinResult<Value> {
     acosh_tensor_real(tensor)
 }
 
-fn zero_small(value: f64) -> f64 {
-    if value.abs() < ZERO_EPS {
-        0.0
-    } else {
-        value
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
     use num_complex::Complex64;
-    use runmat_builtins::{IntValue, LogicalArray, ResolveContext, Type};
+    use runmat_value::{IntValue, LogicalArray};
 
     fn acosh_builtin(value: Value) -> BuiltinResult<Value> {
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(true);
         block_on(super::acosh_builtin(value))
+    }
+
+    #[test]
+    fn acosh_extensions_and_output_arity_are_gated() {
+        let _compat = crate::compatibility::push_runmat_extensions_enabled(false);
+        let integer = block_on(super::acosh_builtin(Value::Int(IntValue::I8(1))))
+            .expect_err("integer input must be gated");
+        assert_eq!(
+            integer.identifier(),
+            ACOSH_INTEGER_INPUT_EXTENSION.error_identifier
+        );
+        let logical = block_on(super::acosh_builtin(Value::Bool(true)))
+            .expect_err("logical input must be gated");
+        assert_eq!(
+            logical.identifier(),
+            ACOSH_LOGICAL_INPUT_EXTENSION.error_identifier
+        );
+        let chars = CharArray::new("A".chars().collect(), 1, 1).unwrap();
+        let character = block_on(super::acosh_builtin(Value::CharArray(chars)))
+            .expect_err("character input must be gated");
+        assert_eq!(
+            character.identifier(),
+            ACOSH_CHARACTER_INPUT_EXTENSION.error_identifier
+        );
+        let _outputs = crate::output_count::push_output_count(Some(2));
+        let arity = block_on(super::acosh_builtin(Value::Num(1.0)))
+            .expect_err("excess outputs must reject");
+        assert_eq!(arity.identifier(), ACOSH_ERROR_TOO_MANY_OUTPUTS.identifier);
+    }
+
+    #[test]
+    fn acosh_preserves_native_single_through_complex_promotion() {
+        let input = Tensor::from_f32(vec![0.5, 2.0], vec![2, 1]).unwrap();
+        let Value::ComplexTensor(output) =
+            acosh_builtin(Value::Tensor(input)).expect("single acosh")
+        else {
+            panic!("expected complex-single tensor");
+        };
+        assert_eq!(output.numeric_dtype(), runmat_value::NumericDType::F32);
     }
 
     fn error_message(err: &RuntimeError) -> String {
@@ -320,33 +329,6 @@ pub(crate) mod tests {
             .map(|sig| sig.label)
             .collect();
         assert!(labels.contains(&"Y = acosh(X)"));
-    }
-
-    #[test]
-    fn acosh_type_preserves_tensor_shape() {
-        let out = numeric_unary_type(
-            &[Type::Tensor {
-                shape: Some(vec![Some(2), Some(3)]),
-            }],
-            &ResolveContext::new(Vec::new()),
-        );
-        assert_eq!(
-            out,
-            Type::Tensor {
-                shape: Some(vec![Some(2), Some(3)])
-            }
-        );
-    }
-
-    #[test]
-    fn acosh_type_scalar_tensor_returns_num() {
-        let out = numeric_unary_type(
-            &[Type::Tensor {
-                shape: Some(vec![Some(1), Some(1)]),
-            }],
-            &ResolveContext::new(Vec::new()),
-        );
-        assert_eq!(out, Type::Num);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -375,6 +357,21 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn acosh_preserves_small_complex_components() {
+        let input = Complex64::new(2.0, 1.0e-15);
+        let expected = input.acosh();
+        let Value::Complex(real, imaginary) =
+            acosh_builtin(Value::Complex(input.re, input.im)).expect("complex acosh")
+        else {
+            panic!("expected complex scalar");
+        };
+        assert_eq!(real, expected.re);
+        assert_eq!(imaginary, expected.im);
+        assert_ne!(imaginary, 0.0);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn acosh_tensor_mixed() {
         let tensor = Tensor::new(vec![0.5, 1.0, 2.0], vec![3, 1]).expect("tensor construction");
         let result = acosh_builtin(Value::Tensor(tensor)).expect("acosh");
@@ -386,12 +383,49 @@ pub(crate) mod tests {
                     (0.0, 0.0),
                     (1.3169578969248166, 0.0),
                 ];
-                for (actual, exp) in t.data.iter().zip(expected.iter()) {
+                for (actual, exp) in t.materialize_f64().iter().zip(expected.iter()) {
                     assert!((actual.0 - exp.0).abs() < 1e-12);
                     assert!((actual.1 - exp.1).abs() < 1e-12);
                 }
             }
             other => panic!("expected complex tensor, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn acosh_reads_typed_integer_tensor_storage_exactly() {
+        let tensor =
+            Tensor::new_integer(runmat_value::IntegerStorage::I16(vec![1, 2, 3]), vec![3, 1])
+                .expect("integer tensor");
+
+        match acosh_builtin(Value::Tensor(tensor)).expect("acosh") {
+            Value::Tensor(out) => {
+                assert_eq!(out.shape, vec![3, 1]);
+                let expected = [0.0, 2.0f64.acosh(), 3.0f64.acosh()];
+                for (actual, expected) in out.materialize_f64().iter().zip(expected.iter()) {
+                    assert!((actual - expected).abs() < 1e-12);
+                }
+                assert!(out.integer_storage().is_none());
+            }
+            other => panic!("expected tensor result, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn acosh_below_domain_typed_integer_promotes_from_storage() {
+        let tensor = Tensor::new_integer(runmat_value::IntegerStorage::I16(vec![0, 2]), vec![1, 2])
+            .expect("integer tensor");
+
+        match acosh_builtin(Value::Tensor(tensor)).expect("acosh") {
+            Value::ComplexTensor(out) => {
+                assert_eq!(out.shape, vec![1, 2]);
+                assert_eq!(out.materialize_f64()[0], (0.0, std::f64::consts::FRAC_PI_2));
+                assert!((out.materialize_f64()[1].0 - 2.0f64.acosh()).abs() < 1e-12);
+                assert_eq!(out.materialize_f64()[1].1, 0.0);
+            }
+            other => panic!("expected complex tensor result, got {other:?}"),
         }
     }
 
@@ -409,7 +443,7 @@ pub(crate) mod tests {
                     (0.0, 0.0),
                     (0.0, std::f64::consts::FRAC_PI_2),
                 ];
-                for (actual, exp) in t.data.iter().zip(expected.iter()) {
+                for (actual, exp) in t.materialize_f64().iter().zip(expected.iter()) {
                     assert!((actual.0 - exp.0).abs() < 1e-12);
                     assert!((actual.1 - exp.1).abs() < 1e-12);
                 }
@@ -428,7 +462,7 @@ pub(crate) mod tests {
                 assert_eq!(t.shape, vec![1, 2]);
                 let expected: Vec<f64> =
                     "Az".chars().map(|ch| (ch as u32 as f64).acosh()).collect();
-                for (actual, exp) in t.data.iter().zip(expected.iter()) {
+                for (actual, exp) in t.materialize_f64().iter().zip(expected.iter()) {
                     assert!((actual - exp).abs() < 1e-12);
                 }
             }
@@ -438,7 +472,7 @@ pub(crate) mod tests {
                     .chars()
                     .map(|ch| Complex64::new(ch as u32 as f64, 0.0).acosh())
                     .collect();
-                for ((re, im), exp) in t.data.iter().zip(expected.iter()) {
+                for ((re, im), exp) in t.materialize_f64().iter().zip(expected.iter()) {
                     assert!((re - exp.re).abs() < 1e-12);
                     assert!((im - exp.im).abs() < 1e-12);
                 }
@@ -459,7 +493,7 @@ pub(crate) mod tests {
             }
             Value::ComplexTensor(t) => {
                 assert_eq!(t.shape, vec![1, 1]);
-                let (re, im) = t.data[0];
+                let (re, im) = t.materialize_f64()[0];
                 assert!(re.abs() < 1e-12);
                 assert!((im - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
             }
@@ -477,7 +511,7 @@ pub(crate) mod tests {
         match result {
             Value::ComplexTensor(t) => {
                 assert_eq!(t.shape, vec![1, 2]);
-                for (actual, input) in t.data.iter().zip(inputs.iter()) {
+                for (actual, input) in t.materialize_f64().iter().zip(inputs.iter()) {
                     let expected = input.acosh();
                     assert!((actual.0 - expected.re).abs() < 1e-12);
                     assert!((actual.1 - expected.im).abs() < 1e-12);
@@ -560,14 +594,18 @@ pub(crate) mod tests {
             let tensor =
                 Tensor::new(vec![1.0, 2.0, 5.0, 10.0], vec![4, 1]).expect("tensor construction");
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");
             let result = acosh_builtin(Value::GpuTensor(handle)).expect("acosh");
             let gathered = test_support::gather(result).expect("gather");
             assert_eq!(gathered.shape, vec![4, 1]);
-            for (actual, expected) in gathered.data.iter().zip(tensor.data.iter()) {
+            for (actual, expected) in gathered
+                .materialize_f64()
+                .iter()
+                .zip(tensor.materialize_f64().iter())
+            {
                 let ref_val = expected.acosh();
                 assert!((actual - ref_val).abs() < 1e-12);
             }
@@ -580,19 +618,22 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![0.5, 2.0], vec![2, 1]).expect("tensor construction");
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");
             let result = acosh_builtin(Value::GpuTensor(handle)).expect("acosh");
-            match result {
+            assert!(matches!(result, Value::GpuTensor(_)));
+            let gathered = block_on(crate::dispatcher::gather_if_needed_async(&result))
+                .expect("gather complex result");
+            match gathered {
                 Value::ComplexTensor(t) => {
                     assert_eq!(t.shape, vec![2, 1]);
                     let expected = [
                         Complex64::new(0.5, 0.0).acosh(),
                         Complex64::new(2.0, 0.0).acosh(),
                     ];
-                    for (actual, exp) in t.data.iter().zip(expected.iter()) {
+                    for (actual, exp) in t.materialize_f64().iter().zip(expected.iter()) {
                         assert!((actual.0 - exp.re).abs() < 1e-12);
                         assert!((actual.1 - exp.im).abs() < 1e-12);
                     }
@@ -606,29 +647,31 @@ pub(crate) mod tests {
     #[test]
     #[cfg(feature = "wgpu")]
     fn acosh_wgpu_matches_cpu_when_real() {
-        let _ = runmat_accelerate::backend::wgpu::provider::register_wgpu_provider(
-            runmat_accelerate::backend::wgpu::provider::WgpuProviderOptions::default(),
-        );
+        let _guard = test_support::accel_test_lock();
+        let Some(provider) = test_support::wgpu_provider_if_available() else {
+            return;
+        };
         let tensor = Tensor::new(vec![1.0, 2.0, 10.0], vec![3, 1]).unwrap();
         let cpu = acosh_real(Value::Tensor(tensor.clone())).unwrap();
         let view = runmat_accelerate_api::HostTensorView {
-            data: &tensor.data,
+            data: &tensor.materialize_f64(),
             shape: &tensor.shape,
         };
-        let handle = runmat_accelerate_api::provider()
-            .expect("provider")
-            .upload(&view)
-            .expect("upload");
+        let handle = provider.upload(&view).expect("upload");
         let gpu = block_on(acosh_gpu(handle)).unwrap();
         let gathered = test_support::gather(gpu).expect("gather");
         match cpu {
             Value::Tensor(ct) => {
                 assert_eq!(gathered.shape, ct.shape);
-                let tol = match runmat_accelerate_api::provider().unwrap().precision() {
+                let tol = match provider.precision() {
                     runmat_accelerate_api::ProviderPrecision::F64 => 1e-12,
                     runmat_accelerate_api::ProviderPrecision::F32 => 1e-5,
                 };
-                for (actual, expected) in gathered.data.iter().zip(ct.data.iter()) {
+                for (actual, expected) in gathered
+                    .materialize_f64()
+                    .iter()
+                    .zip(ct.materialize_f64().iter())
+                {
                     assert!((actual - expected).abs() < tol);
                 }
             }

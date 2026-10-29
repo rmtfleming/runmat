@@ -43,6 +43,7 @@ fn store_insert(shape: Vec<usize>, data: Vec<f64>) -> anyhow::Result<GpuTensorHa
         shape,
         device_id: 21,
         buffer_id,
+        descriptor: Default::default(),
     })
 }
 
@@ -93,7 +94,7 @@ impl AccelProvider for HarnessProvider {
     fn device_info_struct(&self) -> ApiDeviceInfo {
         ApiDeviceInfo {
             device_id: 21,
-            name: "analysis-harness-provider".to_string(),
+            name: "analysis-harness-provider".into(),
             vendor: "runmat-tests".to_string(),
             memory_bytes: None,
             backend: Some("harness_gpu".to_string()),

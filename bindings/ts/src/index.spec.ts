@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import * as defaultFs from "./fs/default.js";
 import {
   __internals,
+  executeProgramArtifact,
   initRunMat,
   renderFigureImage,
   exportFigureScene,
@@ -10,11 +11,32 @@ import {
   exportWorkspaceState,
   importWorkspaceState,
   resetPlotState,
+  resolveRunmatConfig,
+  patchRunmatConfig,
+  migrateLegacyRunmatConfig,
+  migrateLegacyRunmatConfigInto,
   createWorkspaceHoverProvider,
   createFusionPlanAdapter,
+  decodePackageLock,
+  encodePackageLock,
+  handoffFromFrozenProject,
+  FEA_ANALYSIS_PROFILES,
+  FEA_ANALYSIS_RUN_KINDS,
+  FEA_ARTIFACT_MANIFEST_KIND,
+  FEA_DATASET_ARTIFACT_KIND,
+  FEA_DIAGNOSTICS_ARTIFACT_KIND,
+  FEA_DIAGNOSTICS_SCHEMA_VERSION,
+  FEA_FIELD_DEFAULT_MATERIALIZE_LIMIT,
+  FEA_FIELD_DEFAULT_PAGE_SIZE,
+  FEA_FIELD_DESCRIPTORS_ARTIFACT_KIND,
+  FEA_FIELD_DESCRIPTORS_SCHEMA_VERSION,
+  FEA_OBJECT_ARTIFACT_METADATA_SCHEMA_VERSION,
+  FEA_RUN_DATASET_KIND,
+  FEA_RUN_DATASET_SCHEMA_VERSION,
+  FEA_STUDY_DOCUMENT_OPERATIONS,
+  FEA_SUPPORTED_PHYSICS_PROFILES,
   type RunMatSessionHandle,
   type RunMatFilesystemProvider,
-  type RunMatSnapshotSource,
   type ExecuteRequest,
   type ExecuteResult,
   type GpuStatus,
@@ -24,24 +46,6 @@ import {
   withSignalTrace
 } from "./index.js";
 
-async function readStream(stream: ReadableStream<Uint8Array> | undefined): Promise<number[]> {
-  if (!stream) {
-    return [];
-  }
-  const reader = stream.getReader();
-  const chunks: number[] = [];
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-    if (value) {
-      chunks.push(...value);
-    }
-  }
-  return chunks;
-}
-
 const defaultStats: SessionStats = {
   totalExecutions: 0,
   jitCompiled: 0,
@@ -49,6 +53,98 @@ const defaultStats: SessionStats = {
   totalExecutionTimeMs: 0,
   averageExecutionTimeMs: 0
 };
+
+describe("FEA study document contracts", () => {
+  it("exports Rust-generated analysis artifact constants", () => {
+    expect(FEA_RUN_DATASET_SCHEMA_VERSION).toBe(1);
+    expect(FEA_FIELD_DESCRIPTORS_SCHEMA_VERSION).toBe(1);
+    expect(FEA_DIAGNOSTICS_SCHEMA_VERSION).toBe(1);
+    expect(FEA_OBJECT_ARTIFACT_METADATA_SCHEMA_VERSION).toBe(1);
+    expect(FEA_RUN_DATASET_KIND).toBe("finite_element_run_dataset");
+    expect(FEA_DATASET_ARTIFACT_KIND).toBe("finite_element_dataset");
+    expect(FEA_FIELD_DESCRIPTORS_ARTIFACT_KIND).toBe("finite_element_field_descriptors");
+    expect(FEA_DIAGNOSTICS_ARTIFACT_KIND).toBe("finite_element_diagnostics");
+    expect(FEA_ARTIFACT_MANIFEST_KIND).toBe("finite_element_artifact_manifest");
+    expect(FEA_FIELD_DEFAULT_PAGE_SIZE).toBe(4096);
+    expect(FEA_FIELD_DEFAULT_MATERIALIZE_LIMIT).toBe(256);
+  });
+
+  it("exports Rust-generated study operation names", () => {
+    expect(FEA_STUDY_DOCUMENT_OPERATIONS).toEqual([
+      "get_summary",
+      "create",
+      "add_region",
+      "update_region",
+      "remove_region",
+      "add_material",
+      "update_material",
+      "assign_material",
+      "add_constraint",
+      "update_constraint",
+      "remove_constraint",
+      "add_driving_condition",
+      "update_driving_condition",
+      "remove_driving_condition",
+      "set_mesh",
+      "set_outputs",
+    ]);
+  });
+
+  it("keeps the public FEA physics catalog aligned with Rust-supported profiles", () => {
+    expect(FEA_ANALYSIS_PROFILES).toEqual([
+      "linear_static_structural",
+      "thermo_mechanical_coupled",
+      "electro_thermal_coupled",
+      "thermal_standalone",
+      "modal_structural",
+      "acoustic_harmonic",
+      "transient_structural",
+      "nonlinear_structural",
+      "electromagnetic_static",
+      "cfd_steady_state",
+      "cfd_transient",
+      "cht_coupled",
+      "fsi_coupled",
+    ]);
+    expect(FEA_ANALYSIS_RUN_KINDS).toEqual([
+      "linear_static",
+      "modal",
+      "acoustic",
+      "thermal",
+      "transient",
+      "cfd",
+      "cht",
+      "fsi",
+      "nonlinear",
+      "electromagnetic",
+    ]);
+    const catalogProfiles = FEA_SUPPORTED_PHYSICS_PROFILES.map((profile) => profile.profile);
+    expect(catalogProfiles).toHaveLength(FEA_ANALYSIS_PROFILES.length);
+    expect(new Set(catalogProfiles)).toEqual(new Set(FEA_ANALYSIS_PROFILES));
+    expect(new Set(FEA_SUPPORTED_PHYSICS_PROFILES.map((profile) => profile.family))).toEqual(
+      new Set(["structural", "modal", "coupled physics", "thermal", "acoustic", "electromagnetic", "CFD"]),
+    );
+  });
+
+  it("exposes electro-thermal as a first-class coupled FEA profile", () => {
+    const profile = FEA_SUPPORTED_PHYSICS_PROFILES.find(
+      (entry) => entry.profile === "electro_thermal_coupled"
+    );
+
+    expect(profile).toMatchObject({
+      label: "Electro-thermal",
+      family: "coupled physics",
+      target: "coupled electromagnetics and heat transfer",
+      value: "resistive heating, temperature, and electrical fields",
+    });
+    expect(profile?.defaultOutputs.map((output) => output.field)).toEqual([
+      "electro_thermal.temperature",
+      "electro_thermal.joule_heat",
+      "electro_thermal.electric_potential",
+      "electro_thermal.current_density",
+    ]);
+  });
+});
 
 function createExecuteResult(overrides: Partial<ExecuteResult> = {}): ExecuteResult {
   return {
@@ -113,45 +209,6 @@ function createHoverHarness(
   return { controller, provider: providerImpl, model, position };
 }
 
-describe("resolveSnapshotSource", () => {
-  it("prefers inline bytes", async () => {
-    const source: RunMatSnapshotSource = { bytes: new Uint8Array([1, 2, 3]) };
-    const resolved = await __internals.resolveSnapshotSource(source);
-    expect(Array.from(resolved.bytes ?? [])).toEqual([1, 2, 3]);
-    expect(resolved.stream).toBeUndefined();
-  });
-
-  it("invokes custom fetcher", async () => {
-    const fetcher = vi.fn(async () => new Uint8Array([9, 9, 9]));
-    const source: RunMatSnapshotSource = { fetcher };
-    const resolved = await __internals.resolveSnapshotSource(source);
-    expect(fetcher).toHaveBeenCalledOnce();
-    expect(Array.from(resolved.bytes ?? [])).toEqual([9, 9, 9]);
-  });
-
-  it("passes through readable streams from fetcher responses", async () => {
-    const payload = new Uint8Array([5, 6, 7]);
-    const response = new Response(payload);
-    const source: RunMatSnapshotSource = {
-      fetcher: vi.fn(async () => response)
-    };
-    const resolved = await __internals.resolveSnapshotSource(source);
-    expect(resolved.stream).toBeDefined();
-    const values = await readStream(resolved.stream as ReadableStream<Uint8Array>);
-    expect(values).toEqual([5, 6, 7]);
-  });
-
-  it("fetches from URL when provided", async () => {
-    const payload = new Uint8Array([4, 5, 6]);
-    const mockFetch = vi.fn(async () => new Response(payload));
-    // @ts-expect-error override global fetch for test
-    globalThis.fetch = mockFetch;
-    const result = await __internals.fetchSnapshotFromUrl("https://example.com/snapshot.bin");
-    expect(mockFetch).toHaveBeenCalledOnce();
-    expect(Array.from(result)).toEqual([4, 5, 6]);
-  });
-});
-
 describe("coerceFigureError", () => {
   it("wraps structured payloads", () => {
     const payload = {
@@ -199,6 +256,11 @@ interface NativeSession {
   gpuStatus(): GpuStatus;
   cancelExecution?: () => void;
   setInputHandler?: (handler: ((req: InputRequest) => unknown) | null) => void;
+  setLanguageCompat?: (mode: string) => void;
+  setErrorNamespace?: (namespace: string) => void;
+  installProjectHandoff?: (handoff: unknown) => unknown;
+  clearProjectHandoff?: () => void;
+  projectRevision?: () => unknown | null;
 }
 
 const baseExecuteResult: ExecuteResult = {
@@ -248,6 +310,25 @@ describe("initRunMat wiring", () => {
     vi.restoreAllMocks();
   });
 
+  it("forwards dynamic language policy and error namespace updates", async () => {
+    const setLanguageCompat = vi.fn();
+    const setErrorNamespace = vi.fn();
+    __internals.setNativeModuleOverride({
+      default: async () => {},
+      initRunMat: async () => createMockNativeSession({
+        setLanguageCompat,
+        setErrorNamespace,
+      }),
+    } as NativeModule);
+
+    const session = await initRunMat({ enableGpu: false });
+    session.setLanguageCompat("runmat");
+    session.setErrorNamespace("Acme");
+
+    expect(setLanguageCompat).toHaveBeenCalledWith("runmat");
+    expect(setErrorNamespace).toHaveBeenCalledWith("Acme");
+  });
+
   it("passes provided fs provider into native init options", async () => {
     const options: any[] = [];
     const fsProvider = createFsProviderStub();
@@ -260,13 +341,12 @@ describe("initRunMat wiring", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    await initRunMat({ snapshot: { bytes: new Uint8Array([1, 2, 3]) }, fsProvider, enableGpu: false });
+    await initRunMat({ fsProvider, enableGpu: false });
 
-    expect(options[0].snapshotBytes).toBeDefined();
     expect(options[0].fsProvider).toBe(fsProvider);
   });
 
-  it("passes snapshot bytes and telemetry flag through to native init", async () => {
+  it("passes telemetry consent through to native init", async () => {
     const captured: any[] = [];
     const native: NativeModule = {
       default: async () => {},
@@ -277,12 +357,47 @@ describe("initRunMat wiring", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const snapshot = new Uint8Array([9, 9, 9]);
-    await initRunMat({ snapshot: { bytes: snapshot }, telemetryConsent: false, enableGpu: false });
+    await initRunMat({ telemetryConsent: false, enableGpu: false });
 
     expect(captured).toHaveLength(1);
-    expect(captured[0].snapshotBytes).toBe(snapshot);
     expect(captured[0].telemetryConsent).toBe(false);
+  });
+
+  it("passes the browser execution host through without interpreting it", async () => {
+    const captured: any[] = [];
+    const executionHost = {
+      capabilities: { topology: "serial" as const, maxWorkers: 1 },
+      launch: vi.fn(async () => ({ outcome: "success" })),
+      cancel: vi.fn()
+    };
+    __internals.setNativeModuleOverride({
+      default: async () => {},
+      initRunMat: async (options: any) => {
+        captured.push(options);
+        return createMockNativeSession();
+      }
+    } as NativeModule);
+
+    await initRunMat({ executionHost, enableGpu: false });
+
+    expect(captured[0].executionHost).toBe(executionHost);
+  });
+
+  it("delegates exact program execution to the portable wasm export", async () => {
+    const execute = vi.fn(async (request) => ({
+      outcome: "success",
+      request
+    }));
+    __internals.setNativeModuleOverride({
+      default: async () => {},
+      initRunMat: async () => createMockNativeSession(),
+      executeProgramArtifact: execute
+    } as NativeModule);
+
+    await expect(executeProgramArtifact({ schemaVersion: 1 })).resolves.toEqual({
+      outcome: "success",
+      request: { schemaVersion: 1 }
+    });
   });
 
   it("passes telemetry id and exposes telemetryClientId()", async () => {
@@ -300,7 +415,6 @@ describe("initRunMat wiring", () => {
     __internals.setNativeModuleOverride(native);
 
     const session = await initRunMat({
-      snapshot: { bytes: new Uint8Array([2]) },
       telemetryId: "cid-host",
       enableGpu: false
     });
@@ -322,7 +436,6 @@ describe("initRunMat wiring", () => {
     __internals.setNativeModuleOverride(native);
 
     await initRunMat({
-      snapshot: { bytes: new Uint8Array([3]) },
       scatterTargetPoints: 250_000,
       surfaceVertexBudget: 1_000_000,
       enableGpu: false
@@ -345,7 +458,6 @@ describe("initRunMat wiring", () => {
     __internals.setNativeModuleOverride(native);
 
     await initRunMat({
-      snapshot: { bytes: new Uint8Array([4]) },
       logLevel: "trace",
       enableGpu: false
     });
@@ -372,7 +484,7 @@ describe("initRunMat wiring", () => {
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: true });
+    await initRunMat({ enableGpu: true });
 
     expect(captured).toHaveLength(1);
     expect(captured[0].enableGpu).toBe(false);
@@ -395,13 +507,12 @@ describe("initRunMat wiring", () => {
       default: async () => {},
       initRunMat: async (opts: any) => {
         captured.push(opts);
-        expect(opts.snapshotBytes).toBeDefined();
         return createMockNativeSession();
       }
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    await initRunMat({ snapshot: { bytes: new Uint8Array([7]) }, enableGpu: false });
+    await initRunMat({ enableGpu: false });
 
     expect(defaultSpy).toHaveBeenCalledOnce();
     expect(captured).toHaveLength(1);
@@ -424,7 +535,7 @@ describe("initRunMat wiring", () => {
     __internals.setNativeModuleOverride(native);
 
     const canvas = { id: "canvas" } as unknown as HTMLCanvasElement;
-    await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, plotCanvas: canvas, enableGpu: false });
+    await initRunMat({ plotCanvas: canvas, enableGpu: false });
 
     expect(order).toEqual(["createPlotSurface", "initRunMat"]);
     expect(createSurfaceSpy).toHaveBeenCalledWith(canvas);
@@ -443,7 +554,7 @@ describe("initRunMat wiring", () => {
     __internals.setNativeModuleOverride(native);
 
     await expect(
-      initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, plotCanvas: {} as HTMLCanvasElement, enableGpu: false })
+      initRunMat({ plotCanvas: {} as HTMLCanvasElement, enableGpu: false })
     ).rejects.toMatchObject({ code: "PlotCanvas" });
   });
 
@@ -458,7 +569,7 @@ describe("initRunMat wiring", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     session.dispose();
     expect(disposeSpy).toHaveBeenCalledOnce();
     expect(() => session.telemetryConsent()).toThrow(/disposed/);
@@ -477,7 +588,7 @@ describe("initRunMat wiring", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     await expect(session.memoryUsage()).resolves.toEqual({ bytes: 1024, pages: 16 });
   });
 });
@@ -675,7 +786,7 @@ describe("workspace replay bindings", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     const exported = await session.exportWorkspaceState({ includeVariables: "off" });
     const imported = await session.importWorkspaceState(new Uint8Array([3, 3]));
 
@@ -734,7 +845,7 @@ describe("ExecuteResult passthroughs", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     const result = await session.executeRequest({
       source: { kind: "text", name: "<test>", text: "clc;" }
     });
@@ -858,7 +969,7 @@ describe("materializeVariable wiring", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     const materialized = await session.materializeVariable("token-123", { limit: 64 });
 
     expect(spy).toHaveBeenCalledWith("token-123", { limit: 64 });
@@ -888,7 +999,7 @@ describe("materializeVariable wiring", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([9]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     await session.materializeVariable({ previewToken: "abc-uuid", name: "ignored" }, { limit: 0 });
 
     expect(spy).toHaveBeenCalledWith({ previewToken: "abc-uuid" }, {});
@@ -911,9 +1022,98 @@ describe("setFusionPlanEnabled", () => {
     } as NativeModule;
     __internals.setNativeModuleOverride(native);
 
-    const session = await initRunMat({ snapshot: { bytes: new Uint8Array([1]) }, enableGpu: false });
+    const session = await initRunMat({ enableGpu: false });
     session.setFusionPlanEnabled(true);
     expect(spy).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("browser project handoff and lock codecs", () => {
+  afterEach(() => {
+    __internals.setNativeModuleOverride(null);
+  });
+
+  it("keeps lock parsing and handoff construction in portable Rust exports", async () => {
+    const lock = { schema_version: 1 };
+    const handoff = { schema_version: 1, project: { graph: "fixed" } };
+    const native: NativeModule = {
+      default: async () => {},
+      initRunMat: async () => createMockNativeSession(),
+      decodePackageLock: vi.fn(() => lock),
+      encodePackageLock: vi.fn(() => "schema_version = 1\n"),
+      handoffFromFrozenProject: vi.fn(() => handoff)
+    } as NativeModule;
+    __internals.setNativeModuleOverride(native);
+
+    await expect(decodePackageLock("schema_version = 1\n")).resolves.toBe(lock);
+    await expect(encodePackageLock(lock)).resolves.toBe("schema_version = 1\n");
+    await expect(handoffFromFrozenProject({ graph: "fixed" })).resolves.toBe(handoff);
+  });
+
+  it("installs and preserves project revision through the session boundary", async () => {
+    const install = vi.fn(() => ({ graph: "sha256:graph", sources: "sha256:sources" }));
+    const clear = vi.fn();
+    const revision = { graph: "sha256:graph", sources: "sha256:sources" };
+    const native: NativeModule = {
+      default: async () => {},
+      initRunMat: async () =>
+        createMockNativeSession({
+          installProjectHandoff: install,
+          clearProjectHandoff: clear,
+          projectRevision: () => revision
+        })
+    } as NativeModule;
+    __internals.setNativeModuleOverride(native);
+
+    const session = await initRunMat({ enableGpu: false });
+    const handoff = { schema_version: 1, project: {} };
+    await expect(session.installProjectHandoff(handoff)).resolves.toEqual(revision);
+    await expect(session.projectRevision()).resolves.toEqual(revision);
+    await session.clearProjectHandoff();
+    expect(install).toHaveBeenCalledWith(handoff);
+    expect(clear).toHaveBeenCalledOnce();
+  });
+});
+
+describe("canonical config authority", () => {
+  afterEach(() => {
+    __internals.setNativeModuleOverride(null);
+  });
+
+  it("delegates resolve, patch, and migration to the Rust/WASM exports", async () => {
+    const resolved = {
+      desktop: { artifacts: { root: ".artifacts" } },
+      runtime: {
+        error_namespace: "RunMat",
+        language: { compat: "runmat" },
+        accelerate: { enabled: true },
+      },
+    };
+    const migration = {
+      source: '[desktop.artifacts]\nroot = ".artifacts"\n',
+      changed: true,
+      removedKeys: ["artifact_root"],
+    };
+    const native: NativeModule = {
+      default: async () => {},
+      initRunMat: async () => createMockNativeSession(),
+      resolveRunmatConfig: vi.fn(() => resolved),
+      patchRunmatConfig: vi.fn(() => "patched"),
+      migrateLegacyRunmatConfig: vi.fn(() => migration),
+      migrateLegacyRunmatConfigInto: vi.fn(() => migration),
+    } as NativeModule;
+    __internals.setNativeModuleOverride(native);
+
+    await expect(resolveRunmatConfig("source", "toml")).resolves.toBe(resolved);
+    await expect(patchRunmatConfig("source", "toml", {})).resolves.toBe(
+      "patched"
+    );
+    await expect(
+      migrateLegacyRunmatConfig("source", "toml")
+    ).resolves.toBe(migration);
+    await expect(
+      migrateLegacyRunmatConfigInto("legacy", "canonical", "toml")
+    ).resolves.toBe(migration);
   });
 });
 

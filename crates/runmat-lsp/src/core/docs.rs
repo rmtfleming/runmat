@@ -1,4 +1,7 @@
-use runmat_builtins::{BuiltinDoc, BuiltinFunction, BuiltinParamType, BuiltinSignatureDescriptor};
+use runmat_builtins::{
+    BuiltinCatalogEntry, BuiltinDoc, BuiltinDocumentationAuthority, BuiltinDocumentationLinkTarget,
+    BuiltinDocumentationStatus, BuiltinFunction, BuiltinParamType, BuiltinSignatureDescriptor,
+};
 use std::fmt::Write as _;
 
 use crate::core::builtins_json;
@@ -112,30 +115,32 @@ fn extract_syntax_from_behaviors(name: &str, behaviors: &[String]) -> Vec<String
 }
 
 fn render_builtin_hover_from_json(
-    func: &BuiltinFunction,
+    name: &str,
+    signature: &str,
+    fallback_description: &str,
     doc: builtins_json::BuiltinDocJson,
 ) -> String {
     let mut out = String::new();
 
-    let _ = writeln!(out, "```runmat\n{}\n```", signature_header(func));
+    let _ = writeln!(out, "```runmat\n{signature}\n```");
 
     // Prefer the builtins-json "description" as the lede when it contains a call form,
     // because it typically already explains the function more concretely than summary/category/keywords.
     let description = doc.description.as_deref().filter(|s| !s.trim().is_empty());
     let use_description_as_lede = description
         .and_then(first_backticked_segment)
-        .is_some_and(|seg| looks_like_call_syntax(seg, func.name));
+        .is_some_and(|seg| looks_like_call_syntax(seg, name));
 
     if use_description_as_lede {
         let normalized = normalize_markdown(description.unwrap().to_string());
         let _ = writeln!(out, "{normalized}\n");
     } else {
-        let title = doc.title.clone().unwrap_or_else(|| func.name.to_string());
+        let title = doc.title.clone().unwrap_or_else(|| name.to_string());
         let summary = doc
             .summary
             .clone()
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| func.description.to_string());
+            .unwrap_or_else(|| fallback_description.to_string());
 
         if !summary.trim().is_empty() {
             let _ = writeln!(out, "**{title}** — {summary}\n");
@@ -156,7 +161,7 @@ fn render_builtin_hover_from_json(
     // Syntax (derived from behaviors or from explicit syntax field).
     let mut syntax: Vec<String> = Vec::new();
     if let Some(behaviors) = doc.behaviors.as_ref() {
-        syntax = extract_syntax_from_behaviors(func.name, behaviors);
+        syntax = extract_syntax_from_behaviors(name, behaviors);
     }
     if !syntax.is_empty() {
         out.push_str("**Syntax**\n\n");
@@ -274,7 +279,7 @@ fn render_builtin_hover_from_json(
     }
 
     // Docs link
-    let slug = doc.title.unwrap_or_else(|| func.name.to_string());
+    let slug = doc.title.unwrap_or_else(|| name.to_string());
     let _ = writeln!(out, "Docs: {}", builtin_doc_url(&slug));
     out
 }
@@ -282,7 +287,12 @@ fn render_builtin_hover_from_json(
 /// Render a Markdown hover string for a builtin function, enriched with metadata.
 pub fn build_builtin_hover(func: &BuiltinFunction) -> String {
     if let Some(doc) = builtins_json::builtin_doc(func.name) {
-        return render_builtin_hover_from_json(func, doc);
+        return render_builtin_hover_from_json(
+            func.name,
+            &signature_header(func),
+            func.description,
+            doc,
+        );
     }
 
     // Fallback: no builtins-json entry available.
@@ -329,6 +339,100 @@ pub fn build_builtin_hover(func: &BuiltinFunction) -> String {
     out
 }
 
+/// Build hover text from the executor-neutral catalog. Catalog-backed builtins
+/// must remain fully discoverable without linking their runtime implementation.
+pub fn build_catalog_hover(entry: &BuiltinCatalogEntry) -> String {
+    let labels = catalog_signature_labels(entry)
+        .unwrap_or_else(|| vec![format!("{}(...)", entry.identity.name)]);
+    if entry.documentation.authority == BuiltinDocumentationAuthority::LegacySidecar {
+        if let Some(doc) = builtins_json::builtin_doc(entry.identity.name) {
+            return render_builtin_hover_from_json(
+                entry.identity.name,
+                &labels.join("\n"),
+                entry.documentation.summary,
+                doc,
+            );
+        }
+    }
+
+    let mut out = String::new();
+    let _ = writeln!(out, "```runmat\n{}\n```", labels.join("\n"));
+    let documentation = &entry.documentation;
+    let title = documentation.title.unwrap_or(entry.identity.name);
+    if !documentation.summary.is_empty() {
+        let _ = writeln!(out, "**{title}** — {}\n", documentation.summary);
+    }
+    if !entry.category.is_empty() {
+        let _ = writeln!(out, "**Category:** {}\n", entry.category);
+    }
+    if !documentation.description.is_empty() {
+        let _ = writeln!(
+            out,
+            "{}\n",
+            normalize_markdown(documentation.description.into())
+        );
+    }
+    for section in documentation.sections {
+        let _ = writeln!(out, "**{}**\n", section.heading);
+        for paragraph in section.paragraphs {
+            let _ = writeln!(out, "{}\n", normalize_markdown((*paragraph).into()));
+        }
+    }
+    if !documentation.examples.is_empty() {
+        out.push_str("**Examples**\n");
+        for example in documentation.examples {
+            let _ = writeln!(out, "\n**{}**", example.title);
+            out.push_str("```matlab\n");
+            out.push_str(example.program.trim_end());
+            out.push_str("\n```\n");
+            if let Some(output) = example.display_output {
+                out.push_str("\nOutput:\n```text\n");
+                out.push_str(output.trim_end());
+                out.push_str("\n```\n");
+            }
+        }
+        out.push('\n');
+    }
+    if !documentation.faqs.is_empty() {
+        out.push_str("**Questions**\n\n");
+        for faq in documentation.faqs {
+            let _ = writeln!(out, "**{}**\n\n{}\n", faq.question, faq.answer);
+        }
+    }
+    let mut related = documentation
+        .related
+        .iter()
+        .map(|name| format!("[{name}]({})", builtin_doc_url(name)))
+        .collect::<Vec<_>>();
+    related.extend(documentation.links.iter().map(|link| {
+        let url = match link.target {
+            BuiltinDocumentationLinkTarget::Builtin(name) => builtin_doc_url(name),
+            BuiltinDocumentationLinkTarget::Documentation(url)
+            | BuiltinDocumentationLinkTarget::Source(url)
+            | BuiltinDocumentationLinkTarget::External(url) => url.to_string(),
+        };
+        format!("[{}]({url})", link.label)
+    }));
+    if !related.is_empty() {
+        let _ = writeln!(out, "**See also**: {}", related.join(", "));
+    }
+    if let Some(status) = documentation.status {
+        let status = match status {
+            BuiltinDocumentationStatus::Stable => "Stable",
+            BuiltinDocumentationStatus::Experimental => "Experimental",
+            BuiltinDocumentationStatus::Partial => "Partial",
+            BuiltinDocumentationStatus::Deprecated => "Deprecated",
+        };
+        let _ = writeln!(out, "**Status:** {status}");
+    }
+    if let Some(introduced) = documentation.introduced {
+        let _ = writeln!(out, "**Since:** {introduced}");
+    }
+    let slug = documentation.slug.unwrap_or(entry.identity.name);
+    let _ = writeln!(out, "\nDocs: {}", builtin_doc_url(slug));
+    out
+}
+
 pub fn completion_signature_label(func: &BuiltinFunction) -> Option<String> {
     let signature = first_signature(func)?;
     let inputs = signature
@@ -355,6 +459,10 @@ pub fn completion_signature_label(func: &BuiltinFunction) -> Option<String> {
     }
 }
 
+pub fn catalog_completion_signature_label(entry: &BuiltinCatalogEntry) -> Option<String> {
+    completion_signature_label_for(entry.identity.name, entry.descriptor.signatures.first()?)
+}
+
 pub fn signature_labels(func: &BuiltinFunction) -> Option<Vec<String>> {
     let descriptor = func.descriptor?;
     let labels = descriptor
@@ -366,6 +474,38 @@ pub fn signature_labels(func: &BuiltinFunction) -> Option<Vec<String>> {
         None
     } else {
         Some(labels)
+    }
+}
+
+pub fn catalog_signature_labels(entry: &BuiltinCatalogEntry) -> Option<Vec<String>> {
+    let labels = entry
+        .descriptor
+        .signatures
+        .iter()
+        .map(|signature| signature.label.to_string())
+        .collect::<Vec<_>>();
+    (!labels.is_empty()).then_some(labels)
+}
+
+fn completion_signature_label_for(
+    name: &str,
+    signature: &BuiltinSignatureDescriptor,
+) -> Option<String> {
+    let inputs = signature
+        .inputs
+        .iter()
+        .map(format_param_for_completion)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let outputs = signature
+        .outputs
+        .iter()
+        .map(|param| param.name.to_string())
+        .collect::<Vec<_>>();
+    match outputs.as_slice() {
+        [] => Some(format!("{name}({inputs})")),
+        [output] => Some(format!("{output} = {name}({inputs})")),
+        _ => Some(format!("[{}] = {name}({inputs})", outputs.join(", "))),
     }
 }
 
@@ -395,6 +535,7 @@ fn format_param_for_completion(param: &runmat_builtins::BuiltinParamDescriptor) 
         BuiltinParamType::StyleSpec => "style",
         BuiltinParamType::PropertyName => "property",
         BuiltinParamType::PropertyValue => "value",
+        BuiltinParamType::Callable => "function",
     };
     format!("{}: {}", param.name, ty)
 }

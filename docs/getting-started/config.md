@@ -1,10 +1,3 @@
----
-title: "Configuration Reference"
-category: "Getting Started"
-section: "1.5"
-last_updated: "May 30, 2026"
----
-
 # Configuration Reference
 
 RunMat utilizes a hierarchical configuration system that manages project-level metadata, source organization, and runtime execution parameters. The configuration is primarily driven by a manifest file (`runmat.toml` or `runmat.json`) and can be overridden by environment variables and CLI arguments.
@@ -79,10 +72,18 @@ utils = { path = "../utils", version = "0.1.0" }
 ```
 
 
-| Field     | Type   | Default | Notes                                                        |
-| --------- | ------ | ------- | ------------------------------------------------------------ |
-| `path`    | string | unset   | Local dependency path. Required for local composition today. |
-| `version` | string | unset   | Version metadata for dependency declaration.                 |
+| Field      | Type   | Default | Notes                                                                  |
+| ---------- | ------ | ------- | ---------------------------------------------------------------------- |
+| `path`     | string | unset   | Local dependency path; mutually exclusive with remote source fields.   |
+| `git`      | string | unset   | Credential-free HTTPS or SSH Git repository URL.                       |
+| `rev`      | string | unset   | Exact Git commit selector.                                             |
+| `tag`      | string | unset   | Mutable Git tag selector; mutually exclusive with `rev` and `branch`.  |
+| `branch`   | string | unset   | Mutable Git branch selector.                                           |
+| `subdir`   | string | `""`    | Package subdirectory inside a Git repository.                          |
+| `project`  | string | unset   | RunMat Server project ID.                                              |
+| `service`  | string | active Server | Credential-free HTTPS Server origin.                             |
+| `snapshot` | string | `main`  | Server snapshot tag or exact `snap_...` ID.                             |
+| `version`  | string | unset   | Version requirement or metadata for the dependency declaration.        |
 
 
 ### `[entrypoints.<name>]`
@@ -118,6 +119,41 @@ runmat run studies/bracket_static.fea
 runmat benchmark main --iterations 25 --jit
 ```
 
+## Desktop Project Reference
+
+Desktop project settings are stored in the same `runmat.toml` or `runmat.json` document as package, source, test, and runtime configuration. Updating Desktop settings preserves unrelated sections and comments.
+
+Legacy `.runmat` settings are migrated automatically into the project’s `runmat.toml` or `runmat.json` file.
+
+```toml
+[desktop.artifacts]
+root = ".artifacts"
+
+[desktop.run_history]
+mode = "budgeted"
+trace = true
+logs = "all"
+
+[desktop.script]
+clear_workspace_before_run = true
+clear_figures_before_run = true
+
+[desktop.notebook]
+on_error = "stop"
+rerun_after_cancel = "remaining"
+```
+
+| Section and key | Type | Default | Allowed values / notes |
+| --- | --- | --- | --- |
+| `desktop.artifacts.root` | string | `".artifacts"` | Project-relative subdirectory; absolute paths, `..`, and overlap with RunMat configuration/internal-state paths are rejected. |
+| `desktop.run_history.mode` | string | `"budgeted"` | `off`, `budgeted`, `full`. |
+| `desktop.run_history.trace` | boolean | `true` | Persists the trace channel with retained runs. |
+| `desktop.run_history.logs` | string | `"all"` | `off`, `errors`, `all`. |
+| `desktop.script.clear_workspace_before_run` | boolean | `true` | Clears workspace state before a script run. |
+| `desktop.script.clear_figures_before_run` | boolean | `true` | Clears figures before a script run. |
+| `desktop.notebook.on_error` | string | `"stop"` | `stop`, `continue`. |
+| `desktop.notebook.rerun_after_cancel` | string | `"remaining"` | `remaining`, `all`. |
+
 ## Runtime Reference
 
 All runtime settings are under `[runtime]`. Runtime settings control the behavior of the RunMat runtime.
@@ -128,9 +164,8 @@ All runtime settings are under `[runtime]`. Runtime settings control the behavio
 | Key               | Type    | Default | Notes                                                                                    |
 | ----------------- | ------- | ------- | ---------------------------------------------------------------------------------------- |
 | `callstack_limit` | integer | `200`   | Max retained call stack frames for diagnostics.                                          |
-| `error_namespace` | string  | `""`    | Error ID namespace. Empty value is normalized at startup by [language compatibility mode](/docs/runtime/getting-started/compatability) (set to `RunMat` in `compat = "runmat"` mode). |
+| `error_namespace` | string  | `""`    | Error ID namespace. Empty value is normalized at startup by [language compatibility mode](/docs/runtime/matlab-compatibility) (set to `RunMat` in `compat = "runmat"` mode). |
 | `verbose`         | boolean | `false` | Enables verbose execution output.                                                        |
-| `snapshot_path`   | string  | unset   | Optional snapshot file to preload.                                                       |
 
 
 ### `[runtime.language]`
@@ -141,7 +176,78 @@ All runtime settings are under `[runtime]`. Runtime settings control the behavio
 | `compat` | string | `"runmat"` | `runmat`, `matlab`, `strict` | Language compatibility mode. |
 
 
-See [MATLAB Language Compatability](/docs/runtime/getting-started/compatability) for more details on runtime language compatibility modes.
+See [MATLAB Language Compatibility](/docs/runtime/matlab-compatibility) for the compatibility modes and [MATLAB Language Extensions](/docs/runtime/getting-started/language-extensions) for the RunMat-only behavior controlled by those modes.
+
+### `[runtime.foreign.mex]`
+
+| Key | Type | Default | Allowed values | Notes |
+| --- | --- | --- | --- | --- |
+| `unmanifested` | string | `"isolate"` | `isolate`, `deny` | Runs supported unmanifested modules in a local extension-host process, or rejects them before startup. |
+| `timeout_ms` | positive integer | unset | — | Terminates an isolated host when an invocation or lifecycle callback exceeds the configured duration. An unset value applies no automatic invocation deadline; clear and shutdown retain a 30-second teardown ceiling. Cancellation also terminates the host. |
+
+Modules with a valid RunMat build manifest retain exact admission and run in the owning session. The `unmanifested` setting applies only to the separately checked binary-compatibility tier; it does not bypass architecture, suffix, or adapter-ABI checks.
+
+Use `[mex-artifacts.<name>]` for a RunMat-built MEX module that belongs to the project. The declaration names the module and its canonical sidecar manifest relative to the package root. RunMat freezes both files, validates their shared identity for the current target, and carries them through packages, native compilation, and remote execution:
+
+```toml
+[mex-artifacts.filters]
+manifest = "mex/filters.mexa64.runmat.json"
+module = "mex/filters.mexa64"
+```
+
+The table name must match the module name recorded by the manifest. The filename suffix remains platform-specific, so packages that support several native targets should select target-specific dependencies or artifacts rather than presenting one binary as portable. Browser resolution rejects packages that require MEX before execution.
+
+### `[runtime.foreign.native]`
+
+| Key | Type | Default | Allowed values | Notes |
+| --- | --- | --- | --- | --- |
+| `isolation` | string | `"process"` | `process`, `in_process` | Runs shared-library calls in a same-executable child host by default. `in_process` is an explicit trusted-code opt-in. |
+| `timeout_ms` | positive integer | unset | — | Terminates the isolated native-library host when one invocation exceeds the configured duration. An unset value applies no automatic invocation deadline; cancellation still terminates the host. |
+
+Process isolation contains native crashes and hangs but does not reduce the library's operating-system permissions. Packaged standalone programs and distributed workers always use the process boundary. See [Native Library Interfaces](/docs/execution/native-libraries) for preparation, packaging, callbacks, and pointer lifetime behavior.
+
+### `[runtime.foreign.java]`
+
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `home` | path | unset | Uses this Java installation instead of `JAVA_HOME` or platform discovery. The path must identify a complete installation with a loadable JVM library. |
+| `minimum_version` | positive integer | `8` | Rejects an older Java runtime before JVM startup. |
+| `maximum_version` | positive integer | unset | Rejects a newer Java runtime before JVM startup. |
+| `classpath` | array of paths | `[]` | Project-owned Java directories and JARs. These form the session's static project classpath; `javaaddpath` manages a separate dynamic layer. |
+| `options` | array of strings | `[]` | JVM startup options. They are immutable after the process JVM starts. |
+
+RunMat starts Java lazily on the first operation that needs the JVM. `jenv` reports the selected installation and load state without starting it, and `javaclasspath` can inspect the configured project and dynamic layers. A process can host only one JVM configuration; a later session must use the same installation and startup options once Java has started.
+
+The Desktop host enables `javaObjectEDT` and `javaMethodEDT` for synchronous AWT Event Dispatch Thread calls. CLI, server, and browser sessions reject EDT operations explicitly. See [Java Interoperability](/docs/runtime/execution/java) for value conversion, classloader, callback, and EDT behavior.
+
+Use `[java-artifacts.<name>]` for JARs that are part of the project rather than local machine configuration. Each entry has one project-relative `path`; RunMat freezes its exact bytes for package, native compilation, and remote execution:
+
+```toml
+[java-artifacts.analysis]
+path = "lib/analysis.jar"
+```
+
+### `[runtime.foreign.python]`
+
+| Key | Type | Default | Allowed values | Notes |
+| --- | --- | --- | --- | --- |
+| `executable` | path | unset | — | Selects a specific CPython executable. |
+| `version` | string | unset | `major.minor` | Requests one CPython feature version. |
+| `minimum_version` | string | `"3.9"` | `major.minor` | Rejects an older interpreter before startup. |
+| `maximum_version` | string | unset | `major.minor` | Rejects a newer interpreter before startup. |
+| `execution_mode` | string | `"in_process"` | `in_process`, `out_of_process` | Chooses direct in-process execution or an isolated child mode of the same `runmat` executable. |
+
+Use `[python-artifacts.<name>]` for a wheel that belongs to the project. `path` is a project-relative `.whl` file and `module` is its top-level import name:
+
+```toml
+[python-artifacts.analysis]
+path = "python/analysis-1.0-py3-none-any.whl"
+module = "analysis"
+```
+
+RunMat freezes and revalidates declared wheels, carries them through packages, native compilation, and remote execution, and materializes them into a session-owned import root. Native wheels remain target-specific. Browser/WASM products reject native CPython requirements before execution. See [Python Interoperability](/docs/runtime/execution/python) for value conversion, isolation, callbacks, datetime behavior, and packaging details.
+
+The isolated extension host contains crashes and can be terminated on cancellation or timeout, but it is not an operating-system security sandbox. An admitted native module has the extension-host process's permissions. Use `unmanifested = "deny"` when only exact, manifest-bound RunMat artifacts should be allowed.
 
 ### `[runtime.jit]`
 
@@ -218,6 +324,7 @@ See [MATLAB Language Compatability](/docs/runtime/getting-started/compatability)
 | `format`     | string  | `"png"` | `png`, `svg`, `pdf`, `html`.     |
 | `dpi`        | integer | `300`   | Raster export DPI.               |
 | `output_dir` | string  | unset   | Default export output directory. |
+| `scene_budget_bytes` | integer | `8388608` | Maximum serialized figure-scene payload size used by Desktop/browser export and replay. |
 
 
 ### `[runtime.fea]`
@@ -343,6 +450,21 @@ verbose = false
 
 [runtime.language]
 compat = "runmat"
+
+[runtime.foreign.mex]
+unmanifested = "isolate"
+# timeout_ms = 300000
+
+[runtime.foreign.native]
+isolation = "process"
+# timeout_ms = 300000
+
+[runtime.foreign.java]
+minimum_version = 8
+# maximum_version = 21
+# home = "/path/to/java/home"
+classpath = []
+options = []
 
 [runtime.jit]
 enabled = true

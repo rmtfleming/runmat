@@ -6,6 +6,8 @@ use runmat_server_client::auth::{
 use runmat_server_client::public_api;
 use uuid::Uuid;
 
+use crate::presentation;
+
 pub async fn list_projects(
     org: Option<Uuid>,
     limit: Option<u32>,
@@ -39,7 +41,14 @@ pub async fn create_project(org: Option<Uuid>, name: String) -> Result<()> {
     let client = build_public_client(&server_url, &token)?;
     let org_id = org_id.to_string();
     let response = client
-        .create_project(&org_id, &public_api::types::ProjectCreateRequest { name })
+        .create_project(
+            &org_id,
+            &public_api::types::ProjectCreateRequest {
+                handle: None,
+                name,
+                visibility: None,
+            },
+        )
         .await
         .map_err(map_public_error)?
         .into_inner();
@@ -68,7 +77,10 @@ pub async fn list_project_members(
         .map_err(map_public_error)?
         .into_inner();
     for member in response.items {
-        println!("{}\t{}\t{}", member.id, member.user_id, member.role);
+        // The membership identifier is sufficient for subsequent membership
+        // operations. Avoid copying the account's internal user identifier to
+        // terminal logs and shell history.
+        println!("{}\t{}", member.id, member.role);
     }
     if let Some(cursor) = response.next_cursor {
         println!("next_cursor\t{cursor}");
@@ -80,6 +92,10 @@ pub async fn select_project(project_id: Uuid) -> Result<()> {
     let mut config = RemoteConfig::load()?;
     config.project_id = Some(project_id);
     config.save()?;
-    println!("Default project set to {project_id}");
+    println!(
+        "{} {}",
+        presentation::stdout().success("Default project set to"),
+        presentation::stdout().identifier(project_id)
+    );
     Ok(())
 }

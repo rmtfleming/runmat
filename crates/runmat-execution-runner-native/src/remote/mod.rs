@@ -1,0 +1,49 @@
+mod attempt_reply;
+mod bundle_cache;
+mod channel;
+mod collective;
+mod config;
+mod crypto;
+mod driver;
+mod gang;
+mod object_transfer;
+mod pool;
+mod pool_execution;
+mod pool_objects;
+mod pool_progress;
+mod pool_reconcile;
+mod pool_resources;
+mod pool_values;
+mod protocol;
+mod protocol_schema;
+mod quic_channel;
+mod relay_channel;
+mod route;
+mod value_transfer;
+mod worker_bundle;
+mod worker_entry;
+mod worker_env;
+mod worker_execution;
+mod worker_protocol;
+mod worker_server;
+
+pub use channel::{
+    RemoteAttempt, RemoteBundleReceipt, RemoteObjectReceipt, RemoteValueReceipt,
+    RemoteWorkerChannel,
+};
+pub use driver::run_remote_driver_from_env;
+pub use gang::{RemoteSpmdGangCompletion, RemoteSpmdGangProgram};
+pub use pool::RemotePoolDriver;
+pub use pool_progress::RemoteTaskCompletion;
+pub use quic_channel::{QuicRemoteWorkerChannel, RemoteWorkerChannelConfig};
+pub use relay_channel::RelayRemoteWorkerChannel;
+pub use worker_entry::{
+    run_remote_meshing_worker_quic, run_remote_worker_quic, run_remote_worker_relay,
+    RemoteWorkerRelayRequest,
+};
+pub use worker_env::run_remote_worker_from_env;
+
+#[cfg(test)]
+mod pool_tests;
+#[cfg(test)]
+mod tests;

@@ -7,11 +7,12 @@ use runmat_config::runtime::{
 };
 
 use crate::app::dispatch;
-use crate::cli::{Cli, CliOverrideSources, GcPreset, LogLevel, OptLevel};
+use crate::cli::{Cli, CliOverrideSources, Commands, GcPreset, LogLevel, OptLevel};
 use crate::logging::format_log_record;
 use crate::telemetry;
 
 pub async fn run_cli(cli: Cli, sources: CliOverrideSources) -> Result<()> {
+    crate::presentation::initialize(cli.color, crate::presentation::cli_output_mode(&cli));
     if cli.generate_config {
         let sample_config = ConfigLoader::generate_sample_config();
         println!("{sample_config}");
@@ -43,20 +44,29 @@ pub async fn run_cli(cli: Cli, sources: CliOverrideSources) -> Result<()> {
         .format(format_log_record)
         .init();
 
-    let accel_options: AccelerateInitOptions = (&config.accelerate).into();
-    runmat_accelerate::initialize_acceleration_provider_with(&accel_options);
-
     info!("RunMat v{} starting", env!("CARGO_PKG_VERSION"));
     debug!("Configuration loaded: {config:?}");
 
     configure_gc_from_config(&config)?;
-    configure_plotting_from_config(&config);
-    configure_analysis_from_config(&config)?;
-    report_plot_context_status(&config);
+
+    let compilation_only = matches!(
+        cli.command,
+        Some(Commands::Compile { .. } | Commands::NativeInterface { .. })
+    );
+    if !compilation_only {
+        let accel_options: AccelerateInitOptions = (&config.accelerate).into();
+        runmat_accelerate::initialize_acceleration_provider_with(&accel_options);
+
+        configure_plotting_from_config(&config);
+        configure_analysis_from_config(&config)?;
+        report_plot_context_status(&config);
+    }
 
     let wants_gui = match config.plotting.mode {
-        PlotMode::Gui => true,
-        PlotMode::Auto => !config.plotting.force_headless && is_gui_available(),
+        PlotMode::Gui => !compilation_only,
+        PlotMode::Auto => {
+            !compilation_only && !config.plotting.force_headless && is_gui_available()
+        }
         PlotMode::Headless => false,
     };
 
@@ -150,9 +160,6 @@ fn apply_cli_overrides(config: &mut RunMatRuntimeConfig, cli: &Cli, sources: &Cl
     }
     if sources.verbose {
         config.runtime.verbose = cli.verbose;
-    }
-    if let Some(snapshot) = &cli.snapshot {
-        config.runtime.snapshot_path = Some(snapshot.clone());
     }
     if config.runtime.error_namespace.trim().is_empty() {
         config.runtime.error_namespace =

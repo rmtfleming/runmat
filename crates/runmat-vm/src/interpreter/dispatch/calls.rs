@@ -1,83 +1,67 @@
 use crate::bytecode::instr::PropertyDefaultLiteral;
-use crate::bytecode::ArgSpec;
 use crate::call::builtins as call_builtins;
 use crate::call::builtins::ImportedBuiltinResolution;
 use crate::call::closures as call_closures;
-use crate::call::descriptor::{execute_callable_descriptor, CallableCallKind, CallableDescriptor};
-use crate::call::shared::{build_expanded_args_from_specs, expand_brace_values};
+use crate::call::shared::build_expanded_args_from_specs;
 use crate::interpreter::debug;
 use crate::interpreter::dispatch::exceptions::{redirect_exception_to_catch, ExceptionHandling};
 use crate::object::class_def as obj_class_def;
-use crate::object::resolve as obj_resolve;
-use runmat_builtins::{Access, MException, Value};
 use runmat_hir::{CallableFallbackPolicy, CallableIdentity};
+use runmat_runtime::call::arguments::ArgumentSpec;
+use runmat_runtime::call::descriptor::{
+    execute_callable_descriptor, CallableCallKind, CallableDescriptor,
+};
+use runmat_runtime::object::resolve as obj_resolve;
 use runmat_runtime::RuntimeError;
+use runmat_types::MemberAccess;
+use runmat_value::{MException, Value};
 
 pub enum BuiltinHandling {
-    Completed,
+    Completed(runmat_value::ValueSequence),
     Caught,
     Uncaught(Box<RuntimeError>),
 }
 
 pub enum MethodHandling {
     Completed,
+    Outputs(runmat_value::ValueSequence),
 }
 
 pub enum UserCallHandling {
-    Completed,
+    Completed(runmat_value::ValueSequence),
     Caught,
     Uncaught(Box<RuntimeError>),
 }
 
-fn current_class_context_from_function_name(current_function_name: &str) -> Option<String> {
-    if current_function_name.is_empty() {
-        return None;
-    }
-    if let Some((class_name, method_name)) = current_function_name.rsplit_once('.') {
-        if !class_name.is_empty()
-            && !method_name.is_empty()
-            && runmat_builtins::get_class(class_name).is_some()
-        {
-            return Some(class_name.to_string());
-        }
-    }
-    runmat_builtins::class_names()
-        .into_iter()
-        .find(|class_name| {
-            runmat_builtins::get_class(class_name).is_some_and(|class_def| {
-                class_def.methods.values().any(|method| {
-                    method.function_name == current_function_name
-                        || method
-                            .function_name
-                            .strip_prefix(class_name)
-                            .is_some_and(|suffix| {
-                                suffix
-                                    .strip_prefix('.')
-                                    .is_some_and(|name| name == current_function_name)
-                            })
-                        || method
-                            .function_name
-                            .rsplit_once('.')
-                            .is_some_and(|(_, name)| name == current_function_name)
-                })
-            })
-        })
+pub(super) fn publish_fixed_outputs(
+    stack: &mut Vec<Value>,
+    sequence: runmat_value::ValueSequence,
+    requested_outputs: impl std::borrow::Borrow<usize>,
+) -> Result<(), RuntimeError> {
+    use runmat_runtime::sequence::ResolveValueSequence;
+
+    let requested_outputs = *requested_outputs.borrow();
+    let values = sequence.resolve(
+        runmat_types::SequenceUse::SelectPrefix {
+            count: requested_outputs,
+        },
+        runmat_runtime::sequence::SequenceResolutionContext::default(),
+    )?;
+    stack.extend(values);
+    Ok(())
 }
 
-pub(crate) fn normalize_requested_outputs(value: Value, requested_outputs: usize) -> Value {
-    // Preserve values for non-singleton requests (including zero). Statement-level
-    // display/public-result policy is decided later by core/session plumbing.
-    if requested_outputs != 1 {
-        return value;
-    }
-    match value {
-        Value::OutputList(mut values) if values.len() == 1 => values.remove(0),
-        other => other,
-    }
+pub struct MethodExpandCallContext<'a> {
+    pub identity: CallableIdentity,
+    pub fallback_policy: CallableFallbackPolicy,
+    pub specs: &'a [ArgumentSpec],
+    pub requested_outputs: usize,
+    pub current_function_name: &'a str,
+    pub runtime: &'a runmat_runtime::context::RuntimeContext,
 }
 
 pub struct ExceptionRouteContext<'a> {
-    pub try_stack: &'a mut Vec<(usize, Option<usize>)>,
+    pub try_stack: &'a mut Vec<crate::interpreter::state::ActiveTryHandler>,
     pub vars: &'a mut Vec<Value>,
     pub last_exception: &'a mut Option<MException>,
     pub pc: &'a mut usize,
@@ -125,16 +109,19 @@ pub struct WorkspaceFirstCallContext<'a> {
 
 fn imported_static_method_owner(
     imports: &[(Vec<String>, bool)],
-    method_name: &str,
-) -> Result<Option<String>, RuntimeError> {
+    method_name: &runmat_types::MethodName,
+) -> Result<Option<runmat_types::ClassIdentity>, RuntimeError> {
     let mut owners = Vec::new();
     for (path, wildcard) in imports {
         if *wildcard {
             if path.is_empty() {
                 continue;
             }
-            let class_name = path.join(".");
-            if let Some((method, owner)) = runmat_builtins::lookup_method(&class_name, method_name)
+            let class_name = runmat_types::ClassIdentity::new(path.join(".")).map_err(|error| {
+                crate::interpreter::errors::mex("InvalidClassIdentity", &error.to_string())
+            })?;
+            if let Some((method, owner)) =
+                runmat_runtime::class_registry::lookup_method(&class_name, method_name)
             {
                 if method.is_static && !owners.iter().any(|existing| existing == &owner) {
                     owners.push(owner);
@@ -142,11 +129,16 @@ fn imported_static_method_owner(
             }
             continue;
         }
-        if path.len() < 2 || path[path.len() - 1] != method_name {
+        if path.len() < 2 || path[path.len() - 1] != method_name.display_name() {
             continue;
         }
-        let class_name = path[..path.len() - 1].join(".");
-        if let Some((method, owner)) = runmat_builtins::lookup_method(&class_name, method_name) {
+        let class_name = runmat_types::ClassIdentity::new(path[..path.len() - 1].join("."))
+            .map_err(|error| {
+                crate::interpreter::errors::mex("InvalidClassIdentity", &error.to_string())
+            })?;
+        if let Some((method, owner)) =
+            runmat_runtime::class_registry::lookup_method(&class_name, method_name)
+        {
             if method.is_static && !owners.iter().any(|existing| existing == &owner) {
                 owners.push(owner);
             }
@@ -158,7 +150,11 @@ fn imported_static_method_owner(
             &format!(
                 "ambiguous static method '{}' via imports: {}",
                 method_name,
-                owners.join(", ")
+                owners
+                    .iter()
+                    .map(runmat_types::ClassIdentity::display_name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         ));
     }
@@ -167,54 +163,36 @@ fn imported_static_method_owner(
 
 pub async fn build_builtin_expand_multi_args(
     stack: &mut Vec<Value>,
-    specs: &[ArgSpec],
+    specs: &[ArgumentSpec],
+    sequence_state: &mut super::SequenceState,
+    runtime: &runmat_runtime::context::RuntimeContext,
 ) -> Result<Vec<Value>, RuntimeError> {
-    build_expanded_args_from_specs(
-        stack,
-        specs,
-        "CallBuiltinExpandMulti requires cell or object for expand_all",
-        "CallBuiltinExpandMulti requires cell or object cell access",
-        |base| async move { expand_brace_values(base, &[], None).await },
-        |base, indices| async move { expand_brace_values(base, &indices, None).await },
-    )
-    .await
+    build_expanded_args_from_specs(stack, specs, sequence_state, runtime).await
 }
 
 pub async fn build_feval_expand_multi_args(
     stack: &mut Vec<Value>,
-    specs: &[ArgSpec],
+    specs: &[ArgumentSpec],
+    sequence_state: &mut super::SequenceState,
+    runtime: &runmat_runtime::context::RuntimeContext,
 ) -> Result<Vec<Value>, RuntimeError> {
-    build_expanded_args_from_specs(
-        stack,
-        specs,
-        "CallFevalExpandMulti requires cell or object for expand_all",
-        "CallFevalExpandMulti requires cell or object cell access",
-        |base| async move { expand_brace_values(base, &[], None).await },
-        |base, indices| async move { expand_brace_values(base, &indices, None).await },
-    )
-    .await
+    build_expanded_args_from_specs(stack, specs, sequence_state, runtime).await
 }
 
 pub async fn build_user_function_expand_multi_args(
     stack: &mut Vec<Value>,
-    specs: &[ArgSpec],
+    specs: &[ArgumentSpec],
+    sequence_state: &mut super::SequenceState,
+    runtime: &runmat_runtime::context::RuntimeContext,
 ) -> Result<Vec<Value>, RuntimeError> {
-    build_expanded_args_from_specs(
-        stack,
-        specs,
-        "CallFunctionExpandMultiOutput requires cell or object for expand_all",
-        "CallFunctionExpandMultiOutput requires cell or object cell access",
-        |base| async move { expand_brace_values(base, &[], None).await },
-        |base, indices| async move { expand_brace_values(base, &indices, None).await },
-    )
-    .await
+    build_expanded_args_from_specs(stack, specs, sequence_state, runtime).await
 }
 
 pub fn handle_builtin_outcome(
     result: Result<Value, RuntimeError>,
     imported: ImportedBuiltinResolution,
-    output_hint: usize,
-    stack: &mut Vec<Value>,
+    _output_hint: usize,
+    _stack: &mut Vec<Value>,
     ctx: ExceptionRouteContext<'_>,
     refresh_vars: impl Fn(&[Value]),
 ) -> Result<BuiltinHandling, RuntimeError> {
@@ -226,13 +204,13 @@ pub fn handle_builtin_outcome(
     } = ctx;
     match result {
         Ok(result) => {
-            stack.push(normalize_requested_outputs(result, output_hint));
-            Ok(BuiltinHandling::Completed)
+            let sequence = runmat_runtime::call::arguments::adapt_legacy_builtin_result(result)?;
+            Ok(BuiltinHandling::Completed(sequence))
         }
         Err(err) => match imported {
             ImportedBuiltinResolution::Resolved(value) => {
-                stack.push(normalize_requested_outputs(value, output_hint));
-                Ok(BuiltinHandling::Completed)
+                let sequence = runmat_runtime::call::arguments::adapt_legacy_builtin_result(value)?;
+                Ok(BuiltinHandling::Completed(sequence))
             }
             ImportedBuiltinResolution::Ambiguous(err) => Err(err),
             ImportedBuiltinResolution::NotFound => Ok(
@@ -318,7 +296,8 @@ async fn handle_builtin_call_inner(
 
     let _callsite_guard = runmat_runtime::callsite::push_callsite(source_id, call_arg_spans);
     let _output_guard = runmat_runtime::output_context::push_output_count(requested_outputs);
-    let current_class_context = current_class_context_from_function_name(current_function_name);
+    let current_class_context =
+        runmat_runtime::class_registry::class_context_for_function(current_function_name);
     let _access_guard = current_class_context
         .map(|class_name| runmat_runtime::push_class_access_context(Some(class_name)));
 
@@ -359,7 +338,7 @@ pub async fn handle_prepared_user_function_call(
     refresh_vars: impl Fn(&[Value]),
 ) -> Result<UserCallHandling, RuntimeError> {
     let UserCallContext {
-        stack,
+        stack: _,
         identity,
         fallback_policy,
         out_count,
@@ -369,7 +348,8 @@ pub async fn handle_prepared_user_function_call(
         imports,
         exception,
     } = ctx;
-    let current_class_context = current_class_context_from_function_name(current_function_name);
+    let current_class_context =
+        runmat_runtime::class_registry::class_context_for_function(current_function_name);
     let _function_input_callsite_guard =
         runmat_runtime::callsite::push_function_input_callsite(source_id, call_arg_spans);
     let ExceptionRouteContext {
@@ -387,31 +367,44 @@ pub async fn handle_prepared_user_function_call(
                 .map(|segment| segment.0.as_str())
                 .collect::<Vec<_>>()
                 .join(".");
-            Some((class_name, segments[segments.len() - 1].0.clone()))
+            Some((
+                runmat_types::ClassIdentity::new(class_name).map_err(|error| {
+                    crate::interpreter::errors::mex("InvalidClassIdentity", &error.to_string())
+                })?,
+                runmat_types::MethodName::from(segments[segments.len() - 1].0.as_str()),
+            ))
         }
         runmat_hir::CallableIdentity::DynamicName(runmat_hir::SymbolName(name))
             if name.contains('.') =>
         {
             name.rsplit_once('.')
-                .map(|(class_name, method_name)| (class_name.to_string(), method_name.to_string()))
+                .map(|(class_name, method_name)| {
+                    runmat_types::ClassIdentity::new(class_name)
+                        .map(|class_name| (class_name, runmat_types::MethodName::from(method_name)))
+                })
+                .transpose()
+                .map_err(|error| {
+                    crate::interpreter::errors::mex("InvalidClassIdentity", &error.to_string())
+                })?
         }
         _ => None,
     };
     if current_class_context.is_some() {
         if let Some((class_name, method_name)) = static_candidate {
-            if runmat_builtins::get_class(&class_name).is_some() {
+            if runmat_runtime::class_registry::get_class(&class_name).is_some() {
                 if let Some((method, owner)) =
-                    runmat_builtins::lookup_method(&class_name, &method_name)
+                    runmat_runtime::class_registry::lookup_method(&class_name, &method_name)
                 {
                     if method.is_static {
                         let allowed = match method.access {
-                            Access::Public => true,
-                            Access::Private => {
-                                current_class_context.as_deref() == Some(owner.as_str())
-                            }
-                            Access::Protected => {
+                            MemberAccess::Public => true,
+                            MemberAccess::Private => current_class_context.as_ref() == Some(&owner),
+                            MemberAccess::Protected => {
                                 current_class_context.as_ref().is_some_and(|caller_class| {
-                                    runmat_builtins::is_class_or_subclass(caller_class, &owner)
+                                    runmat_runtime::class_registry::is_class_or_subclass(
+                                        caller_class,
+                                        &owner,
+                                    )
                                 })
                             }
                         };
@@ -444,8 +437,7 @@ pub async fn handle_prepared_user_function_call(
                             CallableCallKind::Direct,
                         );
                         let result = execute_callable_descriptor(static_descriptor).await?;
-                        stack.push(normalize_requested_outputs(result, out_count));
-                        return Ok(UserCallHandling::Completed);
+                        return Ok(UserCallHandling::Completed(result));
                     }
                 }
             }
@@ -456,12 +448,12 @@ pub async fn handle_prepared_user_function_call(
         runmat_hir::CallableIdentity::DynamicName(runmat_hir::SymbolName(name))
             if !name.contains('.') && !name.trim().is_empty() =>
         {
-            Some(name.trim().to_string())
+            Some(runmat_types::MethodName::from(name.trim()))
         }
         runmat_hir::CallableIdentity::ExternalName(runmat_hir::QualifiedName(segments))
             if segments.len() == 1 && !segments[0].0.trim().is_empty() =>
         {
-            Some(segments[0].0.trim().to_string())
+            Some(runmat_types::MethodName::from(segments[0].0.trim()))
         }
         _ => None,
     };
@@ -469,14 +461,19 @@ pub async fn handle_prepared_user_function_call(
         current_class_context.as_ref(),
         local_method_candidate.as_ref(),
     ) {
-        if let Some((method, owner)) = runmat_builtins::lookup_method(class_name, method_name) {
+        if let Some((method, owner)) =
+            runmat_runtime::class_registry::lookup_method(class_name, method_name)
+        {
             if method.is_static {
                 let allowed = match method.access {
-                    Access::Public => true,
-                    Access::Private => current_class_context.as_deref() == Some(owner.as_str()),
-                    Access::Protected => {
+                    MemberAccess::Public => true,
+                    MemberAccess::Private => current_class_context.as_ref() == Some(&owner),
+                    MemberAccess::Protected => {
                         current_class_context.as_ref().is_some_and(|caller_class| {
-                            runmat_builtins::is_class_or_subclass(caller_class, &owner)
+                            runmat_runtime::class_registry::is_class_or_subclass(
+                                caller_class,
+                                &owner,
+                            )
                         })
                     }
                 };
@@ -507,22 +504,25 @@ pub async fn handle_prepared_user_function_call(
                     CallableCallKind::Direct,
                 );
                 let result = execute_callable_descriptor(static_descriptor).await?;
-                stack.push(normalize_requested_outputs(result, out_count));
-                return Ok(UserCallHandling::Completed);
+                return Ok(UserCallHandling::Completed(result));
             }
         }
     }
     if let Some(method_name) = local_method_candidate.as_ref() {
         if let Some(owner_class) = imported_static_method_owner(imports, method_name)? {
-            if let Some((method, owner)) = runmat_builtins::lookup_method(&owner_class, method_name)
+            if let Some((method, owner)) =
+                runmat_runtime::class_registry::lookup_method(&owner_class, method_name)
             {
                 if method.is_static {
                     let allowed = match method.access {
-                        Access::Public => true,
-                        Access::Private => current_class_context.as_deref() == Some(owner.as_str()),
-                        Access::Protected => {
+                        MemberAccess::Public => true,
+                        MemberAccess::Private => current_class_context.as_ref() == Some(&owner),
+                        MemberAccess::Protected => {
                             current_class_context.as_ref().is_some_and(|caller_class| {
-                                runmat_builtins::is_class_or_subclass(caller_class, &owner)
+                                runmat_runtime::class_registry::is_class_or_subclass(
+                                    caller_class,
+                                    &owner,
+                                )
                             })
                         }
                     };
@@ -553,8 +553,7 @@ pub async fn handle_prepared_user_function_call(
                         CallableCallKind::Direct,
                     );
                     let result = execute_callable_descriptor(static_descriptor).await?;
-                    stack.push(normalize_requested_outputs(result, out_count));
-                    return Ok(UserCallHandling::Completed);
+                    return Ok(UserCallHandling::Completed(result));
                 }
             }
         }
@@ -571,10 +570,7 @@ pub async fn handle_prepared_user_function_call(
         .clone()
         .map(|class_name| runmat_runtime::push_class_access_context(Some(class_name)));
     match execute_callable_descriptor(descriptor).await {
-        Ok(result) => {
-            stack.push(normalize_requested_outputs(result, out_count));
-            Ok(UserCallHandling::Completed)
-        }
+        Ok(result) => Ok(UserCallHandling::Completed(result)),
         Err(err) => Ok(
             match redirect_exception_to_catch(
                 err,
@@ -622,13 +618,15 @@ pub async fn handle_workspace_first_prepared_call(
 
     if let Some(base) = crate::runtime::workspace::workspace_lookup(workspace_name) {
         if bare_identifier && args.is_empty() {
-            stack.push(normalize_requested_outputs(base, out_count));
-            return Ok(UserCallHandling::Completed);
+            return Ok(UserCallHandling::Completed(
+                runmat_value::ValueSequence::single(base)
+                    .map_err(runmat_runtime::sequence::sequence_error_to_runtime)?,
+            ));
         }
         let _callsite_guard = runmat_runtime::callsite::push_callsite(source_id, call_arg_spans);
         let _output_guard = runmat_runtime::output_context::push_output_count(out_count);
         let result =
-            super::indexing::paren_index_value(base, args, out_count, function_registry).await;
+            super::indexing::paren_index_sequence(base, args, out_count, function_registry).await;
         let ExceptionRouteContext {
             try_stack,
             vars,
@@ -636,10 +634,7 @@ pub async fn handle_workspace_first_prepared_call(
             pc,
         } = exception;
         return match result {
-            Ok(value) => {
-                stack.push(normalize_requested_outputs(value, out_count));
-                Ok(UserCallHandling::Completed)
-            }
+            Ok(sequence) => Ok(UserCallHandling::Completed(sequence)),
             Err(err) => Ok(
                 match redirect_exception_to_catch(
                     err,
@@ -677,8 +672,9 @@ pub async fn handle_workspace_first_prepared_call(
             } = exception;
             return match result {
                 Ok(value) => {
-                    stack.push(normalize_requested_outputs(value, out_count));
-                    Ok(UserCallHandling::Completed)
+                    let sequence =
+                        runmat_runtime::call::arguments::adapt_legacy_builtin_result(value)?;
+                    Ok(UserCallHandling::Completed(sequence))
                 }
                 Err(err) => Ok(
                     match redirect_exception_to_catch(
@@ -744,31 +740,36 @@ async fn handle_method_or_member_index_call_inner(
 ) -> Result<MethodHandling, RuntimeError> {
     let (base, args) = call_closures::collect_method_args(stack, arg_count)?;
     let _output_guard = runmat_runtime::output_context::push_output_count(requested_outputs);
-    let current_class_context = current_class_context_from_function_name(current_function_name);
+    let current_class_context =
+        runmat_runtime::class_registry::class_context_for_function(current_function_name);
     let _access_guard = current_class_context
         .map(|class_name| runmat_runtime::push_class_access_context(Some(class_name)));
-    let value = call_closures::call_method_or_member_index_with_outputs(
-        base,
-        identity,
-        args,
-        requested_outputs,
-        (!current_function_name.is_empty()).then_some(current_function_name),
-        fallback_policy,
+    let outputs = Box::pin(
+        runmat_runtime::object::dispatch::call_method_or_member_index_with_outputs(
+            base,
+            identity,
+            args,
+            requested_outputs,
+            (!current_function_name.is_empty()).then_some(current_function_name),
+            fallback_policy,
+        ),
     )
     .await?;
-    stack.push(normalize_requested_outputs(value, requested_outputs));
-    Ok(MethodHandling::Completed)
+    Ok(MethodHandling::Outputs(outputs))
 }
 
 pub async fn handle_method_or_member_index_expand_multi_call(
     stack: &mut Vec<Value>,
-    identity: CallableIdentity,
-    fallback_policy: CallableFallbackPolicy,
-    specs: &[ArgSpec],
-    requested_outputs: usize,
-    current_function_name: &str,
+    sequence_state: &mut super::SequenceState,
+    context: MethodExpandCallContext<'_>,
 ) -> Result<MethodHandling, RuntimeError> {
-    let mut args = build_user_function_expand_multi_args(stack, specs).await?;
+    let mut args = build_user_function_expand_multi_args(
+        stack,
+        context.specs,
+        sequence_state,
+        context.runtime,
+    )
+    .await?;
     if args.is_empty() {
         return Err(crate::interpreter::errors::mex(
             "MethodCallMissingReceiver",
@@ -776,21 +777,24 @@ pub async fn handle_method_or_member_index_expand_multi_call(
         ));
     }
     let base = args.remove(0);
-    let _output_guard = runmat_runtime::output_context::push_output_count(requested_outputs);
-    let current_class_context = current_class_context_from_function_name(current_function_name);
+    let _output_guard =
+        runmat_runtime::output_context::push_output_count(context.requested_outputs);
+    let current_class_context =
+        runmat_runtime::class_registry::class_context_for_function(context.current_function_name);
     let _access_guard = current_class_context
         .map(|class_name| runmat_runtime::push_class_access_context(Some(class_name)));
-    let value = call_closures::call_method_or_member_index_with_outputs(
-        base,
-        identity,
-        args,
-        requested_outputs,
-        (!current_function_name.is_empty()).then_some(current_function_name),
-        fallback_policy,
+    let outputs = Box::pin(
+        runmat_runtime::object::dispatch::call_method_or_member_index_with_outputs(
+            base,
+            context.identity,
+            args,
+            context.requested_outputs,
+            (!context.current_function_name.is_empty()).then_some(context.current_function_name),
+            context.fallback_policy,
+        ),
     )
     .await?;
-    stack.push(normalize_requested_outputs(value, requested_outputs));
-    Ok(MethodHandling::Completed)
+    Ok(MethodHandling::Outputs(outputs))
 }
 
 pub fn handle_load_method(
@@ -799,7 +803,7 @@ pub fn handle_load_method(
     current_function_name: &str,
 ) -> Result<MethodHandling, RuntimeError> {
     let base = crate::interpreter::stack::pop_value(stack)?;
-    let value = call_closures::load_method_closure(
+    let value = runmat_runtime::call::closures::load_method_closure(
         base,
         name,
         (!current_function_name.is_empty()).then_some(current_function_name),
@@ -829,49 +833,42 @@ pub fn handle_create_semantic_closure(
 
 pub fn handle_load_static_property(
     stack: &mut Vec<Value>,
-    class_name: &str,
+    class_identity: &runmat_types::ClassIdentity,
     prop: &str,
 ) -> Result<MethodHandling, RuntimeError> {
-    let value = obj_resolve::load_static_member(class_name, prop, None)?;
+    let value = obj_resolve::load_static_member(class_identity, prop, None)?;
     stack.push(value);
     Ok(MethodHandling::Completed)
 }
 
 pub fn handle_register_class(
-    name: String,
-    super_class: Option<String>,
+    name: runmat_types::ClassIdentity,
+    super_class: Option<runmat_types::ClassIdentity>,
     is_sealed: bool,
     is_abstract: bool,
-    properties: Vec<(
-        String,
-        bool,
-        bool,
-        Option<PropertyDefaultLiteral>,
-        String,
-        String,
-    )>,
-    methods: Vec<(String, String, bool, bool, bool, String)>,
+    properties: Vec<crate::bytecode::instr::BytecodeClassProperty>,
+    methods: Vec<crate::bytecode::instr::BytecodeClassMethod>,
     enumerations: Vec<String>,
 ) -> Result<MethodHandling, RuntimeError> {
     let properties = properties
         .into_iter()
-        .map(
-            |(name, is_static, is_constant, default_literal, get_access, set_access)| {
-                let default_value = default_literal.map(|literal| match literal {
-                    PropertyDefaultLiteral::Num(value) => Value::Num(value),
-                    PropertyDefaultLiteral::Bool(value) => Value::Bool(value),
-                    PropertyDefaultLiteral::String(value) => Value::String(value),
-                });
-                (
-                    name,
-                    is_static,
-                    is_constant,
-                    default_value,
-                    get_access,
-                    set_access,
-                )
-            },
-        )
+        .map(|property| {
+            let default_value = property.default_literal.map(|literal| match literal {
+                PropertyDefaultLiteral::Num(value) => Value::Num(value),
+                PropertyDefaultLiteral::Int(value) => Value::Int(value),
+                PropertyDefaultLiteral::Bool(value) => Value::Bool(value),
+                PropertyDefaultLiteral::String(value) => Value::String(value),
+            });
+            crate::object::class_def::RuntimeClassPropertyRegistration {
+                name: property.name,
+                is_static: property.is_static,
+                is_constant: property.is_constant,
+                is_dependent: property.is_dependent,
+                default_value,
+                get_access: property.get_access,
+                set_access: property.set_access,
+            }
+        })
         .collect();
     obj_class_def::register_class(
         name,
@@ -887,26 +884,50 @@ pub fn handle_register_class(
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_builtin_outcome, normalize_requested_outputs, ExceptionRouteContext};
+    use super::{handle_builtin_outcome, publish_fixed_outputs, ExceptionRouteContext};
     use crate::call::builtins::ImportedBuiltinResolution;
     use crate::interpreter::errors::mex;
-    use runmat_builtins::Value;
+    use runmat_value::Value;
 
     #[test]
-    fn normalize_requested_outputs_collapses_singleton_for_single_request() {
-        let value = normalize_requested_outputs(Value::OutputList(vec![Value::Num(7.0)]), 1);
-        assert_eq!(value, Value::Num(7.0));
+    fn fixed_outputs_publish_values_without_a_transient_carrier() {
+        let mut stack = Vec::new();
+        publish_fixed_outputs(
+            &mut stack,
+            runmat_value::ValueSequence::comma_separated(vec![Value::Num(7.0)]).unwrap(),
+            1,
+        )
+        .unwrap();
+        assert_eq!(stack, vec![Value::Num(7.0)]);
     }
 
     #[test]
-    fn normalize_requested_outputs_preserves_value_for_zero_request() {
-        let value = normalize_requested_outputs(Value::Num(7.0), 0);
-        assert_eq!(value, Value::Num(7.0));
+    fn fixed_zero_outputs_leave_no_stack_value() {
+        let mut stack = Vec::new();
+        publish_fixed_outputs(
+            &mut stack,
+            runmat_value::ValueSequence::single(Value::Num(7.0)).unwrap(),
+            0,
+        )
+        .unwrap();
+        assert!(stack.is_empty());
+    }
+
+    #[test]
+    fn checked_sequence_rejects_nested_legacy_carriers_before_publication() {
+        let error = runmat_value::ValueSequence::comma_separated(vec![Value::OutputList(vec![
+            Value::Num(7.0),
+        ])])
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            runmat_value::ValueSequenceError::TransientValue(_)
+        ));
     }
 
     #[test]
     fn handle_builtin_outcome_preserves_ambiguous_import_identifier() {
-        let mut try_stack: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut try_stack: Vec<crate::interpreter::state::ActiveTryHandler> = Vec::new();
         let mut vars: Vec<Value> = Vec::new();
         let mut last_exception = None;
         let mut pc = 0usize;

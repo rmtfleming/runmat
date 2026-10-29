@@ -2,15 +2,46 @@
 mod test_helpers;
 
 use runmat_accelerate::ShapeInfo;
-use runmat_builtins::Value;
-use runmat_vm::{EndExpr, Instr};
+use runmat_value::{IntegerStorage, Value};
+use runmat_vm::Instr;
 use std::convert::TryInto;
+use std::path::Path;
 use test_helpers::compile_source;
 use test_helpers::interpret;
 
 fn execute_source(source: &str) -> Vec<Value> {
     let bytecode = compile_source(source).expect("compile source");
     interpret(&bytecode).expect("execute bytecode")
+}
+
+fn execute_source_result(source: &str) -> Result<Vec<Value>, Box<runmat_runtime::RuntimeError>> {
+    let bytecode = compile_source(source).expect("compile source");
+    interpret(&bytecode).map_err(Box::new)
+}
+
+fn is_expand_all_cell_contents(
+    spec: &runmat_runtime::call::arguments::ArgumentSpec,
+    expected_num_indices: usize,
+) -> bool {
+    use runmat_runtime::call::arguments::{ArgumentExpansionSpec, ArgumentSpec};
+
+    match spec {
+        ArgumentSpec::Expansion(ArgumentExpansionSpec::CellContents {
+            num_indices,
+            expand_all,
+        }) => *expand_all && *num_indices == expected_num_indices,
+        ArgumentSpec::Single
+        | ArgumentSpec::CapturedSequence { .. }
+        | ArgumentSpec::Expansion(
+            ArgumentExpansionSpec::ReturnedOutputs
+            | ArgumentExpansionSpec::Member(_)
+            | ArgumentExpansionSpec::DynamicMember,
+        ) => false,
+    }
+}
+
+fn matlab_single_quoted_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\'', "''")
 }
 
 #[test]
@@ -21,6 +52,97 @@ fn arithmetic_and_assignment() {
     let y: f64 = (&vars[1]).try_into().unwrap();
     assert_eq!(x, 3.0);
     assert_eq!(y, 9.0);
+}
+
+#[test]
+fn compiled_bsxfun_preserves_exact_integer_and_native_single_results() {
+    let vars = execute_source(
+        "base = uint64(9007199254740992); a = [base+uint64(1);base+uint64(3)]; c = bsxfun(@plus,a,uint64(1)); p = bsxfun(@gt,a,base+uint64(2)); s = bsxfun(@plus,single([1 2]),single(1));",
+    );
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor)
+            if tensor.integer_storage()
+                == Some(&IntegerStorage::U64(vec![9_007_199_254_740_994, 9_007_199_254_740_996]))
+    )));
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::LogicalArray(array) if array.data == vec![0, 1]
+    )));
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor)
+            if tensor.as_f32_slice() == Some(&[2.0, 3.0])
+    )));
+}
+
+#[test]
+fn compiled_builtin_inherits_exact_integer_single_and_output_count_semantics() {
+    let vars = execute_source(
+        "base = uint64(9007199254740992); a = [base+uint64(1);base+uint64(3)]; c = builtin('plus',a,uint64(1)); s = builtin('plus',single([1 2]),single(1)); [i,j] = builtin('find',int16([0 3;4 0]));",
+    );
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor)
+            if tensor.integer_storage()
+                == Some(&IntegerStorage::U64(vec![9_007_199_254_740_994, 9_007_199_254_740_996]))
+    )));
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor) if tensor.as_f32_slice() == Some(&[2.0, 3.0])
+    )));
+    let double_indices = vars
+        .iter()
+        .filter(|value| {
+            matches!(
+                value,
+                Value::Tensor(tensor)
+                    if tensor.shape == vec![2, 1]
+                        && tensor.as_f64_slice().is_some()
+                        && tensor.materialize_f64().iter().all(|entry| matches!(*entry, 1.0 | 2.0))
+            )
+        })
+        .count();
+    assert!(
+        double_indices >= 2,
+        "expected delegated find row and column outputs"
+    );
+}
+
+#[test]
+fn compiled_integer_arithmetic_rejects_ordered_logical_operands() {
+    let expressions = [
+        "integer_value + logical_value",
+        "logical_value + integer_value",
+        "integer_value - logical_value",
+        "logical_value - integer_value",
+        "integer_value .* logical_value",
+        "logical_value .* integer_value",
+        "integer_value ./ logical_value",
+        "logical_value ./ integer_value",
+        r"integer_value .\ logical_value",
+        r"logical_value .\ integer_value",
+        "integer_value .^ logical_value",
+        "logical_value .^ integer_value",
+        "rem(integer_value, logical_value)",
+        "rem(logical_value, integer_value)",
+        "mod(integer_value, logical_value)",
+        "mod(logical_value, integer_value)",
+    ];
+    for expression in expressions {
+        let source = format!(
+            "integer_value = int64([1 2]); logical_value = logical([1 0]); output = {expression};"
+        );
+        let bytecode = compile_source(&source).expect("compile integer/logical expression");
+        let error =
+            interpret(&bytecode).expect_err("compiled integer/logical arithmetic must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("integer arrays can only be combined with scalar double values"),
+            "{expression}: unexpected error: {error}"
+        );
+    }
 }
 
 #[test]
@@ -43,10 +165,83 @@ fn bare_random_builtin_identifiers_execute_as_zero_arg_calls() {
         })
         .expect("expected output tensor");
     assert_eq!(out.shape, vec![1, 4]);
-    assert!(out.data[0] > 0.0 && out.data[0] < 1.0);
-    assert_eq!(out.data[1], 6.0);
-    assert_eq!(out.data[2], 1.0);
-    assert_eq!(out.data[3], 7.0);
+    assert!(out.materialize_f64()[0] > 0.0 && out.materialize_f64()[0] < 1.0);
+    assert_eq!(out.materialize_f64()[1], 6.0);
+    assert_eq!(out.materialize_f64()[2], 1.0);
+    assert_eq!(out.materialize_f64()[3], 7.0);
+}
+
+#[test]
+fn rand_legacy_seed_forms_execute_from_source() {
+    let input = "\
+        rand(\"seed\", 2026);
+        prefix = rand(1, 4);
+        s = rand('seed');
+        a = rand(1, 4);
+        rand('seed', s);
+        b = rand(1, 4);
+        result = [sum(abs(a - b)), abs(s - 2026)];
+    ";
+    let vars = execute_source(input);
+    let result = vars
+        .iter()
+        .find_map(|value| match value {
+            Value::Tensor(tensor) if tensor.shape == vec![1, 2] => Some(tensor),
+            _ => None,
+        })
+        .expect("expected result tensor");
+    assert!(result.materialize_f64()[0].abs() < 1.0e-12);
+    assert!(result.materialize_f64()[1] > 1.0);
+}
+
+#[test]
+fn opentoline_dispatches_editor_navigation_request() {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "runmat_opentoline_vm_{}_{}.m",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::write(&path, "a = 1;\nb = 2;\n").expect("write temp script");
+    let quoted = matlab_single_quoted_path(&path);
+    let source = format!("opentoline('{quoted}', 2, 1); ok = 1;");
+
+    let vars = execute_source(&source);
+    let _ = std::fs::remove_file(&path);
+
+    assert!(vars
+        .iter()
+        .any(|value| matches!(value, Value::Num(v) if *v == 1.0)));
+}
+
+#[test]
+fn opentoline_command_form_dispatches_text_line_and_column() {
+    let mut dir = std::env::temp_dir();
+    dir.push(format!(
+        "runmat_opentoline_vm_dir_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&dir).expect("create temp dir");
+    let path = dir.join("opentoline_command_form.m");
+    std::fs::write(&path, "alpha = 1;\nbeta = 2;\n").expect("write temp script");
+    let quoted_dir = matlab_single_quoted_path(&dir);
+    let source =
+        format!("addpath('{quoted_dir}'); opentoline opentoline_command_form 2 1; ok = 1;");
+
+    let vars = execute_source(&source);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&dir);
+
+    assert!(vars
+        .iter()
+        .any(|value| matches!(value, Value::Num(v) if *v == 1.0)));
 }
 
 #[test]
@@ -65,7 +260,7 @@ fn nan_constant_and_constructor_coexist() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data, vec![1.0, 6.0, 1.0, 1.0]);
+    assert_eq!(out.materialize_f64(), vec![1.0, 6.0, 1.0, 1.0]);
 }
 
 #[test]
@@ -84,7 +279,7 @@ fn inf_constant_and_constructor_coexist() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data, vec![1.0, 6.0, 1.0, 1.0]);
+    assert_eq!(out.materialize_f64(), vec![1.0, 6.0, 1.0, 1.0]);
 }
 
 #[test]
@@ -107,7 +302,7 @@ fn hilbert_builtin_executes_for_fm_demod_shape() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data, vec![11.0, 11.0, 11.0, 11.0]);
+    assert_eq!(out.materialize_f64(), vec![11.0, 11.0, 11.0, 11.0]);
 }
 
 #[test]
@@ -125,10 +320,84 @@ fn buttord_builtin_executes_for_butterworth_workflow() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data[0], 12.0);
-    assert!((out.data[1] - 0.2108).abs() < 5e-4);
-    assert_eq!(out.data[2], 13.0);
-    assert_eq!(out.data[3], 13.0);
+    assert_eq!(out.materialize_f64()[0], 12.0);
+    assert!((out.materialize_f64()[1] - 0.2108).abs() < 5e-4);
+    assert_eq!(out.materialize_f64()[2], 13.0);
+    assert_eq!(out.materialize_f64()[3], 13.0);
+}
+
+#[test]
+fn compiled_buttord_integer_extensions_return_double_design_values() {
+    let _runmat = runmat_runtime::compatibility::push_runmat_extensions_enabled(true);
+    let vars = execute_source("[n,Wn] = buttord(uint8(1),uint16(2),uint32(1),uint64(40),'s');");
+    assert!(vars
+        .iter()
+        .any(|value| matches!(value, Value::Num(order) if *order == 8.0)));
+    assert!(vars
+        .iter()
+        .any(|value| matches!(value, Value::Num(cutoff) if *cutoff > 1.0 && *cutoff < 2.0)));
+}
+
+#[test]
+fn compiled_buttord_integer_frequency_respects_compatibility_policy() {
+    let _compat = runmat_runtime::compatibility::push_runmat_extensions_enabled(false);
+    let err = execute_source_result("n = buttord(uint8(1),2,1,40,'s');")
+        .expect_err("typed integer frequency must be gated");
+    assert_eq!(
+        err.identifier(),
+        Some("RunMat:compatibility:ButtordIntegerFrequencyExtension")
+    );
+}
+
+#[test]
+fn compiled_butter_integer_extensions_preserve_double_filter_outputs() {
+    let _runmat = runmat_runtime::compatibility::push_runmat_extensions_enabled(true);
+    let vars = execute_source("[b,a] = butter(uint16(1),uint8(1),'s');");
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor)
+            if tensor.numeric_dtype() == runmat_value::NumericDType::F64
+                && tensor.materialize_f64() == vec![0.0, 1.0]
+    )));
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor)
+            if tensor.numeric_dtype() == runmat_value::NumericDType::F64
+                && tensor.materialize_f64() == vec![1.0, 1.0]
+    )));
+}
+
+#[test]
+fn compiled_butter_integer_order_respects_compatibility_policy() {
+    let _compat = runmat_runtime::compatibility::push_runmat_extensions_enabled(false);
+    let err = execute_source_result("b = butter(uint16(1),0.5);")
+        .expect_err("typed integer order must be gated");
+    assert_eq!(
+        err.identifier(),
+        Some("RunMat:compatibility:ButterIntegerOrderExtension")
+    );
+}
+
+#[test]
+fn compiled_cat_preserves_exact_integer_dimension_and_data_contracts() {
+    let vars = execute_source("c = cat(uint8(2),uint8([1 2]),int16(300),int8(-1));");
+    assert!(vars.iter().any(|value| matches!(
+        value,
+        Value::Tensor(tensor)
+            if tensor.integer_storage()
+                == Some(&IntegerStorage::U8(vec![1, 2, u8::MAX, 0]))
+    )));
+}
+
+#[test]
+fn compiled_cat_like_form_respects_compatibility_policy() {
+    let _compat = runmat_runtime::compatibility::push_runmat_extensions_enabled(false);
+    let err = execute_source_result("c = cat(2,uint8(1),uint8(2),'like',uint8(0));")
+        .expect_err("cat like form must be gated");
+    assert_eq!(
+        err.identifier(),
+        Some("RunMat:compatibility:CatLikePrototypeExtension")
+    );
 }
 
 #[test]
@@ -149,10 +418,10 @@ fn pwelch_builtin_executes_for_psd_workflow() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data[0], 17.0);
-    assert_eq!(out.data[1], 17.0);
-    assert_eq!(out.data[2], 5.0);
-    assert_eq!(out.data[3], 4.0);
+    assert_eq!(out.materialize_f64()[0], 17.0);
+    assert_eq!(out.materialize_f64()[1], 17.0);
+    assert_eq!(out.materialize_f64()[2], 5.0);
+    assert_eq!(out.materialize_f64()[3], 4.0);
 }
 
 #[test]
@@ -173,10 +442,10 @@ fn periodogram_builtin_executes_for_psd_workflow() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data[0], 17.0);
-    assert_eq!(out.data[1], 17.0);
-    assert_eq!(out.data[2], 5.0);
-    assert_eq!(out.data[3], 4.0);
+    assert_eq!(out.materialize_f64()[0], 17.0);
+    assert_eq!(out.materialize_f64()[1], 17.0);
+    assert_eq!(out.materialize_f64()[2], 5.0);
+    assert_eq!(out.materialize_f64()[3], 4.0);
 }
 
 #[test]
@@ -197,13 +466,13 @@ fn spectrogram_builtin_executes_for_stft_workflow() {
             _ => None,
         })
         .expect("expected output tensor");
-    assert_eq!(out.data[0], 17.0);
-    assert_eq!(out.data[1], 3.0);
-    assert_eq!(out.data[2], 17.0);
-    assert_eq!(out.data[3], 3.0);
-    assert_eq!(out.data[4], 5.0);
-    assert_eq!(out.data[5], 4.0);
-    assert_eq!(out.data[6], 0.5);
+    assert_eq!(out.materialize_f64()[0], 17.0);
+    assert_eq!(out.materialize_f64()[1], 3.0);
+    assert_eq!(out.materialize_f64()[2], 17.0);
+    assert_eq!(out.materialize_f64()[3], 3.0);
+    assert_eq!(out.materialize_f64()[4], 5.0);
+    assert_eq!(out.materialize_f64()[5], 4.0);
+    assert_eq!(out.materialize_f64()[6], 0.5);
 }
 
 #[test]
@@ -222,7 +491,7 @@ fn pulstran_rectpuls_builtin_executes_for_impulse_train_shape() {
             _ => None,
         })
         .expect("expected pulse train summary tensor");
-    assert_eq!(out.data, vec![5.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
+    assert_eq!(out.materialize_f64(), vec![5.0, 0.0, 1.0, 0.0, 1.0, 0.0]);
 }
 
 #[test]
@@ -232,21 +501,46 @@ fn upsample_downsample_builtin_executes_for_discrete_signal_workflow() {
         up = upsample(x, 2);
         down = downsample(x, 2);
         shifted = downsample(x, 2, 1);
+        resampled = resample(x, 2, 1, [0 1 0]);
         out = [numel(up), up(1), up(2), up(9), up(10), ...
                numel(down), down(1), down(3), ...
-               numel(shifted), shifted(1), shifted(2)];
+               numel(shifted), shifted(1), shifted(2), ...
+               numel(resampled), resampled(1), resampled(2), resampled(9), resampled(10)];
     "#;
     let vars = execute_source(input);
     let out = vars
         .iter()
         .find_map(|value| match value {
-            Value::Tensor(tensor) if tensor.shape == vec![1, 11] => Some(tensor),
+            Value::Tensor(tensor) if tensor.shape == vec![1, 16] => Some(tensor),
             _ => None,
         })
         .expect("expected sample-rate summary tensor");
     assert_eq!(
-        out.data,
-        vec![10.0, 1.0, 0.0, 5.0, 0.0, 3.0, 1.0, 5.0, 2.0, 2.0, 4.0]
+        out.materialize_f64(),
+        vec![10.0, 1.0, 0.0, 5.0, 0.0, 3.0, 1.0, 5.0, 2.0, 2.0, 4.0, 10.0, 1.0, 0.0, 5.0, 0.0,]
+    );
+}
+
+#[test]
+fn nanmax_builtin_executes_for_reduction_and_pairwise_workflows() {
+    let input = r#"
+        A = [NaN 4 2; 3 NaN NaN];
+        M = nanmax(A);
+        D = nanmax(A, [], 2);
+        P = nanmax([NaN 2 NaN], [3 NaN NaN]);
+        out = [M(1), M(2), M(3), D(1), D(2), P(1), P(2), isnan(P(3))];
+    "#;
+    let vars = execute_source(input);
+    let out = vars
+        .iter()
+        .find_map(|value| match value {
+            Value::Tensor(tensor) if tensor.shape == vec![1, 8] => Some(tensor),
+            _ => None,
+        })
+        .expect("expected nanmax summary tensor");
+    assert_eq!(
+        out.materialize_f64(),
+        vec![3.0, 4.0, 2.0, 4.0, 3.0, 3.0, 2.0, 1.0]
     );
 }
 
@@ -273,7 +567,7 @@ fn object_aggregate_literal_uses_typed_instruction_and_sets_properties() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         Instr::CreateObjectLiteral { class_name, fields }
-            if class_name == "Point"
+            if class_name.is(runmat_types::StaticClassIdentity::new("Point"))
                 && fields == &vec!["x".to_string(), "y".to_string()]
     )));
 
@@ -281,7 +575,7 @@ fn object_aggregate_literal_uses_typed_instruction_and_sets_properties() {
     let Value::Object(obj) = &vars[0] else {
         panic!("expected object value");
     };
-    assert_eq!(obj.class_name, "Point");
+    assert_eq!(obj.class_name.display_name(), "Point");
     assert!(matches!(obj.properties.get("x"), Some(Value::Num(v)) if *v == 1.0));
     assert!(matches!(obj.properties.get("y"), Some(Value::Num(v)) if *v == 2.0));
 }
@@ -406,12 +700,12 @@ fn logical_slice_read_and_write_execute() {
     let Value::Tensor(selected) = &vars[2] else {
         panic!("expected selected tensor, got {:?}", vars[2]);
     };
-    assert_eq!(selected.data, vec![3.0, 4.0]);
+    assert_eq!(selected.materialize_f64(), vec![3.0, 4.0]);
 
     let Value::Tensor(updated) = &vars[3] else {
         panic!("expected updated tensor, got {:?}", vars[3]);
     };
-    assert_eq!(updated.data, vec![1.0, 2.0, 9.0, 9.0]);
+    assert_eq!(updated.materialize_f64(), vec![1.0, 2.0, 9.0, 9.0]);
 }
 
 #[test]
@@ -423,12 +717,12 @@ fn call_result_slice_index_executes() {
     let Value::Tensor(selected) = &vars[2] else {
         panic!("expected selected tensor, got {:?}", vars[2]);
     };
-    assert_eq!(selected.data, vec![3.0, 4.0]);
+    assert_eq!(selected.materialize_f64(), vec![3.0, 4.0]);
 
     let Value::Tensor(updated) = &vars[3] else {
         panic!("expected updated tensor, got {:?}", vars[3]);
     };
-    assert_eq!(updated.data, vec![1.0, 2.0, 9.0, 9.0]);
+    assert_eq!(updated.materialize_f64(), vec![1.0, 2.0, 9.0, 9.0]);
 }
 
 #[test]
@@ -439,7 +733,7 @@ fn scalar_call_result_index_assignment_executes() {
     let Value::Tensor(updated) = &vars[2] else {
         panic!("expected updated tensor, got {:?}", vars[2]);
     };
-    assert_eq!(updated.data, vec![1.0, 2.0, 9.0]);
+    assert_eq!(updated.materialize_f64(), vec![1.0, 2.0, 9.0]);
 }
 
 #[test]
@@ -451,7 +745,7 @@ fn scalar_value_index_assignment_executes() {
         Value::Num(n) => assert!((*n - 2.0).abs() < 1e-9),
         Value::Tensor(t) => {
             assert_eq!(t.shape, vec![1, 1]);
-            assert_eq!(t.data, vec![2.0]);
+            assert_eq!(t.materialize_f64(), vec![2.0]);
         }
         other => panic!("expected scalar numeric assignment result, got {other:?}"),
     }
@@ -473,7 +767,7 @@ fn undefined_root_index_assignment_uses_index_assignment_load_semantics() {
         panic!("expected tensor assignment result, got {updated:?}");
     };
     assert_eq!(tensor.shape, vec![1, 1]);
-    assert_eq!(tensor.data, vec![7.0]);
+    assert_eq!(tensor.materialize_f64(), vec![7.0]);
 }
 
 #[test]
@@ -495,7 +789,7 @@ fn complex_literal_matrix_executes() {
     match &vars[0] {
         Value::ComplexTensor(tensor) => {
             assert_eq!(tensor.shape, vec![1, 2]);
-            assert_eq!(tensor.data, vec![(1.0, 2.0), (3.0, -4.0)]);
+            assert_eq!(tensor.materialize_f64(), vec![(1.0, 2.0), (3.0, -4.0)]);
         }
         other => panic!("expected complex tensor, got {other:?}"),
     }
@@ -508,7 +802,7 @@ fn leading_dot_complex_literals_execute() {
     match &vars[0] {
         Value::ComplexTensor(tensor) => {
             assert_eq!(tensor.shape, vec![1, 2]);
-            assert_eq!(tensor.data, vec![(0.0, 0.1), (0.0, 0.005)]);
+            assert_eq!(tensor.materialize_f64(), vec![(0.0, 0.1), (0.0, 0.005)]);
         }
         other => panic!("expected complex tensor, got {other:?}"),
     }
@@ -521,7 +815,7 @@ fn matrix_literal_with_leading_dot_entries_executes() {
     match &vars[0] {
         Value::Tensor(tensor) => {
             assert_eq!(tensor.shape, vec![1, 3]);
-            assert_eq!(tensor.data, vec![1.0, 0.2, 0.3]);
+            assert_eq!(tensor.materialize_f64(), vec![1.0, 0.2, 0.3]);
         }
         other => panic!("expected tensor, got {other:?}"),
     }
@@ -534,7 +828,7 @@ fn elementwise_division_accepts_leading_dot_rhs() {
     match &vars[1] {
         Value::Tensor(tensor) => {
             assert_eq!(tensor.shape, vec![1, 3]);
-            assert_eq!(tensor.data, vec![2.0, 4.0, 6.0]);
+            assert_eq!(tensor.materialize_f64(), vec![2.0, 4.0, 6.0]);
         }
         other => panic!("expected tensor, got {other:?}"),
     }
@@ -569,7 +863,7 @@ fn uint16_cast_is_callable_in_vm() {
     match &vars[0] {
         Value::Tensor(tensor) => {
             assert_eq!(tensor.shape, vec![1, 3]);
-            assert_eq!(tensor.data, vec![3.0, 0.0, u16::MAX as f64]);
+            assert_eq!(tensor.materialize_f64(), vec![3.0, 0.0, u16::MAX as f64]);
         }
         other => panic!("expected tensor output, got {other:?}"),
     }
@@ -622,9 +916,7 @@ fn atan2_explicit_comma_list_argument_path_unpacks_before_call() {
             if name == "atan2"
                 && *out_count == 1
                 && specs.len() == 1
-                && specs[0].is_expand
-                && specs[0].expand_all
-                && specs[0].num_indices == 0)
+                && is_expand_all_cell_contents(&specs[0], 0))
     });
     assert!(
         has_output_list_expansion,
@@ -635,6 +927,40 @@ fn atan2_explicit_comma_list_argument_path_unpacks_before_call() {
             |instr| matches!(instr, Instr::CallBuiltinMulti(name, 2, 1) if name == "atan2")
         ),
         "atan2(C{{:}}) should lower through expand-multi-output call shape, not fixed-arity builtin call"
+    );
+}
+
+#[test]
+fn atan2_compiled_dispatch_gates_integer_extension() {
+    let _compat = runmat_runtime::compatibility::push_runmat_extensions_enabled(false);
+    let error = execute_source_result("y = atan2(uint64(18446744073709551615), 1);")
+        .expect_err("integer atan2 must be gated");
+    assert!(
+        error
+            .to_string()
+            .contains("atan2 with typed-integer input is a RunMat extension"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn atan2_compiled_dispatch_accepts_all_wide_integer_bits_in_extension_mode() {
+    let _compat = runmat_runtime::compatibility::push_runmat_extensions_enabled(true);
+    let vars = execute_source("y = atan2(uint64(18446744073709551615), 1);");
+    let actual: f64 = (&vars[0]).try_into().expect("convert atan2 result");
+    let expected = (u64::MAX as f64).atan2(1.0);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn audioread_compiled_dispatch_rejects_typed_integer_sample_range_before_io() {
+    let error = execute_source_result("y = audioread(\"missing.wav\", uint8([1 2]));")
+        .expect_err("typed-integer sample range must reject");
+    assert!(
+        error
+            .message()
+            .contains("sample range must be a two-element double vector"),
+        "unexpected error: {error}"
     );
 }
 
@@ -674,8 +1000,8 @@ fn fft_output_supports_end_arithmetic_range_indexing() {
         bytecode
             .instructions
             .iter()
-            .any(|ins| matches!(ins, Instr::IndexSliceExpr { .. })),
-        "expected IndexSliceExpr in semantic bytecode, got {:?}",
+            .any(|ins| matches!(ins, Instr::LoadContextualIndexEnd { component: 0 })),
+        "expected a contextual end selector in semantic bytecode, got {:?}",
         bytecode.instructions
     );
     let vars = interpret(&bytecode).expect("fft end-range indexing should execute");
@@ -773,6 +1099,32 @@ fn fft_output_supports_complex_range_assignment_with_end_div() {
         }),
         "expected true/equivalent marker in vars, got {vars:?}"
     );
+}
+
+#[test]
+fn fftshift_accepts_abs_of_fft2_complex_output() {
+    let input = r#"
+        A = [1 2; 3 4];
+        M = abs(fft2(A));
+        C = fftshift(M);
+        out = [numel(M), size(M, 1), size(M, 2), numel(C), size(C, 1), size(C, 2)];
+    "#;
+    let vars = execute_source(input);
+    let m = match &vars[1] {
+        Value::Tensor(tensor) => tensor,
+        other => panic!("abs(fft2(A)) should produce a real tensor, got {other:?}"),
+    };
+    assert_eq!(m.shape, vec![2, 2]);
+    assert_eq!(m.materialize_f64(), vec![10.0, 4.0, 2.0, 0.0]);
+
+    let out = vars
+        .iter()
+        .find_map(|value| match value {
+            Value::Tensor(tensor) if tensor.shape == vec![1, 6] => Some(tensor),
+            _ => None,
+        })
+        .expect("expected shape summary tensor");
+    assert_eq!(out.materialize_f64(), vec![4.0, 2.0, 2.0, 4.0, 2.0, 2.0]);
 }
 
 #[test]
@@ -1002,7 +1354,7 @@ fn logical_slice_assignment_executes_and_coerces_numeric_rhs() {
     let vars = execute_source(input);
     assert!(vars
         .iter()
-        .any(|v| matches!(v, runmat_builtins::Value::Num(n) if (*n - 2.0).abs() < 1e-9)));
+        .any(|v| matches!(v, runmat_value::Value::Num(n) if (*n - 2.0).abs() < 1e-9)));
 }
 
 #[test]
@@ -1036,33 +1388,68 @@ fn object_range_end_assignment_accepts_rich_end_expression_payload() {
         ok = (r == 99);
     "#;
     let bytecode = compile_source(input).expect("compile object end-range assignment");
-    assert!(
-        bytecode.instructions.iter().any(|instr| {
-            matches!(
-                instr,
-                Instr::StoreSliceExpr {
-                    range_end_exprs,
-                    ..
-                } if matches!(
-                    range_end_exprs.as_slice(),
-                    [EndExpr::Sub(lhs, rhs)]
-                        if matches!(&**lhs, EndExpr::Mul(mul_lhs, mul_rhs)
-                            if matches!(&**mul_lhs, EndExpr::End)
-                                && matches!(&**mul_rhs, EndExpr::Const(v) if (*v - 1.0).abs() < 1e-12))
-                            && matches!(&**rhs, EndExpr::Div(div_lhs, div_rhs)
-                                if matches!(&**div_lhs, EndExpr::Const(v) if (*v - 1.0).abs() < 1e-12)
-                                    && matches!(&**div_rhs, EndExpr::Const(v) if (*v - 2.0).abs() < 1e-12))
-                )
-            )
-        }),
-        "expected StoreSliceExpr to preserve rich end arithmetic payload for object indexing"
-    );
+    assert!(bytecode
+        .instructions
+        .iter()
+        .any(|instr| matches!(instr, Instr::LoadContextualIndexEnd { component: 0 })));
+    assert!(bytecode
+        .instructions
+        .iter()
+        .any(|instr| matches!(instr, Instr::StoreSlice(2, ..))));
     let vars = execute_source(input);
     assert!(
         vars.iter().any(|v| {
             matches!(v, Value::Bool(true)) || matches!(v, Value::Num(n) if (*n - 1.0).abs() < 1e-12)
         }),
         "expected true/equivalent marker in vars, got {vars:?}"
+    );
+}
+
+#[test]
+fn runtime_variable_range_bound_slice_uses_live_value() {
+    let input = r#"
+        a = single(zeros(1, 9));
+        n = 0;
+        for i = 1:6
+            n = n + 1;
+            a(n) = single(i) / single(10);
+        end
+        a = a(1:n);
+        ok = (numel(a) == 6) && (min(a) < 0.100001) && (max(a) > 0.599999);
+    "#;
+    let bytecode = compile_source(input).expect("compile runtime range-bound slice");
+    assert!(bytecode
+        .instructions
+        .iter()
+        .any(|instr| matches!(instr, Instr::IndexSlice(1, ..))));
+    let vars = interpret(&bytecode).expect("execute runtime range-bound slice");
+    assert!(
+        vars.iter().any(|v| {
+            matches!(v, Value::Bool(true)) || matches!(v, Value::Num(n) if (*n - 1.0).abs() < 1e-12)
+        }),
+        "expected slice/min/max check to pass, got {vars:?}"
+    );
+}
+
+#[test]
+fn runtime_call_range_bound_slice_uses_live_value_when_static_analysis_is_unavailable() {
+    let input = r#"
+        a = single([10 20 30 40]);
+        n = numel(a);
+        b = a(1:n);
+        ok = (numel(b) == 4) && (b(4) == 40);
+    "#;
+    let bytecode = compile_source(input).expect("compile call-derived range-bound slice");
+    assert!(bytecode
+        .instructions
+        .iter()
+        .any(|instr| matches!(instr, Instr::IndexSlice(1, ..))));
+    let vars = interpret(&bytecode).expect("execute call-derived range-bound slice");
+    assert!(
+        vars.iter().any(|v| {
+            matches!(v, Value::Bool(true)) || matches!(v, Value::Num(n) if (*n - 1.0).abs() < 1e-12)
+        }),
+        "expected call-derived slice check to pass, got {vars:?}"
     );
 }
 

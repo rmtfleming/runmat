@@ -3,12 +3,18 @@ use runmat_hir::{
     LoweringContext, OperatorKind, RequestedOutputCount,
 };
 use runmat_mir::{
-    analysis::{analyze_assembly, AnalysisStore, MirLocalKey},
+    analysis::{analyze_assembly, AnalysisStore, AssignmentFact},
     lowering::lower_assembly,
-    AsyncBehaviorFact, MirAggregateKind, MirBody, MirCallArg, MirCallee, MirConstant, MirIndexPlan,
-    MirLocalKind, MirOperand, MirOutputTarget, MirPlace, MirRvalue, MirStmt, MirStmtKind,
-    MirTerminatorKind,
+    AsyncBehaviorFact, MirAggregateKind, MirBody, MirCallArg, MirCallee, MirConstant,
+    MirExpansionSource, MirIndexComponent, MirIndexPlan, MirLocalKind, MirOperand, MirOutputTarget,
+    MirPlace, MirRvalue, MirStmt, MirStmtKind, MirTerminatorKind,
 };
+use runmat_types::{
+    CertaintyFact, DimensionFact, DynamicReason, ExecutionFact, NumericClass, NumericDomain,
+    NumericFact, ProgramFunctionId, ProgramPointId, RegionValueId, ShapeFact, ValueFact,
+    ValueKindFact,
+};
+use std::collections::HashMap;
 
 fn lower_mir(src: &str) -> runmat_mir::MirAssembly {
     let ast = runmat_parser::parse(src).unwrap();
@@ -31,6 +37,42 @@ fn first_local_of_kind(body: &MirBody, kind: MirLocalKind) -> runmat_mir::MirLoc
         .id
 }
 
+fn output_fact<'a>(body: &MirBody, store: &'a AnalysisStore) -> &'a ValueFact {
+    let output = first_local_of_kind(body, MirLocalKind::Output);
+    final_local_fact(body, store, output)
+}
+
+fn region_value(body: &MirBody, local: runmat_mir::MirLocalId) -> RegionValueId {
+    RegionValueId {
+        function: ProgramFunctionId(u32::try_from(body.function.0).expect("portable function id")),
+        local: u32::try_from(local.0).expect("portable local id"),
+    }
+}
+
+fn local_observations<'a>(
+    body: &MirBody,
+    store: &'a AnalysisStore,
+    local: runmat_mir::MirLocalId,
+) -> impl Iterator<Item = &'a runmat_mir::analysis::ProgramLocalFact> {
+    let value = region_value(body, local);
+    store
+        .program_points
+        .iter()
+        .filter(move |point| point.point.function == value.function)
+        .filter_map(move |point| point.local(value))
+}
+
+fn final_local_fact<'a>(
+    body: &MirBody,
+    store: &'a AnalysisStore,
+    local: runmat_mir::MirLocalId,
+) -> &'a ValueFact {
+    local_observations(body, store, local)
+        .filter_map(|observation| observation.fact.as_ref())
+        .last()
+        .expect("local has an analyzed value fact")
+}
+
 fn first_call(body: &MirBody) -> &runmat_mir::MirCall {
     body.blocks
         .iter()
@@ -48,6 +90,30 @@ fn first_call(body: &MirBody) -> &runmat_mir::MirCall {
             _ => None,
         })
         .expect("expected at least one lowered call")
+}
+
+#[test]
+fn function_remap_moves_local_program_identity_without_collapsing_external_identity() {
+    let ast = runmat_parser::parse("function y = caller(x)\ny = published(x);\nend").unwrap();
+    let bound = HashMap::from([("published".to_string(), runmat_hir::FunctionId(0))]);
+    let hir = lower(&ast, &LoweringContext::empty().with_bound_functions(&bound)).unwrap();
+    let mut mir = lower_assembly(&hir.assembly).unwrap();
+    let remap = HashMap::from([(runmat_hir::FunctionId(0), runmat_hir::FunctionId(9))]);
+    runmat_mir::remap_function_ids(&mut mir, &remap).unwrap();
+
+    assert!(mir.bodies.contains_key(&runmat_hir::FunctionId(9)));
+    assert!(mir.functions.contains_key(&runmat_hir::FunctionId(9)));
+    let call = first_call(&mir.bodies[&runmat_hir::FunctionId(9)]);
+    assert!(matches!(
+        call.callee,
+        MirCallee::Static(CallableIdentity::ExternalFunction {
+            function: runmat_hir::FunctionId(0),
+            ..
+        })
+    ));
+    let analysis = analyze_assembly(&mir);
+    assert!(analysis.function(ProgramFunctionId(9)).is_some());
+    assert!(analysis.function(ProgramFunctionId(0)).is_none());
 }
 
 fn first_indexing(body: &MirBody) -> &runmat_mir::MirIndexing {
@@ -122,7 +188,7 @@ fn patch_entrypoint_call_requested_outputs(
             | runmat_hir::HirStmtKind::ExprStmt(expr, _)
             | runmat_hir::HirStmtKind::MultiAssign(_, expr, _) => {
                 if let runmat_hir::HirExprKind::Call(call) = &mut expr.kind {
-                    call.requested_outputs = requested_outputs.clone();
+                    call.requested_outputs = requested_outputs;
                     patched = true;
                     break;
                 }
@@ -153,9 +219,9 @@ fn patch_entrypoint_multi_assign_requested_outputs(
         let runmat_hir::HirStmtKind::MultiAssign(targets, expr, _) = &mut stmt.kind else {
             continue;
         };
-        targets.requested_outputs = target_requested_outputs.clone();
+        targets.requested_outputs = target_requested_outputs;
         if let runmat_hir::HirExprKind::Call(call) = &mut expr.kind {
-            call.requested_outputs = call_requested_outputs.clone();
+            call.requested_outputs = call_requested_outputs;
             patched = true;
             break;
         }
@@ -192,12 +258,25 @@ fn simple_function_lowers_to_single_block_with_binding_locals() {
 fn method_syntax_lowers_with_object_dispatch_fallback_policy() {
     let mir = lower_mir("obj = 1; obj.method(1);");
     let body = mir.bodies.values().next().expect("body");
-    let call = first_call(body);
+    let chain = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Expr(MirRvalue::SubscriptChain(chain)) => Some(chain),
+            _ => None,
+        })
+        .expect("method syntax lowers to an ordered subscript path");
+    let call = chain.steps.last().expect("terminal dotted invocation");
     assert!(matches!(
-        call.syntax,
-        CallSyntax::Method | CallSyntax::DottedInvoke
+        call,
+        runmat_mir::MirSubscriptStep::DottedInvoke { .. }
     ));
-    assert_eq!(call.fallback_policy, CallableFallbackPolicy::ObjectDispatch);
+    assert_eq!(call.call_syntax(), Some(CallSyntax::DottedInvoke));
+    assert_eq!(
+        call.fallback_policy(),
+        Some(CallableFallbackPolicy::ObjectDispatch)
+    );
 }
 
 #[test]
@@ -367,18 +446,155 @@ fn dataflow_marks_parameters_and_assigned_outputs_definitely_assigned() {
     let param = first_local_of_kind(body, MirLocalKind::Parameter);
     let output = first_local_of_kind(body, MirLocalKind::Output);
 
-    assert!(store.mir_locals.contains_key(&MirLocalKey {
-        function: body.function,
-        local: param,
+    assert!(local_observations(body, &store, param).any(|fact| {
+        fact.assignment == AssignmentFact::DefinitelyAssigned && fact.fact.is_some()
     }));
-    assert!(store.mir_locals.contains_key(&MirLocalKey {
-        function: body.function,
-        local: output,
+    assert!(local_observations(body, &store, output).any(|fact| {
+        fact.assignment == AssignmentFact::DefinitelyAssigned && fact.fact.is_some()
     }));
     assert!(!store
         .diagnostics
         .iter()
         .any(|diagnostic| { matches!(diagnostic.code.as_str(), "RM-MIR0001" | "RM-MIR0002") }));
+}
+
+#[test]
+fn analysis_discovers_deterministic_pure_regions_with_liveness_and_consumers() {
+    let source = "function z = f(x)\na = x + 1;\ndisp(a);\nb = a * 2;\nz = b + 3;\nend";
+    let mir = lower_mir(source);
+    let first = analyze_assembly(&mir);
+    let second = analyze_assembly(&mir);
+
+    assert_eq!(first.regions, second.regions);
+    assert!(first.regions.len() >= 2);
+    assert!(first
+        .regions
+        .windows(2)
+        .all(|pair| pair[0].contract.id < pair[1].contract.id));
+    for region in &first.regions {
+        region.contract.validate().unwrap();
+        assert!(region.contract.effects.0.is_empty());
+        assert!(!region.operations.is_empty());
+        assert!(region.operations.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+    assert!(first.regions.iter().any(|region| {
+        !region.contract.live_out.is_empty() && !region.future_consumers.is_empty()
+    }));
+
+    let encoded = serde_json::to_vec(&first).unwrap();
+    let decoded: AnalysisStore = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded.regions, first.regions);
+}
+
+#[test]
+fn analysis_excludes_workspace_environment_and_mutating_place_statements_from_regions() {
+    let source = "function y = f(x)\ny = x + 1;\ny(1) = 2;\nclear y;\ny = x + 3;\nend";
+    let mir = lower_mir(source);
+    let store = analyze_assembly(&mir);
+
+    assert!(!store.regions.is_empty());
+    for region in &store.regions {
+        for operation in &region.operations {
+            let body = mir
+                .bodies
+                .values()
+                .find(|body| {
+                    usize::try_from(operation.function.0)
+                        .is_ok_and(|function| body.function.0 == function)
+                })
+                .unwrap();
+            let block = body
+                .blocks
+                .iter()
+                .find(|block| usize::try_from(operation.block).is_ok_and(|id| block.id.0 == id))
+                .unwrap();
+            let position = usize::try_from(operation.position).unwrap();
+            assert!(matches!(
+                block.statements[position].kind,
+                MirStmtKind::Assign {
+                    place: MirPlace::Local(_),
+                    ..
+                } | MirStmtKind::MultiAssign { .. }
+                    | MirStmtKind::Expr(_)
+            ));
+        }
+    }
+}
+
+#[test]
+fn analysis_regions_preserve_branch_liveness_and_all_reachable_consumers() {
+    let source = "function y = f(x, c)\na = x + 1;\nif c\n b = a * 2;\nelse\n b = a * 3;\nend\ny = b + 4;\nend";
+    let mir = lower_mir(source);
+    let store = analyze_assembly(&mir);
+
+    let branch_input = store
+        .regions
+        .iter()
+        .find(|region| {
+            let consumer_blocks = region
+                .future_consumers
+                .iter()
+                .map(|consumer| consumer.point.block)
+                .collect::<std::collections::BTreeSet<_>>();
+            !region.contract.live_out.is_empty() && consumer_blocks.len() >= 2
+        })
+        .expect("the value produced before the branch has consumers on both branch arms");
+    assert!(branch_input
+        .future_consumers
+        .iter()
+        .all(|consumer| branch_input.contract.live_out.contains(&consumer.value)));
+    assert!(branch_input
+        .future_consumers
+        .windows(2)
+        .all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn analysis_regions_preserve_preexisting_loop_binding_on_zero_iteration_exit() {
+    let source = "function z = f()\ny = 7;\nfor y = 1:0\nend\nz = y + 1;\nend";
+    let mir = lower_mir(source);
+    let body = mir.bodies.values().next().unwrap();
+    let store = analyze_assembly(&mir);
+    let y = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                place: MirPlace::Local(local),
+                value: MirRvalue::Use(MirOperand::Constant(MirConstant::Number(value))),
+            } if value == "7" => Some(*local),
+            _ => None,
+        })
+        .unwrap();
+    let y = region_value(body, y);
+    let initial_assignment_region = store
+        .regions
+        .iter()
+        .find(|region| {
+            region.operations.iter().any(|operation| {
+                let block = body
+                    .blocks
+                    .iter()
+                    .find(|block| u32::try_from(block.id.0).ok() == Some(operation.block))
+                    .unwrap();
+                let position = usize::try_from(operation.position).unwrap();
+                matches!(
+                    &block.statements[position].kind,
+                    MirStmtKind::Assign {
+                        place: MirPlace::Local(local),
+                        value: MirRvalue::Use(MirOperand::Constant(MirConstant::Number(value))),
+                    } if region_value(body, *local) == y && value == "7"
+                )
+            })
+        })
+        .unwrap();
+
+    assert!(initial_assignment_region.contract.live_out.contains(&y));
+    assert!(initial_assignment_region
+        .future_consumers
+        .iter()
+        .any(|consumer| consumer.value == y));
 }
 
 #[test]
@@ -388,10 +604,8 @@ fn dataflow_joins_branch_assignment_as_maybe_assigned() {
     let store = analyze_assembly(&mir);
     let output = first_local_of_kind(body, MirLocalKind::Output);
 
-    assert!(store.mir_locals.contains_key(&MirLocalKey {
-        function: body.function,
-        local: output,
-    }));
+    assert!(local_observations(body, &store, output)
+        .any(|fact| fact.assignment == AssignmentFact::MaybeAssigned));
 }
 
 #[test]
@@ -406,10 +620,7 @@ fn analyze_assembly_populates_output_local_facts_by_semantic_id() {
         .unwrap()
         .id;
 
-    assert!(store.mir_locals.contains_key(&MirLocalKey {
-        function: body.function,
-        local: output_local,
-    }));
+    assert!(local_observations(body, &store, output_local).any(|fact| fact.fact.is_some()));
 }
 
 #[test]
@@ -417,18 +628,11 @@ fn analyze_body_records_simple_numeric_local_and_binding_facts() {
     let (body, store) = analyze_single_body("function y = f(); y = 1; end");
     let output = first_local_of_kind(&body, MirLocalKind::Output);
     assert_eq!(
-        store
-            .mir_locals
-            .get(&MirLocalKey {
-                function: body.function,
-                local: output,
-            })
-            .unwrap()
-            .ty,
-        runmat_hir::TypeFact::Numeric {
-            class: runmat_hir::NumericClass::Double,
-            domain: runmat_hir::NumericDomain::Real,
-        }
+        final_local_fact(&body, &store, output).kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        })
     );
 }
 
@@ -436,19 +640,14 @@ fn analyze_body_records_simple_numeric_local_and_binding_facts() {
 fn analyze_body_records_simple_string_value_flow_fact() {
     let (body, store) = analyze_single_body("function y = f(); y = 'name'; end");
     let output = first_local_of_kind(&body, MirLocalKind::Output);
-    let fact = store
-        .mir_locals
-        .get(&MirLocalKey {
-            function: body.function,
-            local: output,
-        })
-        .unwrap();
+    let fact = final_local_fact(&body, &store, output);
 
-    assert_eq!(fact.ty, runmat_hir::TypeFact::CharArray);
-    assert_eq!(fact.shape, runmat_hir::ShapeFact::Scalar);
+    assert_eq!(fact.kind, ValueKindFact::Character);
     assert_eq!(
-        fact.value_flow,
-        runmat_hir::ValueFlowFact::Single(runmat_hir::TypeFact::CharArray)
+        fact.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(4)]
+        }
     );
 }
 
@@ -457,92 +656,180 @@ fn analyze_body_records_function_handle_value_flow_fact() {
     let mir = lower_mir("function h = f(); h = @target; end\nfunction y = target(x); y = x; end");
     let store = analyze_assembly(&mir);
     let function_fact = store
-        .mir_locals
-        .values()
-        .find(|fact| matches!(fact.ty, runmat_hir::TypeFact::Function(_)))
+        .program_points
+        .iter()
+        .flat_map(|point| &point.locals)
+        .filter_map(|local| local.fact.as_ref())
+        .find(|fact| matches!(fact.kind, ValueKindFact::Callable(_)))
         .unwrap();
 
-    assert!(matches!(
-        function_fact.value_flow,
-        runmat_hir::ValueFlowFact::Single(runmat_hir::TypeFact::Function(_))
-    ));
+    assert!(matches!(function_fact.kind, ValueKindFact::Callable(_)));
 }
 
 #[test]
 fn analyze_body_records_tensor_and_cell_aggregate_facts() {
     let (tensor_body, tensor_store) = analyze_single_body("function y = f(); y = [1, 2]; end");
     let tensor_output = first_local_of_kind(&tensor_body, MirLocalKind::Output);
-    let tensor_fact = &tensor_store.mir_locals[&MirLocalKey {
-        function: tensor_body.function,
-        local: tensor_output,
-    }];
+    let tensor_fact = final_local_fact(&tensor_body, &tensor_store, tensor_output);
 
     assert!(matches!(
-        tensor_fact.ty,
-        runmat_hir::TypeFact::Tensor(runmat_hir::TensorTypeFact {
-            element: runmat_hir::TensorElementDomainFact::Numeric {
-                class: runmat_hir::NumericClass::Double,
-                domain: runmat_hir::NumericDomain::Real,
-            },
-            ..
+        tensor_fact.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
         })
     ));
     assert_eq!(
         tensor_fact.shape,
-        runmat_hir::ShapeFact::Shaped {
-            dims: vec![runmat_hir::DimFact::Known(1), runmat_hir::DimFact::Known(2)]
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(2)]
         }
     );
-    assert!(matches!(
-        tensor_fact.value_flow,
-        runmat_hir::ValueFlowFact::Single(runmat_hir::TypeFact::Tensor(_))
-    ));
 
     let (cell_body, cell_store) = analyze_single_body("function y = f(); y = {1, 2}; end");
     let cell_output = first_local_of_kind(&cell_body, MirLocalKind::Output);
-    let cell_fact = &cell_store.mir_locals[&MirLocalKey {
-        function: cell_body.function,
-        local: cell_output,
-    }];
+    let cell_fact = final_local_fact(&cell_body, &cell_store, cell_output);
 
-    assert_eq!(cell_fact.ty, runmat_hir::TypeFact::Cell);
+    assert!(matches!(cell_fact.kind, ValueKindFact::Cell(_)));
     assert_eq!(
         cell_fact.shape,
-        runmat_hir::ShapeFact::Shaped {
-            dims: vec![runmat_hir::DimFact::Known(1), runmat_hir::DimFact::Known(2)]
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(2)]
         }
     );
+}
+
+#[test]
+fn analyze_body_applies_canonical_broadcast_matrix_and_range_rules() {
+    let (body, store) =
+        analyze_single_body("function y = f(); a = [1; 2]; b = [1, 2, 3]; y = a .* b; end");
     assert_eq!(
-        cell_fact.value_flow,
-        runmat_hir::ValueFlowFact::Single(runmat_hir::TypeFact::Cell)
+        output_fact(&body, &store).shape,
+        ShapeFact::from(vec![Some(2), Some(3)])
     );
+
+    let (body, store) = analyze_single_body("function y = f(); y = 1:2:7; end");
+    assert_eq!(
+        output_fact(&body, &store).shape,
+        ShapeFact::from(vec![Some(1), Some(4)])
+    );
+
+    let (body, store) = analyze_single_body("function y = f(); y = -2:0.02:2; end");
+    assert_eq!(
+        output_fact(&body, &store).shape,
+        ShapeFact::from(vec![Some(1), Some(201)])
+    );
+
+    let (body, store) = analyze_single_body("function y = f(s); y = 1:s:7; end");
+    assert_eq!(
+        output_fact(&body, &store).shape,
+        ShapeFact::from(vec![Some(1), None])
+    );
+}
+
+#[test]
+fn analyze_body_applies_canonical_index_member_and_mutation_rules() {
+    let (body, store) = analyze_single_body("function y = f(); a = [1, 2; 3, 4]; y = a(:, 1); end");
+    assert_eq!(
+        output_fact(&body, &store).shape,
+        ShapeFact::from(vec![Some(2), Some(1)])
+    );
+
+    let (body, store) =
+        analyze_single_body("function y = f(); c = {1, 2; 'x', 4}; y = c{2, 1}; end");
+    assert_eq!(output_fact(&body, &store).kind, ValueKindFact::Character);
+
+    let (body, store) = analyze_single_body("function y = f(); y = [1, 2, 3]; y(4) = 4; end");
+    assert_eq!(
+        output_fact(&body, &store).shape,
+        ShapeFact::from(vec![Some(1), Some(4)])
+    );
+
+    let (body, store) = analyze_single_body(
+        "function y = f(); s = struct{count = 1}; s.label = 'ok'; y = s.label; end",
+    );
+    assert_eq!(output_fact(&body, &store).kind, ValueKindFact::Character);
+
+    let (body, store) = analyze_single_body("function y = f(); c{2} = 'created'; y = c{2}; end");
+    assert_eq!(output_fact(&body, &store).kind, ValueKindFact::Character);
+}
+
+#[test]
+fn subscript_chain_analysis_preserves_default_facts_and_defers_at_objects() {
+    for (source, expected_kind) in [
+        ("function y = f(); a = [1, 2]; y = a(1)(1); end", "numeric"),
+        (
+            "function y = f(); s = struct{a = [1, 2]}; y = s.a(1); end",
+            "numeric",
+        ),
+        (
+            "function y = f(); c = {[1, 2]}; y = c{1}(1); end",
+            "numeric",
+        ),
+    ] {
+        let (body, store) = analyze_single_body(source);
+        let output = output_fact(&body, &store);
+        assert!(
+            matches!(output.kind, ValueKindFact::Numeric(_)),
+            "{expected_kind} fact was lost: {output:?}"
+        );
+        assert_eq!(output.shape, ShapeFact::Scalar);
+        let function = store
+            .functions
+            .iter()
+            .find(|analysis| analysis.function.0 as usize == body.function.0)
+            .expect("function analysis");
+        assert!(!function
+            .effects
+            .0
+            .contains(&runmat_types::EffectKind::MaySuspend));
+        assert!(!function
+            .effects
+            .0
+            .contains(&runmat_types::EffectKind::Unknown));
+    }
+
+    let (body, store) =
+        analyze_single_body("function y = f(); o = ?Point{x = [1, 2]}; y = o.x(1); end");
+    let output = output_fact(&body, &store);
+    assert_eq!(output.kind, ValueKindFact::Unknown);
+    assert!(matches!(
+        output.certainty,
+        CertaintyFact::Dynamic(DynamicReason::DynamicDispatch)
+    ));
+    let function = store
+        .functions
+        .iter()
+        .find(|analysis| analysis.function.0 as usize == body.function.0)
+        .expect("function analysis");
+    assert!(function
+        .effects
+        .0
+        .contains(&runmat_types::EffectKind::MaySuspend));
+    assert!(function
+        .effects
+        .0
+        .contains(&runmat_types::EffectKind::Unknown));
 }
 
 #[test]
 fn analyze_body_records_binary_op_as_unknown_scalar_fact() {
     let (body, store) = analyze_single_body("function y = f(x); y = x + 1; end");
     let output = first_local_of_kind(&body, MirLocalKind::Output);
-    let fact = &store.mir_locals[&MirLocalKey {
-        function: body.function,
-        local: output,
-    }];
+    let fact = final_local_fact(&body, &store, output);
 
-    assert_eq!(fact.ty, runmat_hir::TypeFact::Unknown);
-    assert_eq!(fact.shape, runmat_hir::ShapeFact::Unknown);
-    assert_eq!(fact.value_flow, runmat_hir::ValueFlowFact::UnknownList);
+    assert_eq!(fact.kind, ValueKindFact::Unknown);
+    assert_eq!(fact.shape, ShapeFact::Unknown);
 }
 
 #[test]
 fn analyze_body_joins_simple_facts_across_cfg_paths() {
     let (body, store) = analyze_single_body("function y = f(c); y = 1; if c; y = 's'; end; end");
     let output = first_local_of_kind(&body, MirLocalKind::Output);
-    let fact = &store.mir_locals[&MirLocalKey {
-        function: body.function,
-        local: output,
-    }];
+    let fact = final_local_fact(&body, &store, output);
 
-    assert_eq!(fact.ty, runmat_hir::TypeFact::Unknown);
-    assert_eq!(fact.shape, runmat_hir::ShapeFact::Scalar);
+    assert_eq!(fact.kind, ValueKindFact::Unknown);
+    assert_eq!(fact.shape, ShapeFact::Scalar);
 }
 
 #[test]
@@ -552,19 +839,23 @@ fn analyze_body_records_future_and_task_async_value_facts() {
 async function y = make(); y = 1; end",
     );
     let store = analyze_assembly(&mir);
-
     let async_values: Vec<_> = store
-        .mir_locals
-        .values()
-        .filter_map(|fact| fact.async_value.as_ref())
+        .program_points
+        .iter()
+        .flat_map(|point| &point.locals)
+        .filter_map(|local| local.fact.as_ref())
+        .filter_map(|fact| match &fact.kind {
+            ValueKindFact::Execution(execution) => Some(execution),
+            _ => None,
+        })
         .collect();
 
     assert!(async_values
         .iter()
-        .any(|fact| matches!(fact, runmat_hir::AsyncValueFact::Future(_))));
+        .any(|fact| matches!(fact, ExecutionFact::Future { .. })));
     assert!(async_values
         .iter()
-        .any(|fact| matches!(fact, runmat_hir::AsyncValueFact::TaskHandle(_))));
+        .any(|fact| matches!(fact, ExecutionFact::Task { .. })));
 }
 
 #[test]
@@ -617,23 +908,15 @@ fn direct_spawn_of_anonymous_function_uses_function_handle_temp_operand() {
             Some(local.id).filter(|_| {
                 local.kind == MirLocalKind::Temporary
                     && matches!(
-                        store.mir_locals[&MirLocalKey {
-                            function: body.function,
-                            local: local.id,
-                        }]
-                            .ty,
-                        runmat_hir::TypeFact::Function(_)
+                        final_local_fact(body, &store, local.id).kind,
+                        ValueKindFact::Callable(_)
                     )
             })
         })
         .unwrap();
     assert!(matches!(
-        store.mir_locals[&MirLocalKey {
-            function: body.function,
-            local: handle_local,
-        }]
-            .ty,
-        runmat_hir::TypeFact::Function(_)
+        final_local_fact(body, &store, handle_local).kind,
+        ValueKindFact::Callable(_)
     ));
     assert!(store.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == "RM-MIR0003"
@@ -710,12 +993,8 @@ fn analyze_body_populates_local_facts_for_parameters() {
     let parameter = first_local_of_kind(&body, MirLocalKind::Parameter);
 
     assert_eq!(
-        store.mir_locals[&MirLocalKey {
-            function: body.function,
-            local: parameter,
-        }]
-            .ty,
-        runmat_hir::TypeFact::Unknown
+        final_local_fact(&body, &store, parameter).kind,
+        ValueKindFact::Unknown
     );
 }
 
@@ -726,10 +1005,8 @@ fn dataflow_widens_loop_assignment_as_maybe_assigned() {
     let store = analyze_assembly(&mir);
     let output = first_local_of_kind(body, MirLocalKind::Output);
 
-    assert!(store.mir_locals.contains_key(&MirLocalKey {
-        function: body.function,
-        local: output,
-    }));
+    assert!(local_observations(body, &store, output)
+        .any(|fact| fact.assignment == AssignmentFact::MaybeAssigned));
 }
 
 #[test]
@@ -805,7 +1082,7 @@ fn summary_records_requested_output_call_facts() {
     assert_eq!(
         call.args
             .iter()
-            .filter(|arg| matches!(arg, runmat_mir::MirCallArg::Expansion { .. }))
+            .filter(|arg| matches!(arg, runmat_mir::MirCallArg::CapturedSequence(_)))
             .count(),
         1
     );
@@ -929,10 +1206,15 @@ fn dataflow_marks_spawn_as_task_handle_even_when_safety_diagnostic_rejects_targe
     let mir = lower_mir("function y = f(); task = spawn(@(x) x); y = 1; end");
     let store = analyze_assembly(&mir);
 
-    assert!(store.mir_locals.values().any(|fact| matches!(
-        fact.async_value,
-        Some(runmat_hir::AsyncValueFact::TaskHandle(_))
-    )));
+    assert!(store
+        .program_points
+        .iter()
+        .flat_map(|point| &point.locals)
+        .filter_map(|local| local.fact.as_ref())
+        .any(|fact| matches!(
+            fact.kind,
+            ValueKindFact::Execution(ExecutionFact::Task { .. })
+        )));
     assert!(store.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == "RM-MIR0003" && diagnostic.category.as_deref() == Some("spawn-safety")
     }));
@@ -961,19 +1243,16 @@ fn analyze_assembly_populates_store_products_by_function() {
 }
 
 #[test]
-fn analyze_assembly_scopes_mir_local_facts_by_function() {
+fn analyze_assembly_scopes_program_point_facts_by_function() {
     let mir = lower_mir("function y = f(x); y = x; end\nfunction z = g(a); z = a; end");
 
     let store = analyze_assembly(&mir);
     let expected_locals: usize = mir.bodies.values().map(|body| body.locals.len()).sum();
 
-    assert_eq!(store.mir_locals.len(), expected_locals);
+    assert_eq!(store.local_value_count(None), expected_locals);
     for body in mir.bodies.values() {
         for local in &body.locals {
-            assert!(store.mir_locals.contains_key(&MirLocalKey {
-                function: body.function,
-                local: local.id,
-            }));
+            assert!(local_observations(body, &store, local.id).next().is_some());
         }
     }
 }
@@ -1002,11 +1281,9 @@ fn analyze_assembly_collects_semantic_marker_diagnostics() {
         callee: MirCallee::Static(CallableIdentity::ExternalName(runmat_hir::QualifiedName(
             vec![runmat_hir::SymbolName("sink".into())],
         ))),
-        args: vec![MirCallArg::Expansion {
-            base: MirOperand::Local(local),
-            indices: Vec::new(),
-            expand_all: true,
-        }],
+        args: vec![MirCallArg::Expansion(MirExpansionSource::ReturnedOutputs(
+            MirOperand::Local(local),
+        ))],
         arg_spans: vec![runmat_hir::Span::default()],
         syntax: runmat_hir::CallSyntax::Plain,
         requested_outputs: runmat_hir::RequestedOutputCount::Zero,
@@ -1041,7 +1318,7 @@ fn analysis_store_diagnostics_serialize_with_store() {
     assert!(json.contains("RM-MIR0002"));
     assert!(json.contains("definite-assignment"));
     assert_eq!(roundtrip, store);
-    assert!(!roundtrip.mir_locals.is_empty());
+    assert!(!roundtrip.program_points.is_empty());
 }
 
 #[test]
@@ -1096,15 +1373,193 @@ fn nested_await_expression_lowers_to_temp_and_resume_block() {
 }
 
 #[test]
+fn await_lowering_materializes_left_expression_siblings_before_suspension() {
+    let mir = lower_mir("async function y = f(t); y = side_effect() + await(t); end");
+    let body = mir.bodies.values().next().unwrap();
+    let entry = body
+        .blocks
+        .iter()
+        .find(|block| matches!(block.terminator.kind, MirTerminatorKind::Await { .. }))
+        .unwrap();
+    assert!(entry.statements.iter().any(|statement| matches!(
+        statement.kind,
+        MirStmtKind::Assign {
+            value: MirRvalue::Call(_),
+            ..
+        }
+    )));
+    let call_count = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(
+                statement.kind,
+                MirStmtKind::Assign {
+                    value: MirRvalue::Call(_),
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(call_count, 1);
+}
+
+#[test]
+fn await_in_assignment_selector_preserves_prior_selector_order() {
+    let mir = lower_mir("async function y = f(a,t); a(side_effect(), await(t)) = 1; y = a; end");
+    let body = mir.bodies.values().next().unwrap();
+    let entry = body
+        .blocks
+        .iter()
+        .find(|block| matches!(block.terminator.kind, MirTerminatorKind::Await { .. }))
+        .unwrap();
+    assert!(entry.statements.iter().any(|statement| matches!(
+        statement.kind,
+        MirStmtKind::Assign {
+            value: MirRvalue::Call(_),
+            ..
+        }
+    )));
+    let call_count = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(
+                statement.kind,
+                MirStmtKind::Assign {
+                    value: MirRvalue::Call(_),
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(call_count, 1);
+}
+
+#[test]
+fn short_circuit_rhs_await_remains_behind_its_branch() {
+    for source in [
+        "async function y = f(t); y = false && await(t); end",
+        "async function y = f(t); y = true || await(t); end",
+        "async function y = f(t); y = true && await(t); end",
+        "async function y = f(t); y = false || await(t); end",
+    ] {
+        let mir = lower_mir(source);
+        let body = mir.bodies.values().next().unwrap();
+        assert!(matches!(
+            body.blocks[0].terminator.kind,
+            MirTerminatorKind::Branch { .. }
+        ));
+        assert_eq!(
+            body.blocks
+                .iter()
+                .filter(|block| matches!(block.terminator.kind, MirTerminatorKind::Await { .. }))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn later_elseif_await_is_owned_by_the_selected_else_branch() {
+    let mir = lower_mir(
+        "async function y = f(t); if true; y = 1; elseif await(t); y = 2; else; y = 3; end; end",
+    );
+    let body = mir.bodies.values().next().unwrap();
+    assert!(matches!(
+        body.blocks[0].terminator.kind,
+        MirTerminatorKind::Branch { .. }
+    ));
+    assert_eq!(
+        body.blocks
+            .iter()
+            .filter(|block| matches!(block.terminator.kind, MirTerminatorKind::Await { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn nested_short_circuit_awaits_share_one_downstream_continuation() {
+    let mir = lower_mir(
+        "async function y = f(a,b,t,u); y = (a && await(t)) + (b || await(u)); y = y + 1; end",
+    );
+    let body = mir.bodies.values().next().unwrap();
+    assert_eq!(
+        body.blocks
+            .iter()
+            .filter(|block| matches!(block.terminator.kind, MirTerminatorKind::Await { .. }))
+            .count(),
+        2
+    );
+    assert!(
+        body.blocks.len() <= 12,
+        "unexpected CFG growth: {} blocks",
+        body.blocks.len()
+    );
+    let output = first_local_of_kind(body, MirLocalKind::Output);
+    let output_stores = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(
+                statement.kind,
+                MirStmtKind::Assign {
+                    place: MirPlace::Local(local),
+                    ..
+                } if local == output
+            )
+        })
+        .count();
+    assert_eq!(output_stores, 2, "downstream statement was duplicated");
+}
+
+#[test]
+fn while_condition_await_backedge_reenters_the_pre_await_header() {
+    for source in [
+        "async function y = f(t); y = 0; while await(t); y = y + 1; end; end",
+        "async function y = f(t); y = 0; while y < 2 && await(t); y = y + 1; end; end",
+    ] {
+        let mir = lower_mir(source);
+        let body = mir.bodies.values().next().unwrap();
+        assert!(body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator.kind, MirTerminatorKind::Await { .. })));
+        let MirTerminatorKind::Goto(repeat_header) = body.blocks[0].terminator.kind else {
+            panic!("{source}: statements before the loop must lead to a dedicated header")
+        };
+        assert!(
+            body.blocks
+                .iter()
+                .filter(|block| matches!(
+                    block.terminator.kind,
+                    MirTerminatorKind::Goto(target) if target == repeat_header
+                ))
+                .count()
+                >= 2,
+            "{source}: repeat header {:?}, terminators {:?}",
+            repeat_header,
+            body.blocks
+                .iter()
+                .map(|block| (&block.id, &block.terminator.kind))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn dataflow_marks_await_assignment_output_definitely_assigned() {
     let mir = lower_mir("async function y = f(g); y = await(g); end");
     let body = mir.bodies.values().next().unwrap();
     let store = analyze_assembly(&mir);
     let output = first_local_of_kind(body, MirLocalKind::Output);
 
-    assert!(store.mir_locals.contains_key(&MirLocalKey {
-        function: body.function,
-        local: output,
+    assert!(local_observations(body, &store, output).any(|fact| {
+        fact.assignment == AssignmentFact::DefinitelyAssigned && fact.fact.is_some()
     }));
 }
 
@@ -1132,6 +1587,779 @@ fn global_statement_lowers_to_workspace_effect() {
             ..
         }
     )));
+}
+
+#[test]
+fn analysis_store_publishes_source_position_facts_after_each_statement() {
+    let mir = lower_mir("function y = f(); y = 1; y = \"next\"; end");
+    let body = mir.bodies.values().next().expect("body");
+    let store = analyze_assembly(&mir);
+    let output = first_local_of_kind(body, MirLocalKind::Output);
+    let function = ProgramFunctionId(u32::try_from(body.function.0).expect("portable function"));
+    let value = RegionValueId {
+        function,
+        local: u32::try_from(output.0).expect("portable local"),
+    };
+    let after_first = store
+        .facts_at(ProgramPointId {
+            function,
+            block: 0,
+            position: 1,
+        })
+        .expect("point after first assignment")
+        .local(value)
+        .expect("output fact after first assignment");
+    let after_second = store
+        .facts_at(ProgramPointId {
+            function,
+            block: 0,
+            position: 2,
+        })
+        .expect("point after second assignment")
+        .local(value)
+        .expect("output fact after second assignment");
+
+    assert_eq!(after_first.assignment, AssignmentFact::DefinitelyAssigned);
+    assert!(matches!(
+        after_first.fact.as_ref().map(|fact| &fact.kind),
+        Some(ValueKindFact::Numeric(_))
+    ));
+    assert!(matches!(
+        after_second.fact.as_ref().map(|fact| &fact.kind),
+        Some(ValueKindFact::String)
+    ));
+}
+
+#[test]
+fn analysis_store_uses_migrated_catalog_contracts_for_call_facts() {
+    let (body, store) = analyze_single_body("function y = f(); y = zeros(2, 3); end");
+    let output = output_fact(&body, &store);
+
+    assert!(matches!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        })
+    ));
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(2), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_carries_typed_integer_exp_through_the_catalog_boundary() {
+    let (body, store) =
+        analyze_single_body("function y = f(); x = uint16([1, 2, 3]); y = exp(x); end");
+    let builtin_ids = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .filter_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                value: MirRvalue::Call(call),
+                ..
+            } => match &call.callee {
+                MirCallee::Static(CallableIdentity::Builtin(id)) => Some(id.0.as_str()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(builtin_ids, ["uint16", "exp"]);
+    let output = output_fact(&body, &store);
+
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        })
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_carries_typed_integer_sqrt_through_the_catalog_boundary() {
+    let (body, store) =
+        analyze_single_body("function y = f(); x = uint16([1, 4, 9]); y = sqrt(x); end");
+    let output = output_fact(&body, &store);
+
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        })
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_preserves_every_typed_integer_conversion_identity_and_result_class() {
+    for (name, class) in [
+        ("int8", NumericClass::Int8),
+        ("int16", NumericClass::Int16),
+        ("int32", NumericClass::Int32),
+        ("int64", NumericClass::Int64),
+        ("uint8", NumericClass::UInt8),
+        ("uint16", NumericClass::UInt16),
+        ("uint32", NumericClass::UInt32),
+        ("uint64", NumericClass::UInt64),
+    ] {
+        let source = format!("function y = f(); y = {name}([1, 2, 3]); end");
+        let (body, store) = analyze_single_body(&source);
+        let builtin = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .find_map(|statement| match &statement.kind {
+                MirStmtKind::Assign {
+                    value: MirRvalue::Call(call),
+                    ..
+                } => match &call.callee {
+                    MirCallee::Static(CallableIdentity::Builtin(id)) => Some(id),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("statically resolved integer conversion");
+        assert_eq!(builtin, &runmat_types::BuiltinId(name.into()), "{name}");
+
+        let output = output_fact(&body, &store);
+        assert_eq!(
+            output.kind,
+            ValueKindFact::Numeric(NumericFact {
+                class,
+                domain: NumericDomain::Real,
+            }),
+            "{name}"
+        );
+        assert_eq!(
+            output.shape,
+            ShapeFact::Shaped {
+                dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn analysis_store_preserves_typed_floating_conversion_and_like_contracts() {
+    for (name, class) in [
+        ("double", NumericClass::Double),
+        ("single", NumericClass::Single),
+    ] {
+        let source = format!("function y = f(); y = {name}([1, 2, 3]); end");
+        let (body, store) = analyze_single_body(&source);
+        let builtin = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .find_map(|statement| match &statement.kind {
+                MirStmtKind::Assign {
+                    value: MirRvalue::Call(call),
+                    ..
+                } => match &call.callee {
+                    MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == name => Some(id),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("statically resolved floating conversion");
+        assert_eq!(builtin, &runmat_types::BuiltinId(name.into()), "{name}");
+
+        let output = output_fact(&body, &store);
+        assert_eq!(
+            output.kind,
+            ValueKindFact::Numeric(NumericFact {
+                class,
+                domain: NumericDomain::Real,
+            }),
+            "{name}"
+        );
+        assert_eq!(
+            output.shape,
+            ShapeFact::Shaped {
+                dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+            },
+            "{name}"
+        );
+    }
+
+    let (body, store) =
+        analyze_single_body("function y = f(); y = double([1, 2, 3], \"like\", single(1)); end");
+    let output = output_fact(&body, &store);
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        }),
+        "the single prototype controls residency, not double's result class"
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_preserves_typed_numeric_component_identities_classes_and_shapes() {
+    for (name, expected_class) in [
+        ("conj", NumericClass::UInt16),
+        ("real", NumericClass::Single),
+        ("imag", NumericClass::UInt64),
+    ] {
+        let source = match name {
+            "conj" => "function y = f(); y = conj(uint16([1, 2, 3])); end",
+            "real" => "function y = f(); y = real(single([1, 2, 3])); end",
+            "imag" => "function y = f(); y = imag(uint64([1, 2, 3])); end",
+            _ => unreachable!(),
+        };
+        let (body, store) = analyze_single_body(source);
+        let builtin = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .find_map(|statement| match &statement.kind {
+                MirStmtKind::Assign {
+                    value: MirRvalue::Call(call),
+                    ..
+                } => match &call.callee {
+                    MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == name => Some(id),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("statically resolved numeric component builtin");
+        assert_eq!(builtin, &runmat_types::BuiltinId(name.into()), "{name}");
+
+        let output = output_fact(&body, &store);
+        assert_eq!(
+            output.kind,
+            ValueKindFact::Numeric(NumericFact {
+                class: expected_class,
+                domain: NumericDomain::Real,
+            }),
+            "{name}"
+        );
+        assert_eq!(
+            output.shape,
+            ShapeFact::Shaped {
+                dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn analysis_store_preserves_typed_phase_angle_identity_class_domain_and_shape() {
+    let (body, store) = analyze_single_body("function y = f(); y = angle(single([1, 2, 3])); end");
+    let builtin = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                value: MirRvalue::Call(call),
+                ..
+            } => match &call.callee {
+                MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == "angle" => Some(id),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("statically resolved angle builtin");
+    assert_eq!(builtin, &runmat_types::BuiltinId("angle".into()));
+
+    let output = output_fact(&body, &store);
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Single,
+            domain: NumericDomain::Real,
+        })
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_preserves_typed_signum_identity_integer_class_and_shape() {
+    let (body, store) = analyze_single_body("function y = f(); y = sign(uint64([0, 1, 2])); end");
+    let builtin = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                value: MirRvalue::Call(call),
+                ..
+            } => match &call.callee {
+                MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == "sign" => Some(id),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("statically resolved sign builtin");
+    assert_eq!(builtin, &runmat_types::BuiltinId("sign".into()));
+    let output = output_fact(&body, &store);
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::UInt64,
+            domain: NumericDomain::Real,
+        })
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_preserves_typed_expm1_identity_class_domain_and_shape() {
+    let (body, store) = analyze_single_body("function y = f(); y = expm1(single([0, 1, 2])); end");
+    let builtin = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                value: MirRvalue::Call(call),
+                ..
+            } => match &call.callee {
+                MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == "expm1" => Some(id),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("statically resolved expm1 builtin");
+    assert_eq!(builtin, &runmat_types::BuiltinId("expm1".into()));
+    let output = output_fact(&body, &store);
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Single,
+            domain: NumericDomain::Real,
+        })
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_preserves_typed_log1p_identity_and_literal_complex_domain() {
+    let (body, store) = analyze_single_body("function y = f(); y = log1p([-2, 0, 1]); end");
+    let builtin = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                value: MirRvalue::Call(call),
+                ..
+            } => match &call.callee {
+                MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == "log1p" => Some(id),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("statically resolved log1p builtin");
+    assert_eq!(builtin, &runmat_types::BuiltinId("log1p".into()));
+    let output = output_fact(&body, &store);
+    assert_eq!(
+        output.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Complex,
+        })
+    );
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_preserves_logarithm_identities_classes_shapes_and_literal_domains() {
+    for name in ["log", "log10"] {
+        let source = format!("function y = f(); y = {name}([-1, 1]); end");
+        let (body, store) = analyze_single_body(&source);
+        let builtin = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .find_map(|statement| match &statement.kind {
+                MirStmtKind::Assign {
+                    value: MirRvalue::Call(call),
+                    ..
+                } => match &call.callee {
+                    MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == name => Some(id),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("statically resolved {name} builtin"));
+        assert_eq!(builtin, &runmat_types::BuiltinId(name.into()));
+        let output = output_fact(&body, &store);
+        assert_eq!(
+            output.kind,
+            ValueKindFact::Numeric(NumericFact {
+                class: NumericClass::Double,
+                domain: NumericDomain::Complex,
+            }),
+            "{name}"
+        );
+        assert_eq!(
+            output.shape,
+            ShapeFact::Shaped {
+                dims: vec![DimensionFact::Known(1), DimensionFact::Known(2)]
+            },
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn analysis_store_preserves_log2_requested_output_contract() {
+    let (body, store) =
+        analyze_single_body("function [f,e] = dissect(); [f,e] = log2(single([1,-3])); end");
+    let call = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::MultiAssign {
+                value: MirRvalue::Call(call),
+                ..
+            } if matches!(
+                &call.callee,
+                MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == "log2"
+            ) =>
+            {
+                Some(call)
+            }
+            _ => None,
+        })
+        .expect("statically resolved log2 multi-output call");
+    assert_eq!(
+        call.requested_outputs,
+        runmat_hir::RequestedOutputCount::Exactly(2)
+    );
+    assert_eq!(body.abi.fixed_outputs.len(), 2);
+    for output in &body.abi.fixed_outputs {
+        let local = body
+            .locals
+            .iter()
+            .find(|local| local.binding == Some(*output))
+            .expect("output binding local")
+            .id;
+        let fact = final_local_fact(&body, &store, local);
+        assert_eq!(
+            fact.kind,
+            ValueKindFact::Numeric(NumericFact {
+                class: NumericClass::Single,
+                domain: NumericDomain::Real,
+            })
+        );
+        assert_eq!(
+            fact.shape,
+            ShapeFact::Shaped {
+                dims: vec![DimensionFact::Known(1), DimensionFact::Known(2)]
+            }
+        );
+    }
+}
+
+#[test]
+fn analysis_store_preserves_numeric_limit_identity_and_literal_class() {
+    for (name, class_name, expected_class) in [
+        ("intmin", "uint64", NumericClass::UInt64),
+        ("intmax", "int16", NumericClass::Int16),
+        ("realmin", "single", NumericClass::Single),
+        ("realmax", "single", NumericClass::Single),
+        ("flintmax", "double", NumericClass::Double),
+    ] {
+        let source = format!("function y = f(); y = {name}('{class_name}'); end");
+        let (body, store) = analyze_single_body(&source);
+        let call = first_call(&body);
+        assert!(matches!(
+            &call.callee,
+            MirCallee::Static(CallableIdentity::Builtin(id)) if id.0 == name
+        ));
+        let output = output_fact(&body, &store);
+        assert_eq!(
+            output.kind,
+            ValueKindFact::Numeric(NumericFact {
+                class: expected_class,
+                domain: NumericDomain::Real,
+            }),
+            "{name}"
+        );
+        assert_eq!(output.shape, ShapeFact::Scalar, "{name}");
+    }
+}
+
+#[test]
+fn analysis_store_keeps_log1p_shape_but_not_a_false_domain_proof() {
+    let (body, store) = analyze_single_body("function y = f(); y = log1p(single([0, 1, 2])); end");
+    let output = output_fact(&body, &store);
+    assert_eq!(output.kind, ValueKindFact::Unknown);
+    assert_eq!(
+        output.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(1), DimensionFact::Known(3)]
+        }
+    );
+    assert_eq!(
+        output.certainty,
+        CertaintyFact::Dynamic(DynamicReason::RuntimeValue)
+    );
+}
+
+#[test]
+fn analysis_store_attaches_catalog_contract_diagnostics_to_source() {
+    let mir = lower_mir("function y = f(); y = zeros(2, \"bogus\"); end");
+    let store = analyze_assembly(&mir);
+    let diagnostic = store
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "RM-CATALOG-ZEROS-CLASS")
+        .expect("catalog diagnostic");
+
+    assert_eq!(diagnostic.category.as_deref(), Some("call-contract"));
+    assert!(diagnostic.primary.span.end > diagnostic.primary.span.start);
+}
+
+#[test]
+fn analysis_store_propagates_direct_user_function_summaries() {
+    let mir = lower_mir("function y = f(); y = g(); end function z = g(); z = 7; end");
+    let store = analyze_assembly(&mir);
+
+    assert_eq!(store.functions.len(), 2);
+    assert!(
+        store.functions.iter().all(|function| {
+            matches!(
+                function.outputs.first().map(|fact| &fact.kind),
+                Some(ValueKindFact::Numeric(_))
+            )
+        }),
+        "{:#?}",
+        store.functions
+    );
+}
+
+#[test]
+fn analysis_store_propagates_observed_arguments_into_nested_function_contracts() {
+    let mir = lower_mir("function y = f(); y = g(3); function z = g(x); z = x; end; end");
+    let store = analyze_assembly(&mir);
+    let nested = mir
+        .functions
+        .iter()
+        .find(|(_, metadata)| metadata.parent.is_some())
+        .map(|(function, _)| ProgramFunctionId(u32::try_from(function.0).unwrap()))
+        .expect("nested function");
+    let nested = store.function(nested).expect("nested function analysis");
+
+    assert!(matches!(
+        nested.callable.parameters.first().map(|fact| &fact.kind),
+        Some(ValueKindFact::Numeric(_))
+    ));
+    assert!(matches!(
+        nested.outputs.first().map(|fact| &fact.kind),
+        Some(ValueKindFact::Numeric(_))
+    ));
+}
+
+#[test]
+fn analysis_store_propagates_lexical_capture_facts_into_nested_summaries() {
+    let mir = lower_mir(
+        "function y = outer(); cap = 1; y = inner(); function z = inner(); z = cap; end; end",
+    );
+    let store = analyze_assembly(&mir);
+    let nested = mir
+        .functions
+        .iter()
+        .find(|(_, metadata)| metadata.parent.is_some())
+        .map(|(function, _)| ProgramFunctionId(u32::try_from(function.0).unwrap()))
+        .expect("nested function");
+    let nested = store.function(nested).expect("nested function analysis");
+
+    assert!(matches!(
+        nested.callable.captures.first().map(|fact| &fact.kind),
+        Some(ValueKindFact::Numeric(_))
+    ));
+    assert!(matches!(
+        nested.outputs.first().map(|fact| &fact.kind),
+        Some(ValueKindFact::Numeric(_))
+    ));
+}
+
+#[test]
+fn analysis_store_converges_recursive_function_summaries() {
+    let mir = lower_mir("function y = f(n); if n; y = f(n - 1); else; y = 1; end; end");
+    let store = analyze_assembly(&mir);
+    let function = store.functions.first().expect("recursive summary");
+
+    assert!(matches!(
+        function.outputs.first().map(|fact| &fact.kind),
+        Some(ValueKindFact::Numeric(_))
+    ));
+    assert_eq!(
+        function.convergence,
+        runmat_mir::analysis::FunctionConvergence::Exact
+    );
+}
+
+#[test]
+fn analysis_store_propagates_async_output_through_await() {
+    let mir =
+        lower_mir("async function z = g(); z = 1; end async function y = f(); y = await(g()); end");
+    let store = analyze_assembly(&mir);
+
+    assert!(store.functions.iter().all(|function| {
+        matches!(
+            function.outputs.first().map(|fact| &fact.kind),
+            Some(ValueKindFact::Numeric(_))
+        )
+    }));
+}
+
+#[test]
+fn analysis_store_preserves_class_property_and_method_products() {
+    let mir = lower_mir(
+        "classdef C; properties; p = 1; end; methods; function y = f(obj); y = obj.p; end; end; end",
+    );
+    let store = analyze_assembly(&mir);
+    let class = store.classes.first().expect("class analysis");
+
+    assert_eq!(store.classes.len(), 1);
+    assert_eq!(class.properties.len(), 1);
+    assert!(class.properties[0].has_default);
+    assert_eq!(class.methods.len(), 1);
+    let owner = mir
+        .functions
+        .values()
+        .find_map(|metadata| metadata.class_method_owner.as_ref())
+        .expect("typed class method owner");
+    assert_eq!(owner.declaring_class.display_name(), "C");
+    assert_eq!(owner.method.display_name(), "f");
+    assert!(!owner.is_static);
+}
+
+#[test]
+fn analysis_store_marks_parallel_region_program_points_with_capability() {
+    let mir = lower_mir("parfor i = 1:3; y = i; end;");
+    let store = analyze_assembly(&mir);
+
+    assert!(store.program_points.iter().any(|point| point
+        .capabilities
+        .0
+        .contains(&runmat_types::CapabilityRequirement::ParallelRuntime)));
+}
+
+#[test]
+fn analysis_store_seeds_parameter_facts_from_arguments_blocks() {
+    let mir = lower_mir(
+        r#"
+        function y = typed(x)
+            arguments
+                x (2,3) double
+            end
+            y = x;
+        end
+        "#,
+    );
+    let store = analyze_assembly(&mir);
+    let function = store.functions.first().expect("function summary");
+    let parameter = function
+        .callable
+        .parameters
+        .first()
+        .expect("parameter fact");
+
+    assert!(matches!(
+        parameter.kind,
+        ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        })
+    ));
+    assert_eq!(
+        parameter.shape,
+        ShapeFact::Shaped {
+            dims: vec![DimensionFact::Known(2), DimensionFact::Known(3)]
+        }
+    );
+}
+
+#[test]
+fn analysis_store_diagnoses_proven_arguments_block_mismatch_at_call_site() {
+    let mir = lower_mir(
+        r#"
+        function y = f()
+            y = typed("bad");
+        end
+        function z = typed(x)
+            arguments
+                x (1,1) double
+            end
+            z = x;
+        end
+        "#,
+    );
+    let store = analyze_assembly(&mir);
+
+    assert!(store.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "RM-MIR0012"
+            && diagnostic.category.as_deref() == Some("argument-validation")
+            && diagnostic.primary.span.end > diagnostic.primary.span.start
+    }));
+}
+
+#[test]
+fn analysis_store_serialization_is_deterministic_and_round_trips() {
+    let mir = lower_mir("function y = f(x); if x; y = zeros(2, 2); else; y = 1; end; end");
+    let store = analyze_assembly(&mir);
+    let first = serde_json::to_string(&store).expect("serialize analysis store");
+    let second = serde_json::to_string(&store).expect("serialize analysis store again");
+    let decoded: AnalysisStore = serde_json::from_str(&first).expect("deserialize analysis store");
+
+    assert_eq!(first, second);
+    assert_eq!(decoded, store);
+    assert!(!store.program_points.is_empty());
+    assert!(!store.dependencies.is_empty());
 }
 
 #[test]
@@ -1288,7 +2516,7 @@ fn feval_lowers_to_dynamic_mir_callee() {
 }
 
 #[test]
-fn qualified_static_method_function_handle_lowers_to_imported_identity_operand() {
+fn unverified_qualified_function_handle_preserves_dynamic_identity_operand() {
     let mir = lower_mir("h = @Point.origin; y = feval(h);");
     let body = mir.bodies.values().next().expect("body");
     assert!(body
@@ -1300,11 +2528,10 @@ fn qualified_static_method_function_handle_lowers_to_imported_identity_operand()
             MirStmtKind::Assign {
                 value:
                     MirRvalue::Use(MirOperand::FunctionHandle(
-                        CallableIdentity::Imported(path)
+                        CallableIdentity::DynamicName(name)
                     )),
                 ..
-            } if path.module.display_name().as_deref() == Some("Point.origin")
-                && matches!(path.item.as_slice(), [runmat_hir::DefPathSegment::Function(_)])
+            } if name.0 == "Point.origin"
         )));
 }
 
@@ -1368,12 +2595,11 @@ fn tensor_literal_lowers_to_mir_aggregate() {
         MirStmtKind::Assign {
             value: MirRvalue::Aggregate {
                 kind: MirAggregateKind::Tensor,
-                rows: 1,
-                cols: 2,
+                ref row_lengths,
                 ref elements,
             },
             ..
-        } if elements.len() == 2
+        } if row_lengths == &[2] && elements.len() == 2
     ));
 }
 
@@ -1387,12 +2613,11 @@ fn cell_literal_lowers_to_mir_aggregate() {
         MirStmtKind::Assign {
             value: MirRvalue::Aggregate {
                 kind: MirAggregateKind::Cell,
-                rows: 1,
-                cols: 2,
+                ref row_lengths,
                 ref elements,
             },
             ..
-        } if elements.len() == 2
+        } if row_lengths == &[2] && elements.len() == 2
     ));
 }
 
@@ -1508,13 +2733,20 @@ fn function_argument_expansion_lowers_to_expansion_call_arg() {
     };
 
     assert_eq!(call.args.len(), 1);
-    assert!(matches!(
-        call.args[0],
-        MirCallArg::Expansion {
-            base: MirOperand::Local(_),
-            ..
-        }
-    ));
+    assert!(matches!(call.args[0], MirCallArg::CapturedSequence(_)));
+    assert!(body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .any(|stmt| {
+            matches!(
+                stmt.kind,
+                MirStmtKind::CaptureSequence {
+                    source: MirExpansionSource::CellContents { .. },
+                    ..
+                }
+            )
+        }));
 }
 
 #[test]
@@ -1524,67 +2756,40 @@ fn function_argument_expansion_lowers_end_offset_selectors() {
     let call = first_call(body);
 
     assert_eq!(call.args.len(), 2);
-    assert!(matches!(
-        call.args[0],
-        MirCallArg::Expansion {
-            base: MirOperand::Local(_),
-            ref indices,
-            expand_all: false,
-        } if indices.len() == 1
-    ));
-    assert!(matches!(
-        call.args[1],
-        MirCallArg::Expansion {
-            base: MirOperand::Local(_),
-            ref indices,
-            expand_all: false,
-        } if indices.len() == 1
-    ));
-
-    let statements: Vec<&MirStmt> = body
+    assert!(call
+        .args
+        .iter()
+        .all(|argument| matches!(argument, MirCallArg::CapturedSequence(_))));
+    let operators = body
         .blocks
         .iter()
-        .flat_map(|block| block.statements.iter())
-        .collect();
-    let has_end_seed = statements.iter().any(|stmt| {
-        matches!(
-            stmt.kind,
-            MirStmtKind::Assign {
-                value: MirRvalue::End,
+        .flat_map(|block| &block.statements)
+        .filter_map(|stmt| match &stmt.kind {
+            MirStmtKind::CaptureSequence {
+                source: MirExpansionSource::CellContents { indexing, .. },
                 ..
-            }
-        )
-    });
-    let has_end_minus = statements.iter().any(|stmt| {
-        matches!(
-            stmt.kind,
-            MirStmtKind::Assign {
-                value: MirRvalue::Binary(
-                    MirOperand::Local(_),
-                    OperatorKind::Subtract,
-                    MirOperand::Constant(MirConstant::Number(ref value))
-                ),
-                ..
-            } if value == "1"
-        )
-    });
-    let has_end_plus = statements.iter().any(|stmt| {
-        matches!(
-            stmt.kind,
-            MirStmtKind::Assign {
-                value: MirRvalue::Binary(
-                    MirOperand::Local(_),
-                    OperatorKind::Add,
-                    MirOperand::Constant(MirConstant::Number(ref value))
-                ),
-                ..
-            } if value == "1"
-        )
-    });
-
-    assert!(has_end_seed);
-    assert!(has_end_minus);
-    assert!(has_end_plus);
+            } => match indexing.components.as_slice() {
+                [MirIndexComponent::ContextualExpr(region)] => {
+                    region.steps().iter().find_map(|step| match step {
+                        runmat_mir::MirExpressionStep::Let {
+                            value: MirRvalue::Binary(_, operator, _),
+                            ..
+                        } => Some(*operator),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        operators,
+        vec![
+            runmat_hir::OperatorKind::Subtract,
+            runmat_hir::OperatorKind::Add,
+        ]
+    );
 }
 
 #[test]
@@ -1701,10 +2906,10 @@ fn paren_index_plan_is_slice_for_general_index_operands() {
 }
 
 #[test]
-fn paren_index_plan_is_slice_expr_for_range_or_end_selectors() {
+fn paren_index_plan_is_slice_for_range_or_end_selectors() {
     let mir = lower_mir("function y = f(a); y = a(1:end-1); end");
     let body = mir.bodies.values().next().expect("body");
-    assert_eq!(first_indexing(body).plan, MirIndexPlan::SliceExpr);
+    assert_eq!(first_indexing(body).plan, MirIndexPlan::Slice);
 }
 
 #[test]
@@ -2041,6 +3246,586 @@ fn for_loop_exit_flows_to_following_statements() {
 }
 
 #[test]
+fn parallel_regions_lower_to_structured_terminators_with_stable_controls() {
+    let mir = lower_mir("parfor (i = 1:10, 4); y = i; end; spmd (2, 8); z = 1; end; w = 1;");
+    let body = mir.bodies.values().next().unwrap();
+
+    let parfor = body
+        .blocks
+        .iter()
+        .find_map(|block| match &block.terminator.kind {
+            MirTerminatorKind::ParFor {
+                region,
+                maximum_workers,
+                body_block,
+                exit_block,
+                ..
+            } => Some((*region, maximum_workers, *body_block, *exit_block)),
+            _ => None,
+        })
+        .expect("parfor terminator");
+    let spmd = body
+        .blocks
+        .iter()
+        .find_map(|block| match &block.terminator.kind {
+            MirTerminatorKind::Spmd {
+                region,
+                header,
+                body_block,
+                exit_block,
+            } => Some((*region, header.as_ref(), *body_block, *exit_block)),
+            _ => None,
+        })
+        .expect("spmd terminator");
+
+    assert_eq!(parfor.0 .0.function, runmat_types::ProgramFunctionId(0));
+    assert_eq!(parfor.0 .0.ordinal, 0);
+    assert!(parfor.1.is_some());
+    assert_ne!(parfor.2, parfor.3);
+    assert_eq!(spmd.0 .0.function, runmat_types::ProgramFunctionId(0));
+    assert_eq!(spmd.0 .0.ordinal, 1);
+    assert!(matches!(
+        spmd.1,
+        runmat_mir::parallel::MirSpmdHeader::Two(_, _)
+    ));
+    assert_ne!(spmd.2, spmd.3);
+    assert_eq!(body.blocks[spmd.3 .0].statements.len(), 1);
+}
+
+#[test]
+fn parfor_analysis_classifies_loop_broadcast_sliced_reduction_and_private_values() {
+    use runmat_types::ParallelVariableRole;
+
+    let mir = lower_mir(
+        "a = ones(1, 4); y = zeros(1, 4); total = 0; parfor (i = 1:4, 3); y(i) = a(i); total = total + i; temporary = i * 2; end;",
+    );
+    let store = analyze_assembly(&mir);
+    assert!(
+        !store
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "RM-MIR0001"),
+        "parfor binding should be initialized on the body edge: {:?}",
+        store.diagnostics
+    );
+    let contract = store
+        .parallel
+        .parfor_regions
+        .first()
+        .expect("parfor contract");
+    assert_eq!(contract.maximum_workers, Some(runmat_types::LabCount(3)));
+    assert!(contract
+        .variables
+        .iter()
+        .any(|variable| matches!(variable.role, ParallelVariableRole::Loop)));
+    assert!(contract
+        .variables
+        .iter()
+        .any(|variable| matches!(variable.role, ParallelVariableRole::Broadcast)));
+    assert!(contract.variables.iter().any(|variable| matches!(
+        variable.role,
+        ParallelVariableRole::Sliced {
+            access: runmat_types::ParallelSliceAccess {
+                axis: runmat_types::ParallelSliceAxis::Linear,
+                offset: runmat_types::ParallelSliceOffset::None,
+            },
+        }
+    )));
+    assert!(contract.variables.iter().any(|variable| matches!(
+        variable.role,
+        ParallelVariableRole::Reduction {
+            operator: OperatorKind::Add
+        }
+    )));
+    assert!(contract
+        .variables
+        .iter()
+        .any(|variable| matches!(variable.role, ParallelVariableRole::Private)));
+    store.parallel.validate().expect("valid parallel manifest");
+}
+
+#[test]
+fn parallel_region_contracts_preserve_indirect_callable_capabilities() {
+    use runmat_types::CapabilityRequirement;
+
+    let parfor = analyze_assembly(&lower_mir(
+        "function output = onDevice(input); output = gpuArray(input); end; target = @onDevice; y = zeros(1, 2); parfor i = 1:2; y(i) = target(i); end;",
+    ));
+    let parfor_contract = parfor
+        .parallel
+        .parfor_regions
+        .first()
+        .expect("parfor contract");
+    assert!(parfor_contract
+        .capabilities
+        .0
+        .contains(&CapabilityRequirement::ParallelRuntime));
+    assert!(parfor_contract
+        .capabilities
+        .0
+        .contains(&CapabilityRequirement::Accelerator));
+
+    let spmd = analyze_assembly(&lower_mir(
+        "function output = onDevice(input); output = gpuArray(input); end; target = @onDevice; spmd (2); y = target(1); end;",
+    ));
+    let spmd_contract = spmd.parallel.spmd_regions.first().expect("SPMD contract");
+    assert!(spmd_contract
+        .capabilities
+        .0
+        .contains(&CapabilityRequirement::ParallelRuntime));
+    assert!(spmd_contract
+        .capabilities
+        .0
+        .contains(&CapabilityRequirement::Accelerator));
+}
+
+#[test]
+fn parfor_analysis_distinguishes_linear_and_dimensional_slices() {
+    use runmat_types::{ParallelSliceAccess, ParallelVariableRole};
+
+    let mir = lower_mir(
+        "linear = zeros(1, 4); columns = zeros(2, 4); parfor i = 1:4; linear(i) = i; columns(:, i) = i; end;",
+    );
+    let store = analyze_assembly(&mir);
+    let contract = store
+        .parallel
+        .parfor_regions
+        .first()
+        .expect("parfor contract");
+    let accesses = contract
+        .variables
+        .iter()
+        .filter_map(|variable| match variable.role {
+            ParallelVariableRole::Sliced { access } => Some(access),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        accesses,
+        std::collections::BTreeSet::from([
+            ParallelSliceAccess::linear(),
+            ParallelSliceAccess::dimension(2),
+        ])
+    );
+    store.parallel.validate().expect("valid parallel manifest");
+}
+
+#[test]
+fn parfor_analysis_preserves_affine_slice_offsets() {
+    use runmat_types::{
+        ParallelIndexConstant, ParallelSliceOffset, ParallelSliceOffsetOperand,
+        ParallelVariableRole,
+    };
+
+    let mir = lower_mir(
+        "offset = 1; constants = zeros(1, 5); broadcasts = zeros(1, 5); parfor i = 1:4; constants(i + 1) = i; broadcasts(i + offset) = i; end;",
+    );
+    let store = analyze_assembly(&mir);
+    let contract = store
+        .parallel
+        .parfor_regions
+        .first()
+        .expect("parfor contract");
+    let offsets = contract
+        .variables
+        .iter()
+        .filter_map(|variable| match variable.role {
+            ParallelVariableRole::Sliced { access } => Some(access.offset),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(offsets.contains(&ParallelSliceOffset::Add(
+        ParallelSliceOffsetOperand::Constant(ParallelIndexConstant::Unsigned(1))
+    )));
+    assert!(offsets.iter().any(|offset| matches!(
+        offset,
+        ParallelSliceOffset::Add(ParallelSliceOffsetOperand::Broadcast(_))
+    )));
+    store.parallel.validate().expect("valid parallel manifest");
+}
+
+#[test]
+fn parfor_analysis_rejects_nested_parallel_regions() {
+    let mir = lower_mir("parfor i = 1:2; parfor j = 1:2; y(i,j) = i + j; end; end;");
+    let store = analyze_assembly(&mir);
+    assert!(store
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "RM-MIR0014"));
+}
+
+#[test]
+fn parfor_analysis_rejects_iteration_escape_and_suspension() {
+    for (source, code) in [
+        ("parfor i = 1:2; break; end;", "RM-MIR0017"),
+        ("parfor i = 1:2; return; end;", "RM-MIR0015"),
+        (
+            "async function y = f(g); parfor i = 1:2; await(g); end; y = 1; end",
+            "RM-MIR0016",
+        ),
+    ] {
+        let store = analyze_assembly(&lower_mir(source));
+        assert!(
+            store
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == code),
+            "missing {code}: {:?}",
+            store.diagnostics
+        );
+        assert!(store.parallel.parfor_regions.is_empty());
+    }
+}
+
+#[test]
+fn parfor_analysis_requires_safe_private_and_sliced_classification() {
+    for source in [
+        "a = ones(1, 2); parfor i = 1:2; a(1) = i; end;",
+        "y = zeros(2, 2); parfor i = 1:2; y(i, 1) = i; y(1, i) = i; end;",
+        "y = zeros(1, 2); parfor i = 1:2; y(i) = y(1) + i; end;",
+        "total = 0; y = zeros(1, 2); parfor i = 1:2; y(i) = total; total = total + i; end;",
+        "y = zeros(1, 2); parfor i = 1:2; if i > 1; t = i; end; y(i) = t; end;",
+    ] {
+        let store = analyze_assembly(&lower_mir(source));
+        assert!(
+            store
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "RM-MIR0019"),
+            "missing unsafe-classification diagnostic: {:?}",
+            store.diagnostics
+        );
+        assert!(store.parallel.parfor_regions.is_empty());
+    }
+
+    let valid = analyze_assembly(&lower_mir(
+        "y = zeros(1, 2); parfor i = 1:2; if i > 1; t = i; else; t = 0; end; y(i) = t; end;",
+    ));
+    assert!(
+        valid
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "RM-MIR0019"),
+        "valid iteration-local assignment was rejected: {:?}",
+        valid.diagnostics
+    );
+    assert_eq!(valid.parallel.parfor_regions.len(), 1);
+
+    let valid_read_modify_write = analyze_assembly(&lower_mir(
+        "y = zeros(1, 2); parfor i = 1:2; y(i) = y(i) + 1; end;",
+    ));
+    assert!(
+        valid_read_modify_write
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "RM-MIR0019"),
+        "consistent sliced read/write was rejected: {:?}",
+        valid_read_modify_write.diagnostics
+    );
+    assert_eq!(valid_read_modify_write.parallel.parfor_regions.len(), 1);
+}
+
+#[test]
+fn spmd_analysis_records_admission_captures_outputs_and_legality() {
+    let store = analyze_assembly(&lower_mir("x = 4; spmd (2); y = x + 1; end; after = x;"));
+    let contract = store.parallel.spmd_regions.first().expect("SPMD contract");
+    assert_eq!(
+        contract.labs,
+        runmat_types::SpmdLabRequirement::Exact {
+            labs: runmat_types::LabCount(2),
+        }
+    );
+    assert_eq!(contract.captures.len(), 1);
+    assert_eq!(contract.outputs.len(), 1);
+    assert!(matches!(
+        contract.captures[0].role,
+        runmat_types::ParallelVariableRole::Broadcast
+    ));
+    assert!(matches!(
+        contract.outputs[0].role,
+        runmat_types::ParallelVariableRole::Private
+    ));
+    store.parallel.validate().expect("valid SPMD manifest");
+
+    let nested = analyze_assembly(&lower_mir("spmd (2); spmd (2); x = 1; end; end;"));
+    assert!(nested
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "RM-MIR0020"));
+    assert!(nested.parallel.spmd_regions.is_empty());
+}
+
+#[test]
+fn spmd_context_calls_are_classified_as_outputs() {
+    let store = analyze_assembly(&lower_mir(
+        "spmd; workerIndex = spmdIndex(); workerCount = spmdSize(); labBarrier(); end;",
+    ));
+    let contract = store.parallel.spmd_regions.first().expect("SPMD contract");
+    assert_eq!(contract.outputs.len(), 2, "{contract:?}");
+}
+
+#[test]
+fn parallel_primitives_lower_to_typed_mir_and_manifest_contracts() {
+    let mir = lower_mir(
+        "d = distributed([1, 2]); spmd (2); labBarrier(); x = labBroadcast(1, d); labSend(x, 2, 7); ready = labProbe(); total = gplus(1); end;",
+    );
+    let distributed_ops = mir
+        .bodies
+        .values()
+        .flat_map(|body| &body.blocks)
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(
+                statement.kind,
+                runmat_mir::MirStmtKind::Assign {
+                    value: runmat_mir::MirRvalue::Distributed(_),
+                    ..
+                }
+            )
+        })
+        .count();
+    let collective_ops = mir
+        .bodies
+        .values()
+        .flat_map(|body| &body.blocks)
+        .flat_map(|block| &block.statements)
+        .filter(|statement| {
+            matches!(
+                statement.kind,
+                runmat_mir::MirStmtKind::Assign {
+                    value: runmat_mir::MirRvalue::Collective(_),
+                    ..
+                } | runmat_mir::MirStmtKind::Expr(runmat_mir::MirRvalue::Collective(_))
+            )
+        })
+        .count();
+    assert_eq!(distributed_ops, 1);
+    assert_eq!(collective_ops, 5);
+
+    let store = analyze_assembly(&mir);
+    assert_eq!(store.parallel.distributed_values.len(), 1);
+    assert!(matches!(
+        store.parallel.distributed_values[0].owner,
+        runmat_types::DistributedOwner::Client(runmat_types::ProgramFunctionId(0))
+    ));
+    assert_eq!(store.parallel.collectives.len(), 5);
+    store
+        .parallel
+        .validate()
+        .expect("typed parallel primitive manifest");
+}
+
+#[test]
+fn codistributed_construction_modes_remain_typed_through_mir_and_manifest() {
+    use runmat_mir::parallel::{
+        MirCodistributedOverload, MirDistributedBuildValidation, MirDistributedOp,
+    };
+    use runmat_types::{DistributedBuildValidation, DistributedConstruction};
+
+    let mir = lower_mir(
+        "input = [1, 2]; selector = 1; worker = 1; codist = codistributor1d(); localPart = 1; dimension = 1; spmd (2); defaultValue = codistributed(input); selectedValue = codistributed(input, selector); designatedValue = codistributed(input, worker, codist); option = 'noCommunication'; builtValue = codistributed.build(localPart, codist, option); [first, last] = globalIndices(builtValue, dimension); end;",
+    );
+    let operations = mir
+        .bodies
+        .values()
+        .flat_map(|body| &body.blocks)
+        .flat_map(|block| &block.statements)
+        .filter_map(|statement| match &statement.kind {
+            runmat_mir::MirStmtKind::Assign {
+                value: runmat_mir::MirRvalue::Distributed(operation),
+                ..
+            }
+            | runmat_mir::MirStmtKind::MultiAssign {
+                value: runmat_mir::MirRvalue::Distributed(operation),
+                ..
+            } => Some(operation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        MirDistributedOp::Codistributed {
+            overload: MirCodistributedOverload::ReplicatedInputDefault,
+            coordination: Some(_),
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        MirDistributedOp::Codistributed {
+            overload: MirCodistributedOverload::CodistributorOrDesignatedWorker { .. },
+            coordination: Some(_),
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        MirDistributedOp::Codistributed {
+            overload: MirCodistributedOverload::DesignatedWorkerWithCodistributor { .. },
+            coordination: Some(_),
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        MirDistributedOp::Build {
+            validation: MirDistributedBuildValidation::RuntimeOption(_),
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        MirDistributedOp::GlobalIndices {
+            requested_outputs: 2,
+            ..
+        }
+    )));
+
+    let store = analyze_assembly(&mir);
+    let constructions = store
+        .parallel
+        .distributed_values
+        .iter()
+        .map(|contract| &contract.construction)
+        .collect::<Vec<_>>();
+    assert!(constructions.contains(&&DistributedConstruction::ReplicatedInputDefault));
+    assert!(constructions.contains(&&DistributedConstruction::CodistributorOrDesignatedWorker));
+    assert!(constructions.contains(&&DistributedConstruction::DesignatedWorkerWithCodistributor));
+    assert!(
+        constructions.contains(&&DistributedConstruction::LocalParts {
+            has_codistributor: true,
+            validation: DistributedBuildValidation::RuntimeOption,
+        })
+    );
+    assert!(store
+        .parallel
+        .distributed_values
+        .iter()
+        .all(|contract| contract.coordination.is_some()));
+    store
+        .parallel
+        .validate()
+        .expect("typed codistributed construction manifest");
+}
+
+#[test]
+fn modern_spmd_primitives_keep_dynamic_operands_and_result_arity_in_mir() {
+    let mir = lower_mir(
+        "spmd; spmdSend(uint64(9), 1, 7); [received, source, tag] = spmdReceive(\"any\", 7); exchanged = spmdSendReceive(1, 1, uint16(5)); total = spmdPlus(uint32(2)); joined = spmdCat(uint16([1, 2]), 2, 1); reduced = spmdReduce(@plus, uint32(3)); spmdBarrier(); end;",
+    );
+    let operations = mir
+        .bodies
+        .values()
+        .flat_map(|body| &body.blocks)
+        .flat_map(|block| &block.statements)
+        .filter_map(|statement| match &statement.kind {
+            runmat_mir::MirStmtKind::Assign {
+                value: runmat_mir::MirRvalue::Collective(operation),
+                ..
+            }
+            | runmat_mir::MirStmtKind::MultiAssign {
+                value: runmat_mir::MirRvalue::Collective(operation),
+                ..
+            }
+            | runmat_mir::MirStmtKind::Expr(runmat_mir::MirRvalue::Collective(operation)) => {
+                Some(operation)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(operations.len(), 7);
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        runmat_mir::parallel::MirCollectiveOp::Receive {
+            requested_outputs: 3,
+            source: Some(_),
+            tag: Some(_),
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        runmat_mir::parallel::MirCollectiveOp::Cat {
+            input: _,
+            dimension: _,
+            root: Some(_),
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        runmat_mir::parallel::MirCollectiveOp::FunctionalReduce {
+            reducer: runmat_mir::MirOperand::FunctionHandle(_),
+            input: _,
+            root: None,
+            ..
+        }
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        runmat_mir::parallel::MirCollectiveOp::SendReceive {
+            destination: _,
+            source: _,
+            input: _,
+            tag: None,
+            ..
+        }
+    )));
+
+    let store = analyze_assembly(&mir);
+    assert_eq!(store.parallel.collectives.len(), 7);
+    assert!(store.parallel.collectives.iter().any(|contract| matches!(
+        contract.operation,
+        runmat_types::CollectiveOperation::Receive {
+            requested_outputs: 3
+        }
+    )));
+    store.parallel.validate().expect("modern SPMD manifest");
+}
+
+#[test]
+fn every_mir_construct_has_one_explicit_native_lowering_class() {
+    use runmat_mir::{MirConstructKind, NativeLoweringClass};
+    use std::collections::HashSet;
+
+    assert_eq!(MirConstructKind::ALL.len(), 58);
+    assert_eq!(
+        MirConstructKind::ALL
+            .into_iter()
+            .collect::<HashSet<_>>()
+            .len(),
+        MirConstructKind::ALL.len()
+    );
+    let classes = MirConstructKind::ALL
+        .into_iter()
+        .map(MirConstructKind::native_lowering_class)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        classes,
+        HashSet::from([
+            NativeLoweringClass::NativeOperation,
+            NativeLoweringClass::RuntimeSlowPath,
+            NativeLoweringClass::StructuredSuspendResume,
+            NativeLoweringClass::CapabilityRejection,
+            NativeLoweringClass::ProvenUnreachable,
+        ])
+    );
+    assert_eq!(
+        MirConstructKind::ParFor.native_lowering_class(),
+        NativeLoweringClass::StructuredSuspendResume
+    );
+    assert_eq!(
+        MirConstructKind::Spmd.native_lowering_class(),
+        NativeLoweringClass::StructuredSuspendResume
+    );
+    assert_eq!(
+        MirConstructKind::CollectiveAllReduce.native_lowering_class(),
+        NativeLoweringClass::CapabilityRejection
+    );
+}
+
+#[test]
 fn try_catch_lowers_to_try_catch_blocks_and_merge() {
     let mir = lower_mir("function y = guarded(x); try; y = x; catch err; y = 0; end; end");
     let body = mir.bodies.values().next().unwrap();
@@ -2116,4 +3901,38 @@ fn return_in_nested_block_lowers_to_return_terminator() {
         body.blocks[2].terminator.kind,
         MirTerminatorKind::Goto(_)
     ));
+}
+
+#[test]
+fn ordinary_dotted_indexing_lowers_as_one_ordered_mir_path() {
+    let mir = lower_mir("obj = 1; i = 1; y = obj.method(i).field{i};");
+    let body = mir.bodies.values().next().unwrap();
+    let chain = body
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .find_map(|statement| match &statement.kind {
+            MirStmtKind::Assign {
+                value: MirRvalue::SubscriptChain(chain),
+                ..
+            } => Some(chain),
+            _ => None,
+        })
+        .expect("typed MIR subscript chain");
+    assert!(matches!(chain.root, MirOperand::Local(_)));
+    assert!(matches!(
+        chain.steps.as_slice(),
+        [
+            runmat_mir::MirSubscriptStep::DottedInvoke { member: method, indexing: paren },
+            runmat_mir::MirSubscriptStep::Member(field),
+            runmat_mir::MirSubscriptStep::Index(brace),
+        ] if method.0 == "method"
+            && field.0 == "field"
+            && paren.kind == runmat_hir::IndexKind::Paren
+            && brace.kind == runmat_hir::IndexKind::Brace
+    ));
+    assert_eq!(
+        chain.context,
+        runmat_types::ObjectIndexingContext::Expression
+    );
 }

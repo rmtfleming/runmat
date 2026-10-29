@@ -20,6 +20,24 @@ use crate::{
     sniff::{detect_geometry_format, GeometryFormat},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabeledSubshapeRemapConflictKind {
+    Deleted,
+    Split,
+    Merged,
+    MissingTarget,
+    AmbiguousTarget,
+    UnsupportedKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabeledSubshapeRemapConflict {
+    pub kind: LabeledSubshapeRemapConflictKind,
+    pub label_entries: Vec<String>,
+    pub source_topology_ids: Vec<String>,
+    pub candidate_topology_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GeometryImportOptions {
     pub max_triangles: Option<u64>,
@@ -100,8 +118,26 @@ pub enum GeometryImportError {
     ParseFailed(String),
     #[error("GEOMETRY_BACKEND_UNAVAILABLE: {0}")]
     BackendUnavailable(String),
+    #[error("GEOMETRY_INVALID: {0}")]
+    InvalidGeometry(String),
     #[error("CAPACITY_LIMIT_EXCEEDED: triangle count {triangles} exceeds limit {limit}")]
     CapacityExceeded { triangles: u64, limit: u64 },
+    #[error("EXACT_REPRESENTATION_LIMIT_EXCEEDED: representation exceeds {limit} bytes")]
+    ExactRepresentationCapacityExceeded { limit: u64 },
+    #[error("EXACT_ENTITY_LIMIT_EXCEEDED: a topology inventory exceeds {limit} entities")]
+    ExactEntityCapacityExceeded { limit: u64 },
+    #[error("EXACT_VALIDATION_BUDGET_EXCEEDED: {0}")]
+    ExactValidationBudgetExceeded(String),
+    #[error("GEOMETRY_HEALING_LIMIT_EXCEEDED: {failure:?}")]
+    HealingLimitExceeded {
+        failure: runmat_geometry_core::GeometryHealingFailure,
+    },
+    #[error("GEOMETRY_REVISION_CONFLICT: {conflict:?}")]
+    RevisionConflict {
+        conflict: LabeledSubshapeRemapConflict,
+    },
+    #[error("GEOMETRY_IMPORT_OPTIONS_INVALID: {0}")]
+    InvalidOptions(String),
     #[error("GEOMETRY_IMPORT_CANCELLED: geometry import cancelled")]
     Cancelled,
 }
@@ -181,6 +217,7 @@ pub(crate) fn build_asset(input: BuildAssetInput<'_>) -> GeometryAsset {
             kind: SourceGeometryKind::Mesh,
             assembly: None,
             material_evidence: Vec::new(),
+            cad_evaluators: Vec::new(),
         },
         tessellation_profile,
         units,
@@ -225,7 +262,7 @@ pub(crate) fn default_surface_regions(
     let region_id = "region_default".to_string();
     let regions = vec![Region {
         region_id: region_id.clone(),
-        name: "Default Region".to_string(),
+        name: "Default Region".into(),
         tag: Some("mesh_default".to_string()),
         cad_ownership: None,
     }];

@@ -1,0 +1,501 @@
+use std::collections::{BTreeMap, HashMap};
+
+use runmat_hir::{CallableIdentity, FunctionId};
+
+use crate::{
+    parallel::{MirCollectiveOp, MirDistributedOp, MirSpmdHeader},
+    MirAssembly, MirCallArg, MirCallee, MirIndexComponent, MirIndexing, MirOperand, MirPlace,
+    MirRvalue, MirStmt, MirStmtKind, MirTerminatorKind,
+};
+
+/// Remap unit-local HIR function ordinals into an immutable program/session
+/// namespace after HIR lowering. MIR owns this traversal so new MIR constructs
+/// cannot be silently omitted by Core, VM, or native codegen.
+pub fn remap_function_ids(
+    assembly: &mut MirAssembly,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    if remap.is_empty() {
+        return Ok(());
+    }
+    let mut bodies = BTreeMap::new();
+    for (function, mut body) in std::mem::take(&mut assembly.bodies) {
+        body.function = mapped(function, remap);
+        for block in &mut body.blocks {
+            for statement in &mut block.statements {
+                remap_statement(statement, remap)?;
+            }
+            remap_terminator(&mut block.terminator.kind, remap)?;
+        }
+        bodies.insert(mapped(function, remap), body);
+    }
+    assembly.bodies = bodies;
+
+    let mut functions = BTreeMap::new();
+    for (function, mut metadata) in std::mem::take(&mut assembly.functions) {
+        if let Some(parent) = &mut metadata.parent {
+            *parent = mapped(*parent, remap);
+        }
+        for capture in &mut metadata.captures {
+            capture.from_function = mapped(capture.from_function, remap);
+        }
+        functions.insert(mapped(function, remap), metadata);
+    }
+    assembly.functions = functions;
+    for entrypoint in &mut assembly.entrypoints {
+        *entrypoint = mapped(*entrypoint, remap);
+    }
+    for class in &mut assembly.classes {
+        for method in &mut class.methods {
+            method.function = mapped(method.function, remap);
+        }
+    }
+    Ok(())
+}
+
+fn mapped(function: FunctionId, remap: &HashMap<FunctionId, FunctionId>) -> FunctionId {
+    remap.get(&function).copied().unwrap_or(function)
+}
+
+fn remap_identity(identity: &mut CallableIdentity, remap: &HashMap<FunctionId, FunctionId>) {
+    match identity {
+        CallableIdentity::BoundFunction(function)
+        | CallableIdentity::AnonymousFunction(function) => *function = mapped(*function, remap),
+        CallableIdentity::ExternalFunction { .. }
+        | CallableIdentity::Builtin(_)
+        | CallableIdentity::Imported(_)
+        | CallableIdentity::Method(_)
+        | CallableIdentity::DynamicName(_)
+        | CallableIdentity::ExternalName(_) => {}
+    }
+}
+
+fn remap_operand(operand: &mut MirOperand, remap: &HashMap<FunctionId, FunctionId>) {
+    if let MirOperand::FunctionHandle(identity) = operand {
+        remap_identity(identity, remap);
+    }
+}
+
+fn remap_call_arg(
+    argument: &mut MirCallArg,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match argument {
+        MirCallArg::Single(operand) => remap_operand(operand, remap),
+        MirCallArg::Expansion(source) => remap_expansion_source(source, remap)?,
+        MirCallArg::CapturedSequence(_) => {}
+    }
+    Ok(())
+}
+
+fn remap_expansion_source(
+    source: &mut crate::MirExpansionSource,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match source {
+        crate::MirExpansionSource::SubscriptChain(chain) => {
+            remap_operand(&mut chain.root, remap);
+            for step in &mut chain.steps {
+                match step {
+                    crate::MirSubscriptStep::Index(indexing)
+                    | crate::MirSubscriptStep::DottedInvoke { indexing, .. } => {
+                        remap_indexing(indexing, remap)?
+                    }
+                    crate::MirSubscriptStep::DynamicMember(member) => remap_operand(member, remap),
+                    crate::MirSubscriptStep::Member(_) => {}
+                }
+            }
+        }
+        crate::MirExpansionSource::CellContents { base, indexing } => {
+            remap_operand(base, remap);
+            remap_indexing(indexing, remap)?;
+        }
+        crate::MirExpansionSource::ReturnedOutputs(base)
+        | crate::MirExpansionSource::Member { base, .. } => remap_operand(base, remap),
+        crate::MirExpansionSource::DynamicMember { base, member } => {
+            remap_operand(base, remap);
+            remap_operand(member, remap);
+        }
+    }
+    Ok(())
+}
+
+fn remap_indexing(
+    indexing: &mut MirIndexing,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    for component in &mut indexing.components {
+        match component {
+            MirIndexComponent::Expr(operand) => remap_operand(operand, remap),
+            MirIndexComponent::ContextualExpr(region) => {
+                region.try_visit_rvalues_mut(|value| remap_rvalue(value, remap))?;
+                region.try_visit_capture_sources_mut(|source| {
+                    remap_expansion_source(source, remap)
+                })?;
+                remap_operand(region.result_mut(), remap);
+            }
+            MirIndexComponent::Colon => {}
+        }
+    }
+    Ok(())
+}
+
+fn remap_place(
+    place: &mut MirPlace,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match place {
+        MirPlace::DynamicMember(base, member) => {
+            remap_place(base, remap)?;
+            remap_operand(member, remap);
+        }
+        MirPlace::Index(base, indexing) => {
+            remap_place(base, remap)?;
+            remap_indexing(indexing, remap)?;
+        }
+        MirPlace::Member(base, _) => remap_place(base, remap)?,
+        MirPlace::Local(_) | MirPlace::Binding(_) => {}
+    }
+    Ok(())
+}
+
+fn remap_rvalue(
+    value: &mut MirRvalue,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match value {
+        MirRvalue::Use(operand) | MirRvalue::Unary(_, operand) | MirRvalue::Spawn(operand) => {
+            remap_operand(operand, remap)
+        }
+        MirRvalue::Binary(left, _, right) => {
+            remap_operand(left, remap);
+            remap_operand(right, remap);
+        }
+        MirRvalue::ShortCircuit {
+            left,
+            right_temps,
+            right,
+            ..
+        } => {
+            remap_operand(left, remap);
+            for statement in right_temps {
+                remap_statement(statement, remap)?;
+            }
+            remap_operand(right, remap);
+        }
+        MirRvalue::Range { start, step, end } => {
+            remap_operand(start, remap);
+            if let Some(step) = step {
+                remap_operand(step, remap);
+            }
+            remap_operand(end, remap);
+        }
+        MirRvalue::Call(call) => {
+            match &mut call.callee {
+                MirCallee::Static(identity) => remap_identity(identity, remap),
+                MirCallee::Dynamic(operand) => remap_operand(operand, remap),
+                MirCallee::SuperConstructor { .. } | MirCallee::SuperMethod { .. } => {}
+            }
+            for argument in &mut call.args {
+                remap_call_arg(argument, remap)?;
+            }
+        }
+        MirRvalue::Aggregate { elements, .. } => {
+            for element in elements {
+                if let Some(operand) = element.operand_mut() {
+                    remap_operand(operand, remap);
+                }
+            }
+        }
+        MirRvalue::StructLiteral { fields } | MirRvalue::ObjectLiteral { fields, .. } => {
+            for (_, field) in fields {
+                remap_operand(field, remap);
+            }
+        }
+        MirRvalue::Index { base, indexing } => {
+            remap_operand(base, remap);
+            remap_indexing(indexing, remap)?;
+        }
+        MirRvalue::SubscriptChain(chain) => {
+            remap_operand(&mut chain.root, remap);
+            for step in &mut chain.steps {
+                match step {
+                    crate::MirSubscriptStep::Index(indexing)
+                    | crate::MirSubscriptStep::DottedInvoke { indexing, .. } => {
+                        remap_indexing(indexing, remap)?
+                    }
+                    crate::MirSubscriptStep::DynamicMember(member) => remap_operand(member, remap),
+                    crate::MirSubscriptStep::Member(_) => {}
+                }
+            }
+        }
+        MirRvalue::Member { base, .. } => remap_operand(base, remap),
+        MirRvalue::DynamicMember { base, member, .. } => {
+            remap_operand(base, remap);
+            remap_operand(member, remap);
+        }
+        MirRvalue::Future { function, args, .. } => {
+            *function = mapped(*function, remap);
+            for argument in args {
+                remap_call_arg(argument, remap)?;
+            }
+        }
+        MirRvalue::Distributed(operation) => remap_distributed(operation, remap)?,
+        MirRvalue::Collective(operation) => remap_collective(operation, remap)?,
+        MirRvalue::WorkspaceFirstStaticProperty { .. }
+        | MirRvalue::MetaClass(_)
+        | MirRvalue::Colon
+        | MirRvalue::End => {}
+    }
+    Ok(())
+}
+
+fn remap_statement(
+    statement: &mut MirStmt,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match &mut statement.kind {
+        MirStmtKind::Assign { place, value } => {
+            remap_place(place, remap)?;
+            remap_rvalue(value, remap)?;
+        }
+        MirStmtKind::MultiAssign { targets, value } => {
+            for target in &mut targets.targets {
+                match target {
+                    crate::MirOutputTarget::Place(place) => remap_place(place, remap)?,
+                    crate::MirOutputTarget::Sequence(target) => {
+                        remap_sequence_target(target, remap)?
+                    }
+                    crate::MirOutputTarget::Discard => {}
+                }
+            }
+            remap_rvalue(value, remap)?;
+        }
+        MirStmtKind::SequenceAssign { target, value } => {
+            match target {
+                crate::MirSequenceTarget::Member { base, .. } => remap_place(base, remap)?,
+                crate::MirSequenceTarget::DynamicMember { base, member } => {
+                    remap_place(base, remap)?;
+                    remap_operand(member, remap);
+                }
+                crate::MirSequenceTarget::CellContents { base, indexing } => {
+                    remap_place(base, remap)?;
+                    remap_indexing(indexing, remap)?;
+                }
+            }
+            remap_rvalue(value, remap)?;
+        }
+        MirStmtKind::CaptureSequence { source, .. } => {
+            remap_expansion_source(source, remap)?;
+        }
+        MirStmtKind::Expr(value) => remap_rvalue(value, remap)?,
+        MirStmtKind::PlaceMutation(mutation) => remap_place(&mut mutation.place, remap)?,
+        MirStmtKind::WorkspaceEffect { .. } | MirStmtKind::EnvironmentEffect(_) => {}
+    }
+    Ok(())
+}
+
+fn remap_sequence_target(
+    target: &mut crate::MirSequenceTarget,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match target {
+        crate::MirSequenceTarget::Member { base, .. } => remap_place(base, remap)?,
+        crate::MirSequenceTarget::DynamicMember { base, member } => {
+            remap_place(base, remap)?;
+            remap_operand(member, remap);
+        }
+        crate::MirSequenceTarget::CellContents { base, indexing } => {
+            remap_place(base, remap)?;
+            remap_indexing(indexing, remap)?;
+        }
+    }
+    Ok(())
+}
+
+fn remap_terminator(
+    terminator: &mut MirTerminatorKind,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match terminator {
+        MirTerminatorKind::Branch { cond, .. } => remap_operand(cond, remap),
+        MirTerminatorKind::Switch { discr, cases, .. } => {
+            remap_operand(discr, remap);
+            for (case, _) in cases {
+                remap_operand(case, remap);
+            }
+        }
+        MirTerminatorKind::For { iterable, .. } => remap_rvalue(iterable, remap)?,
+        MirTerminatorKind::ParFor {
+            region,
+            iterable,
+            maximum_workers,
+            ..
+        } => {
+            remap_parallel_region(region, remap)?;
+            remap_rvalue(iterable, remap)?;
+            if let Some(maximum_workers) = maximum_workers {
+                remap_rvalue(maximum_workers, remap)?;
+            }
+        }
+        MirTerminatorKind::Spmd { region, header, .. } => {
+            remap_parallel_region(region, remap)?;
+            match header.as_mut() {
+                MirSpmdHeader::Default => {}
+                MirSpmdHeader::One(first) => remap_rvalue(first, remap)?,
+                MirSpmdHeader::Two(first, second) => {
+                    remap_rvalue(first, remap)?;
+                    remap_rvalue(second, remap)?;
+                }
+                MirSpmdHeader::Three(first, second, third) => {
+                    remap_rvalue(first, remap)?;
+                    remap_rvalue(second, remap)?;
+                    remap_rvalue(third, remap)?;
+                }
+            }
+        }
+        MirTerminatorKind::Return(values) => {
+            for value in values {
+                remap_operand(value, remap);
+            }
+        }
+        MirTerminatorKind::Await { future, result, .. } => {
+            remap_operand(future, remap);
+            if let Some(result) = result {
+                remap_place(result, remap)?;
+            }
+        }
+        MirTerminatorKind::Goto(_)
+        | MirTerminatorKind::TryCatch { .. }
+        | MirTerminatorKind::Unreachable => {}
+    }
+    Ok(())
+}
+
+fn remap_distributed(
+    operation: &mut MirDistributedOp,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    match operation {
+        MirDistributedOp::Create {
+            id, owner, input, ..
+        }
+        | MirDistributedOp::Codistributed {
+            id, owner, input, ..
+        }
+        | MirDistributedOp::Build {
+            id,
+            owner,
+            local_part: input,
+            ..
+        } => {
+            remap_program_function(&mut id.function, remap)?;
+            match owner {
+                runmat_types::DistributedOwner::Client(function) => {
+                    remap_program_function(function, remap)?;
+                }
+                runmat_types::DistributedOwner::Region(region) => {
+                    remap_parallel_region(region, remap)?;
+                }
+            }
+            remap_operand(input, remap);
+            match operation {
+                MirDistributedOp::Codistributed { overload, .. } => match overload {
+                    crate::parallel::MirCodistributedOverload::ReplicatedInputDefault => {}
+                    crate::parallel::MirCodistributedOverload::CodistributorOrDesignatedWorker {
+                        operand,
+                    } => remap_operand(operand, remap),
+                    crate::parallel::MirCodistributedOverload::DesignatedWorkerWithCodistributor {
+                        worker,
+                        codistributor,
+                    } => {
+                        remap_operand(worker, remap);
+                        remap_operand(codistributor, remap);
+                    }
+                },
+                MirDistributedOp::Build {
+                    codistributor,
+                    validation,
+                    ..
+                } => {
+                    if let Some(codistributor) = codistributor {
+                        remap_operand(codistributor, remap);
+                    }
+                    if let crate::parallel::MirDistributedBuildValidation::RuntimeOption(option) =
+                        validation
+                    {
+                        remap_operand(option, remap);
+                    }
+                }
+                MirDistributedOp::Create { .. } => {}
+                _ => unreachable!("construction variants matched above"),
+            }
+            match operation {
+                MirDistributedOp::Codistributed {
+                    coordination: Some(coordination),
+                    ..
+                } => remap_parallel_region(&mut coordination.region, remap)?,
+                MirDistributedOp::Build { coordination, .. } => {
+                    remap_parallel_region(&mut coordination.region, remap)?;
+                }
+                MirDistributedOp::Create { .. }
+                | MirDistributedOp::Codistributed {
+                    coordination: None, ..
+                } => {}
+                _ => unreachable!("construction variants matched above"),
+            }
+        }
+        MirDistributedOp::LocalPart { value }
+        | MirDistributedOp::Materialize { value }
+        | MirDistributedOp::Codistributor { value } => {
+            remap_operand(value, remap);
+        }
+        MirDistributedOp::GlobalIndices {
+            value,
+            dimension,
+            lab,
+            ..
+        } => {
+            remap_operand(value, remap);
+            remap_operand(dimension, remap);
+            if let Some(lab) = lab {
+                remap_operand(lab, remap);
+            }
+        }
+        MirDistributedOp::Redistribute {
+            value,
+            codistributor,
+        } => {
+            remap_operand(value, remap);
+            remap_operand(codistributor, remap);
+        }
+    }
+    Ok(())
+}
+
+fn remap_collective(
+    operation: &mut MirCollectiveOp,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    remap_parallel_region(&mut operation.id_mut().region, remap)?;
+    operation.for_each_operand_mut(|operand| remap_operand(operand, remap));
+    Ok(())
+}
+
+fn remap_parallel_region(
+    region: &mut runmat_types::ParallelRegionId,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    remap_program_function(&mut region.0.function, remap)
+}
+
+fn remap_program_function(
+    function: &mut runmat_types::ProgramFunctionId,
+    remap: &HashMap<FunctionId, FunctionId>,
+) -> Result<(), String> {
+    let old = FunctionId(function.0 as usize);
+    let new = mapped(old, remap);
+    function.0 = u32::try_from(new.0)
+        .map_err(|_| "remapped function identity exceeds portable schema".to_string())?;
+    Ok(())
+}

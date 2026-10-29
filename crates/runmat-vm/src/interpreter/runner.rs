@@ -1,7 +1,7 @@
 use crate::accel::fusion as accel_fusion;
 use crate::accel::residency as accel_residency;
 use crate::bytecode::{Bytecode, FunctionRegistry, Instr};
-use crate::interpreter::api::{InterpreterOutcome, InterpreterState};
+use crate::interpreter::api::{InterpreterOutcome, InterpreterResumeState, InterpreterState};
 use crate::interpreter::dispatch::{self as interp_dispatch, DispatchDecision};
 use crate::interpreter::engine as interp_engine;
 use crate::interpreter::errors::{attach_span_from_pc, mex, set_vm_pc};
@@ -12,22 +12,34 @@ use crate::runtime::workspace::{
     refresh_workspace_state, workspace_assign, workspace_clear, workspace_lookup, workspace_remove,
     workspace_snapshot,
 };
-use runmat_builtins::{CellArray, Value};
+use runmat_runtime::call::function_abi::{
+    collect_function_outputs, prepare_function_inputs_async, FunctionInputSpec,
+};
 use runmat_runtime::{
     user_functions,
     workspace::{self as runtime_workspace, WorkspaceResolver},
     RuntimeError,
 };
+use runmat_value::{CellArray, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Once;
 use tracing::{debug, info_span};
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::future::Future;
+
+#[cfg(feature = "native-accel")]
+use runmat_accelerate::placement::{
+    begin_trace, fusion_operation_token, PlacementEventKind, PlacementVariant,
+};
 #[cfg(feature = "native-accel")]
 use runmat_accelerate::{
     activate_fusion_plan, active_group_plan_clone, deactivate_fusion_plan, set_current_pc,
 };
+#[cfg(feature = "native-accel")]
+use runmat_time::{duration_ns_saturating, Instant};
 
 #[cfg(feature = "native-accel")]
 struct FusionPlanGuard;
@@ -80,17 +92,55 @@ fn clear_residency(value: &Value) {
     }
 }
 
+fn active_or_standalone_runtime_context() -> runmat_runtime::context::RuntimeContext {
+    runmat_runtime::context::legacy::active().unwrap_or_else(|| {
+        let execution = std::rc::Rc::new(runmat_runtime::execution::RuntimeExecutionService::new());
+        let runtime = match runmat_runtime::interrupt::current_interrupt() {
+            Some(cancellation) => {
+                runmat_runtime::context::RuntimeContext::with_cancellation(execution, cancellation)
+            }
+            None => runmat_runtime::context::RuntimeContext::new(execution),
+        };
+        runmat_runtime::compatibility::inherit_legacy_extension_policy(&runtime);
+        runmat_runtime::user_functions::inherit_legacy_call_environment(&runtime);
+        runmat_runtime::source_context::inherit_legacy_source_context(&runtime);
+        runtime
+    })
+}
+
 pub async fn invoke_semantic_function_value(
     function: usize,
     args: &[Value],
     requested_outputs: usize,
     function_registry: &FunctionRegistry,
-) -> Result<Value, RuntimeError> {
-    let (value, _) = invoke_semantic_function_value_with_capture_updates(
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
+    let runtime = active_or_standalone_runtime_context();
+    let (value, _) = invoke_semantic_function_value_with_input_residency(
         function,
         args,
         requested_outputs,
         function_registry,
+        InputResidency::Transferred,
+        runtime,
+    )
+    .await?;
+    Ok(value)
+}
+
+pub async fn invoke_semantic_function_value_in_context(
+    function: usize,
+    args: &[Value],
+    requested_outputs: usize,
+    function_registry: &FunctionRegistry,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
+    let (value, _) = invoke_semantic_function_value_with_input_residency(
+        function,
+        args,
+        requested_outputs,
+        function_registry,
+        InputResidency::Transferred,
+        runtime,
     )
     .await?;
     Ok(value)
@@ -101,7 +151,56 @@ pub(crate) async fn invoke_semantic_function_value_with_capture_updates(
     args: &[Value],
     requested_outputs: usize,
     function_registry: &FunctionRegistry,
-) -> Result<(Value, Vec<Value>), RuntimeError> {
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> Result<(runmat_value::ValueSequence, Vec<Value>), RuntimeError> {
+    invoke_semantic_function_value_with_input_residency(
+        function,
+        args,
+        requested_outputs,
+        function_registry,
+        InputResidency::Borrowed,
+        runtime,
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+enum InputResidency {
+    /// The caller retains the argument values as live workspace roots.
+    Borrowed,
+    /// The invocation owns the argument values and may release inputs the
+    /// function neither returns nor stores in another live root.
+    Transferred,
+}
+
+async fn invoke_semantic_function_value_with_input_residency(
+    function: usize,
+    args: &[Value],
+    requested_outputs: usize,
+    function_registry: &FunctionRegistry,
+    input_residency: InputResidency,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> Result<(runmat_value::ValueSequence, Vec<Value>), RuntimeError> {
+    runtime
+        .scope(invoke_semantic_function_value_with_input_residency_inner(
+            function,
+            args,
+            requested_outputs,
+            function_registry,
+            input_residency,
+            runtime.clone(),
+        ))
+        .await
+}
+
+async fn invoke_semantic_function_value_with_input_residency_inner(
+    function: usize,
+    args: &[Value],
+    requested_outputs: usize,
+    function_registry: &FunctionRegistry,
+    input_residency: InputResidency,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> Result<(runmat_value::ValueSequence, Vec<Value>), RuntimeError> {
     let function_id = runmat_hir::FunctionId(function);
     let func = function_registry.get(function_id).ok_or_else(|| {
         let message = format!("Undefined semantic function: {function}");
@@ -114,89 +213,50 @@ pub(crate) async fn invoke_semantic_function_value_with_capture_updates(
         );
         return Err(mex("SemanticFunctionArity", &message));
     }
-    let runtime_arg_count = args.len() - func.capture_slots.len();
-    if runtime_arg_count > func.input_slots.len() && func.varargin_slot.is_none() {
-        let message = format!(
-            "semantic function {} expected {} inputs, got {}",
-            func.display_name,
-            func.input_slots.len(),
-            runtime_arg_count
-        );
-        return Err(mex("TooManyInputs", &message));
-    }
-    if requested_outputs > func.output_slots.len() && func.varargout_slot.is_none() {
-        let message = format!(
-            "semantic function {} expected {} outputs, got {}",
-            func.display_name,
-            func.output_slots.len(),
-            requested_outputs
-        );
-        return Err(mex("TooManyOutputs", &message));
-    }
-
+    let runtime_args = &args[func.capture_slots.len()..];
     let mut vars = vec![Value::Num(0.0); func.var_count];
-    let mut missing_input_slots = HashSet::new();
     for (slot, value) in func.capture_slots.iter().zip(args.iter()) {
         if *slot < vars.len() {
             vars[*slot] = value.clone();
         }
     }
-    for (slot, value) in func
-        .input_slots
-        .iter()
-        .take(runtime_arg_count)
-        .zip(args.iter().skip(func.capture_slots.len()))
-    {
-        if *slot < vars.len() {
-            vars[*slot] = value.clone();
-        }
-    }
-    let default_values_by_slot: HashMap<usize, Value> = func
+    let input_specs = func
         .argument_validations
         .iter()
-        .filter_map(|validation| {
-            validation.default_value.as_ref().map(|value| {
-                let lowered = match value {
-                    crate::bytecode::program::FunctionArgDefaultValue::Number(value) => {
-                        Value::Num(*value)
-                    }
-                    crate::bytecode::program::FunctionArgDefaultValue::Bool(value) => {
-                        Value::Bool(*value)
-                    }
-                    crate::bytecode::program::FunctionArgDefaultValue::String(value) => {
-                        Value::String(value.clone())
-                    }
-                    crate::bytecode::program::FunctionArgDefaultValue::EmptyArray => Value::Tensor(
-                        runmat_builtins::Tensor::new(Vec::new(), vec![0, 0])
-                            .expect("empty default tensor"),
-                    ),
-                };
-                (validation.input_slot, lowered)
+        .map(|validation| {
+            let input_index = func
+                .input_slots
+                .iter()
+                .position(|slot| *slot == validation.input_slot)
+                .ok_or_else(|| mex("InvalidInputSlot", "function argument slot out of bounds"))?;
+            Ok(FunctionInputSpec {
+                input_index,
+                size: validation.size.as_ref(),
+                class_name: validation.class_name.as_deref(),
+                validators: &validation.validators,
+                default_value: validation.default_value.as_ref(),
             })
         })
-        .collect();
-    if runtime_arg_count < func.input_slots.len() {
-        for slot in func.input_slots.iter().skip(runtime_arg_count) {
-            if let Some(default_value) = default_values_by_slot.get(slot) {
-                if *slot < vars.len() {
-                    vars[*slot] = default_value.clone();
-                }
-            } else {
-                missing_input_slots.insert(*slot);
+        .collect::<Result<Vec<_>, RuntimeError>>()?;
+    let prepared = prepare_function_inputs_async(
+        &func.display_name,
+        runtime_args,
+        func.input_slots.len(),
+        func.varargin_slot.is_some(),
+        &input_specs,
+    )
+    .await?;
+    let mut missing_input_slots = HashSet::new();
+    for (slot, value) in func.input_slots.iter().zip(&prepared.fixed) {
+        if let Some(value) = value {
+            if *slot < vars.len() {
+                vars[*slot] = value.clone();
             }
+        } else {
+            missing_input_slots.insert(*slot);
         }
     }
-    validate_function_arguments(func, &vars, &missing_input_slots)?;
-    if let Some(slot) = func.varargin_slot {
-        let fixed_count = func.input_slots.len();
-        let rest = if runtime_arg_count > fixed_count {
-            args[func.capture_slots.len() + fixed_count..].to_vec()
-        } else {
-            Vec::new()
-        };
-        let cols = rest.len();
-        let cell = CellArray::new(rest, 1, cols)
-            .map_err(|err| mex("VararginPack", &format!("varargin: {err}")))?;
+    if let (Some(slot), Some(cell)) = (func.varargin_slot, prepared.varargin) {
         if slot < vars.len() {
             vars[slot] = Value::Cell(cell);
         }
@@ -210,7 +270,7 @@ pub(crate) async fn invoke_semantic_function_value_with_capture_updates(
     }
     if let Some(slot) = func.implicit_nargin_slot {
         if slot < vars.len() {
-            vars[slot] = Value::Num(runtime_arg_count as f64);
+            vars[slot] = Value::Num(prepared.nargin as f64);
         }
     }
     if let Some(slot) = func.implicit_nargout_slot {
@@ -221,20 +281,13 @@ pub(crate) async fn invoke_semantic_function_value_with_capture_updates(
 
     let _active_semantic_function_guard =
         user_functions::push_active_semantic_function(function_id.0);
-    let mut bytecode = Bytecode::with_instructions(func.instructions.clone(), func.var_count);
-    bytecode.instr_spans = func.instr_spans.clone();
-    bytecode.call_arg_spans = func.call_arg_spans.clone();
-    bytecode.source_id = func.source_id;
-    bytecode.var_names = func.var_names.clone();
+    let mut bytecode = func.execution_bytecode(function_registry);
     let mut initially_unassigned_slots = func.initially_unassigned_slots.clone();
     for slot in &func.capture_slots {
         initially_unassigned_slots.remove(slot);
     }
-    for slot in func.input_slots.iter().take(runtime_arg_count) {
-        initially_unassigned_slots.remove(slot);
-    }
-    for slot in func.input_slots.iter().skip(runtime_arg_count) {
-        if default_values_by_slot.contains_key(slot) {
+    for (slot, value) in func.input_slots.iter().zip(&prepared.fixed) {
+        if value.is_some() {
             initially_unassigned_slots.remove(slot);
         }
     }
@@ -251,602 +304,117 @@ pub(crate) async fn invoke_semantic_function_value_with_capture_updates(
         initially_unassigned_slots.remove(&slot);
     }
     bytecode.initially_unassigned_slots = initially_unassigned_slots;
-    bytecode.bound_functions = function_registry.functions.clone();
-    bytecode.function_registry = function_registry.clone();
-    let result_vars = interpret_function_with_counts(
-        &bytecode,
-        vars,
+    let result_vars = {
+        #[cfg(not(target_arch = "wasm32"))]
+        let execution_runtime = runtime.clone();
+        let future = interpret_function_with_counts_in_context(
+            &bytecode,
+            vars,
+            &func.display_name,
+            requested_outputs,
+            prepared.nargin,
+            missing_input_slots,
+            runtime,
+        );
+        #[cfg(target_arch = "wasm32")]
+        {
+            future.await?
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // A semantic call recursively drives another async interpreter.
+            // Pure RunMat call chains use a large segmented stack so ordinary
+            // nesting does not consume a small executor or test-thread stack.
+            // Functions that may reach an in-process foreign runtime stay on
+            // the native OS stack, which those runtimes may register or inspect.
+            const SEMANTIC_CALL_STACK_BYTES: usize = 16 * 1024 * 1024;
+            let execution_stack = function_registry.execution_stack(function_id);
+            if execution_stack == runmat_types::ExecutionStackRequirement::Process {
+                // The async interpreter state is substantially larger than a
+                // call frame. Heap-allocate it so nested dispatch does not
+                // consume the native stack needed by the foreign runtime.
+                Box::pin(future).await?
+            } else {
+                let mut future = Box::pin(future);
+                futures::future::poll_fn(move |context| {
+                    stacker::grow(SEMANTIC_CALL_STACK_BYTES, || {
+                        let _stack = execution_runtime.enter_execution_stack(
+                            runmat_runtime::context::RuntimeExecutionStack::Segmented,
+                        );
+                        future.as_mut().poll(context)
+                    })
+                })
+                .await?
+            }
+        }
+    };
+    let fixed_outputs = func
+        .output_slots
+        .iter()
+        .map(|slot| result_vars.get(*slot).cloned().unwrap_or(Value::Num(0.0)))
+        .collect::<Vec<_>>();
+    let varargout = func.varargout_slot.and_then(|slot| result_vars.get(slot));
+    let output_values = collect_function_outputs(
         &func.display_name,
+        &fixed_outputs,
+        varargout,
         requested_outputs,
-        runtime_arg_count,
-        missing_input_slots,
-    )
-    .await?;
-    let output_values = collect_semantic_outputs(func, &result_vars, requested_outputs)?;
+    )?;
     let updated_captures = func
         .capture_slots
         .iter()
         .map(|slot| result_vars.get(*slot).cloned().unwrap_or(Value::Num(0.0)))
         .collect::<Vec<_>>();
     #[cfg(feature = "native-accel")]
-    clear_semantic_function_temp_residency(&result_vars, &output_values, &updated_captures);
+    clear_semantic_function_temp_residency(
+        &result_vars,
+        args,
+        &output_values,
+        &updated_captures,
+        input_residency,
+    );
     Ok((
-        output_value(output_values, requested_outputs),
+        output_sequence(output_values, requested_outputs)?,
         updated_captures,
     ))
 }
 
-fn validate_function_arguments(
-    func: &crate::bytecode::program::FunctionBytecode,
-    vars: &[Value],
-    missing_input_slots: &HashSet<usize>,
-) -> Result<(), RuntimeError> {
-    for validation in &func.argument_validations {
-        if missing_input_slots.contains(&validation.input_slot) {
-            continue;
-        }
-        let Some(input_index) = func
-            .input_slots
-            .iter()
-            .position(|slot| *slot == validation.input_slot)
-        else {
-            continue;
-        };
-        let value = vars
-            .get(validation.input_slot)
-            .ok_or_else(|| mex("InvalidInputSlot", "function argument slot out of bounds"))?;
-
-        if let Some(size) = &validation.size {
-            let (rows, cols) = value_shape_2d(value);
-            if !dim_matches(&size.rows, rows) || !dim_matches(&size.cols, cols) {
-                return Err(mex(
-                    "ArgumentValidationSize",
-                    &format!(
-                        "Function '{}' argument #{} failed size validation",
-                        func.display_name,
-                        input_index + 1
-                    ),
-                ));
-            }
-        }
-
-        if let Some(class_name) = &validation.class_name {
-            if !value_matches_class(value, class_name) {
-                return Err(mex(
-                    "ArgumentValidationClass",
-                    &format!(
-                        "Function '{}' argument #{} failed class validation (expected {})",
-                        func.display_name,
-                        input_index + 1,
-                        class_name
-                    ),
-                ));
-            }
-        }
-        for validator in &validation.validators {
-            match validator {
-                crate::bytecode::program::FunctionArgValidator::Finite => {
-                    if !value_is_finite(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeFinite validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::NumericOrLogical => {
-                    if !value_is_numeric_or_logical(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeNumericOrLogical validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Text => {
-                    if !value_is_text(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeText validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Nonempty => {
-                    if value_is_empty(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeNonempty validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::ScalarOrEmpty => {
-                    if !value_is_scalar_or_empty(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeScalarOrEmpty validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Real => {
-                    if !value_is_real(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeReal validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Integer => {
-                    if !value_is_integer(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeInteger validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Positive => {
-                    if !value_is_positive(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBePositive validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Negative => {
-                    if !value_is_negative(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeNegative validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Nonnegative => {
-                    if !value_is_nonnegative(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeNonnegative validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Nonzero => {
-                    if !value_is_nonzero(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeNonzero validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::Nonpositive => {
-                    if !value_is_nonpositive(value) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeNonpositive validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::GreaterThanOrEqual(threshold) => {
-                    if !value_is_greater_than_or_equal(value, *threshold) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeGreaterThanOrEqual validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::LessThanOrEqual(threshold) => {
-                    if !value_is_less_than_or_equal(value, *threshold) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeLessThanOrEqual validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::GreaterThan(threshold) => {
-                    if !value_is_greater_than(value, *threshold) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeGreaterThan validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-                crate::bytecode::program::FunctionArgValidator::LessThan(threshold) => {
-                    if !value_is_less_than(value, *threshold) {
-                        return Err(mex(
-                            "ArgumentValidationFunction",
-                            &format!(
-                                "Function '{}' argument #{} failed mustBeLessThan validation",
-                                func.display_name,
-                                input_index + 1
-                            ),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn dim_matches(dim: &crate::bytecode::program::FunctionArgDim, actual: usize) -> bool {
-    match dim {
-        crate::bytecode::program::FunctionArgDim::Any => true,
-        crate::bytecode::program::FunctionArgDim::Exact(expected) => *expected == actual,
-    }
-}
-
-fn value_shape_2d(value: &Value) -> (usize, usize) {
-    match value {
-        Value::Tensor(t) => {
-            let rows = t.shape.first().copied().unwrap_or(0);
-            let cols = t.shape.get(1).copied().unwrap_or(1);
-            (rows, cols)
-        }
-        Value::ComplexTensor(t) => {
-            let rows = t.shape.first().copied().unwrap_or(0);
-            let cols = t.shape.get(1).copied().unwrap_or(1);
-            (rows, cols)
-        }
-        Value::LogicalArray(a) => {
-            let rows = a.shape.first().copied().unwrap_or(0);
-            let cols = a.shape.get(1).copied().unwrap_or(1);
-            (rows, cols)
-        }
-        Value::Cell(c) => (c.rows, c.cols),
-        Value::CharArray(c) => (c.rows, c.cols),
-        Value::StringArray(s) => {
-            let rows = s.shape.first().copied().unwrap_or(0);
-            let cols = s.shape.get(1).copied().unwrap_or(1);
-            (rows, cols)
-        }
-        _ => (1, 1),
-    }
-}
-
-fn value_matches_class(value: &Value, class_name: &str) -> bool {
-    match class_name {
-        "double" => match value {
-            Value::Num(_) => true,
-            Value::Tensor(t) => t.dtype.class_name() == "double",
-            _ => false,
-        },
-        "single" => matches!(value, Value::Tensor(t) if t.dtype.class_name() == "single"),
-        "logical" => matches!(value, Value::Bool(_) | Value::LogicalArray(_)),
-        "char" => matches!(value, Value::CharArray(_) | Value::String(_)),
-        "string" => matches!(value, Value::String(_) | Value::StringArray(_)),
-        "cell" => matches!(value, Value::Cell(_)),
-        "struct" => matches!(value, Value::Struct(_)),
-        other => match value {
-            Value::Object(obj) => obj.class_name == other,
-            Value::HandleObject(handle) => handle.class_name == other,
-            Value::ClassRef(name) => name == other,
-            _ => false,
-        },
-    }
-}
-
-fn value_is_finite(value: &Value) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite(),
-        Value::Int(_) | Value::Bool(_) => true,
-        Value::Complex(re, im) => re.is_finite() && im.is_finite(),
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite()),
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| re.is_finite() && im.is_finite()),
-        Value::LogicalArray(_) | Value::CharArray(_) => true,
-        _ => false,
-    }
-}
-
-fn value_is_numeric_or_logical(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Num(_)
-            | Value::Int(_)
-            | Value::Complex(_, _)
-            | Value::Tensor(_)
-            | Value::ComplexTensor(_)
-            | Value::Bool(_)
-            | Value::LogicalArray(_)
-    )
-}
-
-fn value_is_text(value: &Value) -> bool {
-    match value {
-        Value::String(_) | Value::StringArray(_) => true,
-        Value::CharArray(chars) => chars.rows == 1,
-        Value::Cell(cell) => cell.data.iter().all(|entry| match &entry {
-            Value::CharArray(chars) => chars.rows == 1,
-            Value::String(_) => true,
-            _ => false,
-        }),
-        _ => false,
-    }
-}
-
-fn value_is_empty(value: &Value) -> bool {
-    match value {
-        Value::Tensor(t) => t.shape.iter().product::<usize>() == 0,
-        Value::ComplexTensor(t) => t.shape.iter().product::<usize>() == 0,
-        Value::LogicalArray(a) => a.shape.iter().product::<usize>() == 0,
-        Value::StringArray(s) => s.shape.iter().product::<usize>() == 0,
-        Value::CharArray(c) => c.rows * c.cols == 0,
-        Value::Cell(c) => c.shape.iter().product::<usize>() == 0,
-        _ => false,
-    }
-}
-
-fn value_is_scalar_or_empty(value: &Value) -> bool {
-    let (rows, cols) = value_shape_2d(value);
-    (rows == 1 && cols == 1) || (rows == 0 || cols == 0)
-}
-
-fn value_is_real(value: &Value) -> bool {
-    match value {
-        Value::Complex(_, im) => *im == 0.0,
-        Value::ComplexTensor(t) => t.data.iter().all(|(_, im)| *im == 0.0),
-        _ => true,
-    }
-}
-
-fn value_is_integer(value: &Value) -> bool {
-    match value {
-        Value::Int(_) => true,
-        Value::Num(v) => v.is_finite() && v.fract() == 0.0,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && v.fract() == 0.0),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && re.fract() == 0.0,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && re.fract() == 0.0),
-        _ => false,
-    }
-}
-
-fn value_is_positive(value: &Value) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v > 0.0,
-        Value::Int(v) => v.to_i64() > 0,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v > 0.0),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re > 0.0,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re > 0.0),
-        _ => false,
-    }
-}
-
-fn value_is_negative(value: &Value) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v < 0.0,
-        Value::Int(v) => v.to_i64() < 0,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v < 0.0),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re < 0.0,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re < 0.0),
-        _ => false,
-    }
-}
-
-fn value_is_nonnegative(value: &Value) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v >= 0.0,
-        Value::Int(v) => v.to_i64() >= 0,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v >= 0.0),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re >= 0.0,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re >= 0.0),
-        _ => false,
-    }
-}
-
-fn value_is_nonzero(value: &Value) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v != 0.0,
-        Value::Int(v) => v.to_i64() != 0,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v != 0.0),
-        Value::Complex(re, im) => re.is_finite() && im.is_finite() && (*re != 0.0 || *im != 0.0),
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| re.is_finite() && im.is_finite() && (*re != 0.0 || *im != 0.0)),
-        _ => false,
-    }
-}
-
-fn value_is_nonpositive(value: &Value) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v <= 0.0,
-        Value::Int(v) => v.to_i64() <= 0,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v <= 0.0),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re <= 0.0,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re <= 0.0),
-        _ => false,
-    }
-}
-
-fn value_is_greater_than_or_equal(value: &Value, threshold: f64) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v >= threshold,
-        Value::Int(v) => (v.to_i64() as f64) >= threshold,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v >= threshold),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re >= threshold,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re >= threshold),
-        _ => false,
-    }
-}
-
-fn value_is_less_than_or_equal(value: &Value, threshold: f64) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v <= threshold,
-        Value::Int(v) => (v.to_i64() as f64) <= threshold,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v <= threshold),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re <= threshold,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re <= threshold),
-        _ => false,
-    }
-}
-
-fn value_is_greater_than(value: &Value, threshold: f64) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v > threshold,
-        Value::Int(v) => (v.to_i64() as f64) > threshold,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v > threshold),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re > threshold,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re > threshold),
-        _ => false,
-    }
-}
-
-fn value_is_less_than(value: &Value, threshold: f64) -> bool {
-    match value {
-        Value::Num(v) => v.is_finite() && *v < threshold,
-        Value::Int(v) => (v.to_i64() as f64) < threshold,
-        Value::Tensor(t) => t.data.iter().all(|v| v.is_finite() && *v < threshold),
-        Value::Complex(re, im) => *im == 0.0 && re.is_finite() && *re < threshold,
-        Value::ComplexTensor(t) => t
-            .data
-            .iter()
-            .all(|(re, im)| *im == 0.0 && re.is_finite() && *re < threshold),
-        _ => false,
-    }
-}
-
-fn collect_semantic_outputs(
-    func: &crate::bytecode::program::FunctionBytecode,
-    result_vars: &[Value],
+fn output_sequence(
+    output_values: Vec<Value>,
     requested_outputs: usize,
-) -> Result<Vec<Value>, RuntimeError> {
-    let mut values = Vec::with_capacity(requested_outputs.max(1));
-    for slot in func.output_slots.iter().take(requested_outputs) {
-        values.push(result_vars.get(*slot).cloned().unwrap_or(Value::Num(0.0)));
-    }
-    if values.len() < requested_outputs {
-        if let Some(slot) = func.varargout_slot {
-            let available = match result_vars.get(slot) {
-                Some(Value::Cell(cell)) => {
-                    let expanded = crate::call::shared::expand_all_cell(cell)?;
-                    let available = expanded.len();
-                    for value in expanded {
-                        if values.len() >= requested_outputs {
-                            break;
-                        }
-                        values.push(value);
-                    }
-                    available
-                }
-                _ => 0,
-            };
-            if values.len() < requested_outputs {
-                let need = requested_outputs - func.output_slots.len();
-                let message = format!(
-                    "Function '{}' returned {available} varargout values, {need} requested",
-                    func.display_name
-                );
-                return Err(mex("VarargoutMismatch", &message));
-            }
-        }
-    }
-    while values.len() < requested_outputs {
-        values.push(Value::Num(0.0));
-    }
-    Ok(values)
-}
-
-fn output_value(output_values: Vec<Value>, requested_outputs: usize) -> Value {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     match requested_outputs {
-        0 => Value::OutputList(Vec::new()),
-        1 => output_values.into_iter().next().unwrap_or(Value::Num(0.0)),
-        _ => Value::OutputList(output_values.into_iter().take(requested_outputs).collect()),
+        0 => Ok(runmat_value::ValueSequence::empty()),
+        1 => runmat_value::ValueSequence::single(
+            output_values.into_iter().next().unwrap_or(Value::Num(0.0)),
+        )
+        .map_err(runmat_runtime::sequence::sequence_error_to_runtime),
+        _ => runmat_value::ValueSequence::comma_separated(
+            output_values.into_iter().take(requested_outputs).collect(),
+        )
+        .map_err(runmat_runtime::sequence::sequence_error_to_runtime),
     }
 }
 
 #[cfg(feature = "native-accel")]
 fn clear_semantic_function_temp_residency(
     result_vars: &[Value],
+    args: &[Value],
     output_values: &[Value],
     updated_captures: &[Value],
+    input_residency: InputResidency,
 ) {
     let mut keep_values = output_values.to_vec();
+    if matches!(input_residency, InputResidency::Borrowed) {
+        // Interpreter-to-interpreter calls borrow arguments from the caller's
+        // workspace. Those values remain live after the callee returns even if
+        // the callee overwrites its input slots.
+        keep_values.extend(args.iter().cloned());
+    }
     keep_values.extend(updated_captures.iter().cloned());
     keep_values.extend(runtime_globals::collect_thread_roots());
-    let keep = Value::OutputList(keep_values);
     for value in result_vars {
-        if let Err(err) = accel_residency::clear_value_excluding(value, &keep) {
+        if let Err(err) = accel_residency::clear_value_excluding_values(value, &keep_values) {
             log::warn!("failed to clear temporary semantic function GPU residency: {err}");
         }
     }
@@ -857,25 +425,181 @@ pub async fn interpret_with_vars(
     initial_vars: &mut Vec<Value>,
     current_function_name: Option<&str>,
 ) -> VmResult<InterpreterOutcome> {
-    runmat_runtime::data::with_tx_registry_scope(interpret_with_vars_inner(
-        bytecode,
-        initial_vars,
+    let runtime = active_or_standalone_runtime_context();
+    interpret_with_vars_in_context(bytecode, initial_vars, current_function_name, runtime).await
+}
+
+pub async fn interpret_with_vars_in_context(
+    bytecode: &Bytecode,
+    initial_vars: &mut Vec<Value>,
+    current_function_name: Option<&str>,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> VmResult<InterpreterOutcome> {
+    runtime
+        .scope(runmat_runtime::data::with_tx_registry_scope(
+            interpret_with_vars_inner(
+                bytecode,
+                initial_vars,
+                current_function_name,
+                runtime.clone(),
+            ),
+        ))
+        .await
+}
+
+pub async fn interpret_resume_in_context(
+    bytecode: &Bytecode,
+    resume: InterpreterResumeState,
+    current_function_name: Option<&str>,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> VmResult<InterpreterOutcome> {
+    runtime
+        .scope(runmat_runtime::data::with_tx_registry_scope(
+            interpret_resume_inner(bytecode, resume, current_function_name, runtime.clone()),
+        ))
+        .await
+}
+
+/// Install immutable bytecode metadata that native execution does not visit as
+/// ordinary MIR sites. Core calls this before entering a native unit so class
+/// definitions have the same runtime visibility as interpreter execution.
+pub fn prepare_native_execution_metadata(bytecode: &Bytecode) -> VmResult<()> {
+    register_class_metadata(bytecode.instructions.iter())
+}
+
+fn register_class_metadata<'a>(instructions: impl IntoIterator<Item = &'a Instr>) -> VmResult<()> {
+    for instruction in instructions {
+        if let Instr::RegisterClass {
+            name,
+            super_class,
+            is_sealed,
+            is_abstract,
+            properties,
+            methods,
+            enumerations,
+        } = instruction
+        {
+            interp_dispatch::handle_register_class(
+                name.clone(),
+                super_class.clone(),
+                *is_sealed,
+                *is_abstract,
+                properties.clone(),
+                methods.clone(),
+                enumerations.clone(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+async fn interpret_resume_inner(
+    bytecode: &Bytecode,
+    resume: InterpreterResumeState,
+    current_function_name: Option<&str>,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> VmResult<InterpreterOutcome> {
+    if resume.pc > bytecode.instructions.len() {
+        return Err(mex(
+            "NativeResumePoint",
+            "interpreter resume PC is outside the immutable bytecode product",
+        ));
+    }
+    if resume
+        .completion_boundary
+        .is_some_and(|boundary| boundary.pc() > bytecode.instructions.len())
+    {
+        return Err(mex(
+            "NativeResumeBoundary",
+            "interpreter completion boundary is outside the immutable bytecode product",
+        ));
+    }
+    if resume.vars.len() != bytecode.var_count {
+        return Err(mex(
+            "NativeResumeFrame",
+            "materialized native locals do not match the VM frame layout",
+        ));
+    }
+    let mut resumed_bytecode = bytecode.clone();
+    resumed_bytecode.initially_unassigned_slots.clear();
+    let mut vars = Vec::with_capacity(resume.vars.len());
+    let mut assigned_slots = HashSet::new();
+    for (slot, value) in resume.vars.into_iter().enumerate() {
+        match value {
+            Some(value) => {
+                assigned_slots.insert(slot);
+                vars.push(value);
+            }
+            None => {
+                vars.push(Value::Num(0.0));
+                resumed_bytecode.initially_unassigned_slots.insert(slot);
+            }
+        }
+    }
+    let previous_call_counts = CALL_COUNTS.with(|counts| counts.borrow().clone());
+    let mut call_counts = previous_call_counts.clone();
+    call_counts.push((resume.supplied_inputs, resume.requested_outputs));
+    let mut state = InterpreterState::new_in_context(
+        resumed_bytecode,
+        &mut vars,
         current_function_name,
-    ))
-    .await
+        call_counts,
+        runtime,
+    );
+    state.pc = resume.pc;
+    state.completion_boundary = resume.completion_boundary;
+    state.completion_assigned_slots = Some(assigned_slots);
+    state.missing_input_slots = resume.missing_input_slots;
+    state.global_aliases = resume.global_aliases;
+    state.persistent_aliases = resume.persistent_aliases;
+    register_class_metadata(&bytecode.instructions[..resume.pc])?;
+    for instruction in &bytecode.instructions[..resume.pc] {
+        if let Instr::RegisterImport { path, wildcard } = instruction {
+            state.imports.push((path.clone(), *wildcard));
+        }
+    }
+    debug!(
+        "interpreter resumed from native execution at pc={} side_effect_epoch={}",
+        state.pc, resume.side_effect_epoch
+    );
+    let current_name = current_function_name.unwrap_or("<main>");
+    let _debug_frame_guard = runmat_runtime::debug_context::push_frame(
+        current_name,
+        bytecode.source_id,
+        bytecode_frame_span(bytecode),
+    );
+    let mut output_vars = vars;
+    let result = run_interpreter(Box::new(state), &mut output_vars).await;
+    CALL_COUNTS.with(|counts| *counts.borrow_mut() = previous_call_counts);
+    match result {
+        Ok(outcome) => Ok(outcome),
+        Err(err) => {
+            let err = attach_span_from_pc(bytecode, err);
+            Err(attach_call_frames(bytecode, current_name, err))
+        }
+    }
 }
 
 async fn interpret_with_vars_inner(
     bytecode: &Bytecode,
     initial_vars: &mut Vec<Value>,
     current_function_name: Option<&str>,
+    runtime: runmat_runtime::context::RuntimeContext,
 ) -> VmResult<InterpreterOutcome> {
+    crate::bytecode::validate_sequence_register_flow(&bytecode.instructions)
+        .map_err(RuntimeError::new)?;
+    let _debug_frame_guard = runmat_runtime::debug_context::push_frame(
+        current_function_name.unwrap_or("<main>"),
+        bytecode.source_id,
+        bytecode_frame_span(bytecode),
+    );
     let call_counts = CALL_COUNTS.with(|cc| cc.borrow().clone());
-    let state = Box::new(InterpreterState::new(
+    let state = Box::new(InterpreterState::new_in_context(
         bytecode.clone(),
         initial_vars,
         current_function_name,
         call_counts,
+        runtime,
     ));
     match Box::pin(run_interpreter(state, initial_vars)).await {
         Ok(outcome) => Ok(outcome),
@@ -885,6 +609,13 @@ async fn interpret_with_vars_inner(
             Err(attach_call_frames(bytecode, current_name, err))
         }
     }
+}
+
+fn bytecode_frame_span(bytecode: &Bytecode) -> Option<(usize, usize)> {
+    bytecode
+        .instr_spans
+        .first()
+        .map(|span| (span.start, span.end))
 }
 
 async fn run_interpreter(
@@ -914,6 +645,8 @@ async fn run_interpreter_inner(
         mut stack,
         mut vars,
         mut pc,
+        completion_boundary,
+        mut completion_assigned_slots,
         mut context,
         mut try_stack,
         mut last_exception,
@@ -937,14 +670,16 @@ async fn run_interpreter_inner(
             call_counts.clone(),
         );
     let function_registry = Arc::new(bytecode.function_registry());
+    let nested_runtime = context.runtime.clone();
     let previous_semantic_invoker = user_functions::current_semantic_function_invoker();
     let registry_for_function_invoker = Arc::clone(&function_registry);
     let _semantic_function_guard =
-        user_functions::install_semantic_function_invoker(Some(Arc::new(
+        user_functions::install_local_semantic_function_invoker(std::rc::Rc::new(
             move |function: usize, args: &[Value], requested_outputs: usize| {
                 let args = args.to_vec();
                 let previous_invoker = previous_semantic_invoker.clone();
                 let function_registry = Arc::clone(&registry_for_function_invoker);
+                let runtime = nested_runtime.clone();
                 Box::pin(async move {
                     let local_function = function_registry
                         .get(runmat_hir::FunctionId(function))
@@ -954,16 +689,18 @@ async fn run_interpreter_inner(
                             return invoker(function, &args, requested_outputs).await;
                         }
                     }
-                    invoke_semantic_function_value(
+                    invoke_semantic_function_value_with_capture_updates(
                         function,
                         &args,
                         requested_outputs,
                         &function_registry,
+                        runtime,
                     )
                     .await
+                    .map(|(value, _)| value)
                 })
             },
-        )));
+        ));
     let previous_semantic_resolver = user_functions::current_semantic_function_resolver();
     let registry_for_function_resolver = Arc::clone(&function_registry);
     let _semantic_resolver_guard =
@@ -1015,7 +752,14 @@ async fn run_interpreter_inner(
     let mut _gc_context = interp_engine::create_gc_context(&stack, &vars, thread_roots)?;
     let debug_stack = interp_engine::debug_stack_enabled();
     let mut interpreter_timing = InterpreterTiming::new();
+    let mut sequence_register = interp_dispatch::SequenceState::default();
     while pc < bytecode.instructions.len() {
+        if completion_boundary.is_some_and(|boundary| boundary.pc() == pc) {
+            break;
+        }
+        if let Some(sites) = bytecode.coverage_sites.get(pc) {
+            runmat_runtime::coverage::hit_sites(sites);
+        }
         set_vm_pc(pc);
         #[cfg(feature = "native-accel")]
         set_current_pc(pc);
@@ -1062,6 +806,24 @@ async fn run_interpreter_inner(
                     kind = ?plan.group.kind
                 )
                 .entered();
+                let fusion_started = Instant::now();
+                let trace = begin_trace(fusion_operation_token(&plan.group.kind), None);
+                trace.event(
+                    PlacementEventKind::Candidate,
+                    Some(PlacementVariant::ProviderFusion),
+                    Some("legacy_fusion_candidate"),
+                    None,
+                    None,
+                    &[],
+                );
+                trace.event(
+                    PlacementEventKind::Candidate,
+                    Some(PlacementVariant::SharedRuntime),
+                    Some("bytecode_fallback_candidate"),
+                    None,
+                    None,
+                    &[],
+                );
                 if !has_barrier {
                     match accel_fusion::try_execute_fusion_group(
                         &plan,
@@ -1069,19 +831,42 @@ async fn run_interpreter_inner(
                         &mut stack,
                         &mut vars,
                         &mut context,
+                        Some(trace.correlation()),
                     )
                     .await
                     {
                         Ok(result) => {
+                            trace.complete(
+                                Some(PlacementVariant::ProviderFusion),
+                                Some(duration_ns_saturating(fusion_started.elapsed())),
+                            );
                             stack.push(result);
                             pc = plan.group.span.end + 1;
                             continue;
                         }
                         Err(err) => {
+                            trace.fallback(
+                                Some(PlacementVariant::SharedRuntime),
+                                "fusion_execution_failed",
+                                Some(duration_ns_saturating(fusion_started.elapsed())),
+                            );
                             log::debug!("fusion fallback at pc {}: {}", pc, err);
                         }
                     }
                 } else {
+                    trace.event(
+                        PlacementEventKind::Selected,
+                        Some(PlacementVariant::SharedRuntime),
+                        Some("fusion_vm_barrier"),
+                        None,
+                        None,
+                        &[],
+                    );
+                    trace.fallback(
+                        Some(PlacementVariant::SharedRuntime),
+                        "fusion_vm_barrier",
+                        Some(duration_ns_saturating(fusion_started.elapsed())),
+                    );
                     interp_engine::note_fusion_skip(pc, &span);
                 }
             }
@@ -1108,6 +893,9 @@ async fn run_interpreter_inner(
         };
         let mut store_var_before_overwrite = |_current: &Value, _incoming: &Value| {};
         let mut store_var_after_store = |stored_index: usize, stored_value: &Value| {
+            if let Some(assigned_slots) = completion_assigned_slots.as_mut() {
+                assigned_slots.insert(stored_index);
+            }
             if let Some(ref aliases) = store_var_global_aliases {
                 runtime_globals::update_global_store(stored_index, stored_value, aliases);
             }
@@ -1133,6 +921,7 @@ async fn run_interpreter_inner(
         let dispatch_result = interp_dispatch::dispatch_instruction(
             interp_dispatch::DispatchMeta {
                 instr: &bytecode.instructions[pc],
+                bytecode: &bytecode,
                 var_names: &bytecode.var_names,
                 function_registry: &function_registry,
                 source_id: bytecode.source_id,
@@ -1143,6 +932,7 @@ async fn run_interpreter_inner(
             interp_dispatch::DispatchState {
                 stack: &mut stack,
                 vars: &mut vars,
+                sequence_register: &mut sequence_register,
                 context: &mut context,
                 try_stack: &mut try_stack,
                 last_exception: &mut last_exception,
@@ -1165,19 +955,22 @@ async fn run_interpreter_inner(
         .await;
         let dispatch_result = match dispatch_result {
             Ok(result) => result,
-            Err(err) => match interp_dispatch::redirect_exception_to_catch(
-                err,
-                &mut try_stack,
-                &mut vars,
-                &mut last_exception,
-                &mut pc,
-                refresh_workspace_state,
-            ) {
-                interp_dispatch::ExceptionHandling::Caught => {
-                    continue;
+            Err(err) => {
+                sequence_register.clear(&mut stack);
+                match interp_dispatch::redirect_exception_to_catch(
+                    err,
+                    &mut try_stack,
+                    &mut vars,
+                    &mut last_exception,
+                    &mut pc,
+                    refresh_workspace_state,
+                ) {
+                    interp_dispatch::ExceptionHandling::Caught => {
+                        continue;
+                    }
+                    interp_dispatch::ExceptionHandling::Uncaught(err) => return Err(*err),
                 }
-                interp_dispatch::ExceptionHandling::Uncaught(err) => return Err(*err),
-            },
+            }
         };
         if let Some(decision) = dispatch_result {
             match decision {
@@ -1219,6 +1012,7 @@ async fn run_interpreter_inner(
             | Instr::JumpIfFalse(_)
             | Instr::Jump(_)
             | Instr::LoadConst(_)
+            | Instr::LoadInt(_)
             | Instr::LoadComplex(_, _)
             | Instr::LoadBool(_)
             | Instr::LoadString(_)
@@ -1230,8 +1024,8 @@ async fn run_interpreter_inner(
             | Instr::StoreLocal(_)
             | Instr::Swap
             | Instr::Pop
-            | Instr::EnterTry(_, _)
-            | Instr::PopTry
+            | Instr::EnterTry { .. }
+            | Instr::LeaveTry(_)
             | Instr::ReturnValue
             | Instr::Return
             | Instr::EnterScope(_)
@@ -1239,13 +1033,53 @@ async fn run_interpreter_inner(
             | Instr::LoadMemberOrInit(_)
             | Instr::LoadMemberDynamic
             | Instr::LoadMemberDynamicOrInit
+            | Instr::LoadMemberSequence { .. }
+            | Instr::LoadMemberDynamicSequence { .. }
+            | Instr::MemberSequenceCardinality
+            | Instr::LoadMemberSequenceUsingOutputSlot { .. }
+            | Instr::LoadMemberDynamicSequenceUsingOutputSlot { .. }
+            | Instr::CaptureCallOutputSequence
+            | Instr::CaptureScalarSequence
+            | Instr::CaptureMemberSequence { .. }
+            | Instr::CaptureMemberDynamicSequence { .. }
+            | Instr::CaptureCellContentsSequence { .. }
+            | Instr::CaptureReturnedOutputsSequence { .. }
+            | Instr::ReadSubscriptPath { .. }
+            | Instr::CaptureSubscriptPath { .. }
+            | Instr::BeginSubscriptEndReceiver { .. }
+            | Instr::LoadSubscriptEnd { .. }
+            | Instr::FinishSubscriptEndReceiver { .. }
+            | Instr::BeginOutputAssignment { .. }
+            | Instr::PrepareFixedOutputTarget
+            | Instr::PrepareDiscardOutputTarget
+            | Instr::PrepareMemberSequenceOutputTarget { .. }
+            | Instr::PrepareMemberDynamicSequenceOutputTarget { .. }
+            | Instr::PrepareIndexedMemberSequenceOutputTarget { .. }
+            | Instr::PrepareIndexedMemberDynamicSequenceOutputTarget { .. }
+            | Instr::PrepareCellContentsSequenceOutputTarget { .. }
+            | Instr::BeginSequenceOutputTarget { .. }
+            | Instr::PrepareMemberPathStep(_)
+            | Instr::PrepareDynamicMemberPathStep
+            | Instr::BeginPreparedIndexSelectors { .. }
+            | Instr::LoadPreparedIndexEnd { .. }
+            | Instr::BeginContextualIndexSelectors { .. }
+            | Instr::LoadContextualIndexEnd { .. }
+            | Instr::FinishContextualIndexSelectors { .. }
+            | Instr::PrepareParenthesesPathStep { .. }
+            | Instr::PrepareBracesPathStep { .. }
+            | Instr::FinishMemberSequenceOutputTarget(_)
+            | Instr::FinishDynamicMemberSequenceOutputTarget
+            | Instr::FinishCellContentsSequenceOutputTarget { .. }
+            | Instr::LoadPreparedOutputCardinality
+            | Instr::CommitPreparedOutputTargets { .. }
             | Instr::StoreMember(_)
             | Instr::StoreMemberOrInit(_)
             | Instr::StoreMemberDynamic
             | Instr::StoreMemberDynamicOrInit
+            | Instr::StoreMemberSequence(_)
+            | Instr::StoreMemberDynamicSequence
             | Instr::Index(_)
             | Instr::IndexSlice(_, _, _, _)
-            | Instr::IndexSliceExpr { .. }
             | Instr::IndexCell { .. }
             | Instr::IndexCellExpand { .. }
             | Instr::IndexCellList { .. }
@@ -1255,8 +1089,6 @@ async fn run_interpreter_inner(
             | Instr::StoreIndexCellDelete { .. }
             | Instr::StoreSlice(_, _, _, _)
             | Instr::StoreSliceDelete(_, _, _, _)
-            | Instr::StoreSliceExpr { .. }
-            | Instr::StoreSliceExprDelete { .. }
             | Instr::CallMethodOrMemberIndexMulti { .. }
             | Instr::CallMethodOrMemberIndexExpandMultiOutput { .. }
             | Instr::LoadMethod(_)
@@ -1276,8 +1108,14 @@ async fn run_interpreter_inner(
             | Instr::CallFevalExpandMultiOutputUsingOutputSlot(_, _)
             | Instr::CreateSemanticFuture(_, _, _)
             | Instr::CreateSemanticFutureExpandMultiOutput(_, _, _)
+            | Instr::ScheduleFeval { .. }
             | Instr::Spawn
+            | Instr::SpawnOn
             | Instr::Await
+            | Instr::FetchOutputs { .. }
+            | Instr::FetchNext { .. }
+            | Instr::EnsurePool(_)
+            | Instr::CurrentPool(_)
             | Instr::CallBuiltinMulti(_, _, _)
             | Instr::CallBuiltinMultiUsingOutputSlot(_, _, _)
             | Instr::CallSuperConstructorMulti { .. }
@@ -1305,6 +1143,7 @@ async fn run_interpreter_inner(
             | Instr::DeclarePersistent(_)
             | Instr::DeclarePersistentNamed(_, _)
             | Instr::CreateCell2D(_, _)
+            | Instr::CreateCellFromSequences { .. }
             | Instr::CreateStructLiteral(_)
             | Instr::CreateObjectLiteral { .. }
             | Instr::Add
@@ -1330,8 +1169,13 @@ async fn run_interpreter_inner(
             | Instr::LogicalNot
             | Instr::LogicalAnd
             | Instr::LogicalOr
+            | Instr::ExecuteParfor { .. }
+            | Instr::ExecuteSpmd { .. }
+            | Instr::Distributed(_)
+            | Instr::Collective { .. }
             | Instr::Unpack(_)
             | Instr::CreateMatrix(_, _)
+            | Instr::CreateMatrixFromSequences { .. }
             | Instr::CreateMatrixDynamic(_)
             | Instr::CreateRange(_)
             | Instr::PackToRow(_)
@@ -1372,23 +1216,219 @@ async fn run_interpreter_inner(
         live_values.extend(vars.iter().cloned());
         live_values.extend(context.locals.iter().cloned());
         live_values.extend(runtime_globals::collect_thread_roots());
-        let live_values = Value::OutputList(live_values);
         for value in &stack {
-            if let Err(err) = accel_residency::clear_value_excluding(value, &live_values) {
+            if let Err(err) = accel_residency::clear_value_excluding_values(value, &live_values) {
                 log::warn!("failed to clear stack GPU residency: {err}");
             }
         }
     }
     sync_initial_vars(initial_vars, &vars);
-    Ok(InterpreterOutcome::Completed(vars))
+    Ok(InterpreterOutcome::Completed(
+        crate::interpreter::state::InterpreterCompletion {
+            assigned_slots: completion_assigned_slots
+                .unwrap_or_else(crate::runtime::workspace::current_workspace_assigned_slots),
+            values: vars,
+        },
+    ))
 }
 
 pub async fn interpret(bytecode: &Bytecode) -> Result<Vec<Value>, RuntimeError> {
     let mut vars = vec![Value::Num(0.0); bytecode.var_count];
     match interpret_with_vars(bytecode, &mut vars, Some("<main>")).await {
-        Ok(InterpreterOutcome::Completed(values)) => Ok(values),
+        Ok(InterpreterOutcome::Completed(completion)) => Ok(completion.values),
         Err(e) => Err(e),
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ParforTaskMode {
+    Sequential,
+    IndependentIterations,
+}
+
+pub(crate) struct ParforTaskExecution<'a> {
+    pub bytecode: &'a Bytecode,
+    pub region: &'a crate::BytecodeParforRegion,
+    pub inputs: Vec<Value>,
+    pub iterations: Vec<Value>,
+    pub randomness: runmat_execution::ParallelRandomnessContext,
+    pub mode: ParforTaskMode,
+    pub current_function_name: &'a str,
+    pub runtime: runmat_runtime::context::RuntimeContext,
+}
+
+pub(crate) async fn interpret_parfor_task_in_context(
+    execution: ParforTaskExecution<'_>,
+) -> Result<Vec<Value>, RuntimeError> {
+    let ParforTaskExecution {
+        bytecode,
+        region,
+        inputs,
+        iterations,
+        randomness,
+        mode,
+        current_function_name,
+        runtime,
+    } = execution;
+    randomness
+        .validate_for_iterations(iterations.len())
+        .map_err(|error| mex("ParallelRandomness", &error.to_string()))?;
+    let deterministic_streams = match randomness {
+        runmat_execution::ParallelRandomnessContext::Deterministic { streams } => Some(streams),
+        runmat_execution::ParallelRandomnessContext::Inherit
+        | runmat_execution::ParallelRandomnessContext::Nondeterministic => None,
+    };
+    let input_variables = region.input_variables().collect::<Vec<_>>();
+    if inputs.len() != input_variables.len() {
+        return Err(mex(
+            "ParallelTaskInput",
+            "parallel task inputs do not match the compiler-owned region layout",
+        ));
+    }
+    let mut frame = vec![None; bytecode.var_count];
+    for (variable, value) in input_variables.into_iter().zip(inputs) {
+        let Some(slot) = frame.get_mut(variable.slot) else {
+            return Err(mex(
+                "ParallelFrame",
+                "parallel task input is outside its compiled VM frame",
+            ));
+        };
+        *slot = Some(value);
+    }
+    if region.loop_slot >= frame.len() {
+        return Err(mex(
+            "ParallelFrame",
+            "parallel loop value is outside its compiled VM frame",
+        ));
+    }
+    let reduction_inputs = region
+        .variables
+        .iter()
+        .filter(|variable| {
+            matches!(
+                variable.contract.role,
+                runmat_types::ParallelVariableRole::Reduction { .. }
+            )
+        })
+        .map(|variable| {
+            frame
+                .get(variable.slot)
+                .and_then(Clone::clone)
+                .map(|value| (variable.slot, value))
+                .ok_or_else(|| {
+                    mex(
+                        "ParallelTaskInput",
+                        "parallel reduction is missing its typed identity value",
+                    )
+                })
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    let mut reduction_outputs = reduction_inputs
+        .keys()
+        .copied()
+        .map(|slot| (slot, Vec::new()))
+        .collect::<HashMap<_, _>>();
+
+    for (iteration_index, iteration) in iterations.into_iter().enumerate() {
+        for variable in &region.variables {
+            if matches!(
+                variable.contract.role,
+                runmat_types::ParallelVariableRole::Temporary
+                    | runmat_types::ParallelVariableRole::Private
+            ) {
+                let Some(slot) = frame.get_mut(variable.slot) else {
+                    return Err(mex(
+                        "ParallelFrame",
+                        "parallel private value is outside its compiled VM frame",
+                    ));
+                };
+                *slot = None;
+            }
+        }
+        if mode == ParforTaskMode::IndependentIterations {
+            for (slot, identity) in &reduction_inputs {
+                frame[*slot] = Some(identity.clone());
+            }
+        }
+        frame[region.loop_slot] = Some(iteration);
+        let _random_stream = deterministic_streams
+            .as_ref()
+            .and_then(|streams| streams.get(iteration_index).copied())
+            .map(|stream| {
+                runmat_runtime::builtins::common::random::enter_parallel_random_stream(
+                    &runtime, stream,
+                )
+            })
+            .transpose()?;
+        let resume = InterpreterResumeState {
+            pc: region.body.pc,
+            completion_boundary: Some(
+                crate::interpreter::state::InterpreterCompletionBoundary::before(region.header.pc),
+            ),
+            vars: frame,
+            supplied_inputs: 0,
+            requested_outputs: 0,
+            missing_input_slots: HashSet::new(),
+            global_aliases: HashMap::new(),
+            persistent_aliases: HashMap::new(),
+            side_effect_epoch: 0,
+        };
+        frame = match Box::pin(interpret_resume_in_context(
+            bytecode,
+            resume,
+            Some(current_function_name),
+            runtime.clone(),
+        ))
+        .await?
+        {
+            InterpreterOutcome::Completed(completion) => {
+                completion.values.into_iter().map(Some).collect()
+            }
+        };
+        if mode == ParforTaskMode::IndependentIterations {
+            for (slot, values) in &mut reduction_outputs {
+                let value = frame.get(*slot).and_then(Clone::clone).ok_or_else(|| {
+                    mex(
+                        "ParallelTaskOutput",
+                        "parallel task did not assign a declared reduction output",
+                    )
+                })?;
+                values.push(value);
+            }
+        }
+    }
+
+    region
+        .output_variables()
+        .map(|variable| {
+            if mode == ParforTaskMode::IndependentIterations
+                && matches!(
+                    variable.contract.role,
+                    runmat_types::ParallelVariableRole::Reduction { .. }
+                )
+            {
+                let values = reduction_outputs.remove(&variable.slot).ok_or_else(|| {
+                    mex(
+                        "ParallelTaskOutput",
+                        "parallel task lost a declared reduction output",
+                    )
+                })?;
+                let length = values.len();
+                return runmat_value::CellArray::new(values, 1, length)
+                    .map(Value::Cell)
+                    .map_err(|error| mex("ParallelTaskOutput", &error));
+            }
+            frame
+                .get(variable.slot)
+                .and_then(Clone::clone)
+                .ok_or_else(|| {
+                    mex(
+                        "ParallelTaskOutput",
+                        "parallel task did not assign a declared output",
+                    )
+                })
+        })
+        .collect()
 }
 
 pub async fn interpret_function(
@@ -1406,19 +1446,74 @@ pub async fn interpret_function_with_counts(
     in_count: usize,
     missing_input_slots: HashSet<usize>,
 ) -> Result<Vec<Value>, RuntimeError> {
+    let runtime = active_or_standalone_runtime_context();
+    interpret_function_with_counts_in_context(
+        bytecode,
+        vars,
+        name,
+        out_count,
+        in_count,
+        missing_input_slots,
+        runtime,
+    )
+    .await
+}
+
+async fn interpret_function_with_counts_in_context(
+    bytecode: &Bytecode,
+    vars: Vec<Value>,
+    name: &str,
+    out_count: usize,
+    in_count: usize,
+    missing_input_slots: HashSet<usize>,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> Result<Vec<Value>, RuntimeError> {
+    runtime
+        .scope(interpret_function_with_counts_in_context_inner(
+            bytecode,
+            vars,
+            name,
+            out_count,
+            in_count,
+            missing_input_slots,
+            runtime.clone(),
+        ))
+        .await
+}
+
+async fn interpret_function_with_counts_in_context_inner(
+    bytecode: &Bytecode,
+    vars: Vec<Value>,
+    name: &str,
+    out_count: usize,
+    in_count: usize,
+    missing_input_slots: HashSet<usize>,
+    runtime: runmat_runtime::context::RuntimeContext,
+) -> Result<Vec<Value>, RuntimeError> {
     let mut vars = vars;
     CALL_COUNTS.with(|cc| {
         cc.borrow_mut().push((in_count, out_count));
     });
     let call_counts = CALL_COUNTS.with(|cc| cc.borrow().clone());
-    let mut state = InterpreterState::new(bytecode.clone(), &mut vars, Some(name), call_counts);
+    let mut state = InterpreterState::new_in_context(
+        bytecode.clone(),
+        &mut vars,
+        Some(name),
+        call_counts,
+        runtime,
+    );
     state.missing_input_slots = missing_input_slots;
+    let _debug_frame_guard = runmat_runtime::debug_context::push_frame(
+        name,
+        bytecode.source_id,
+        bytecode_frame_span(bytecode),
+    );
     let res = Box::pin(run_interpreter(Box::new(state), &mut vars)).await;
     CALL_COUNTS.with(|cc| {
         cc.borrow_mut().pop();
     });
     let res = match res {
-        Ok(InterpreterOutcome::Completed(values)) => Ok(values),
+        Ok(InterpreterOutcome::Completed(completion)) => Ok(completion.values),
         Err(e) => Err(e),
     }?;
     runtime_globals::persist_declared_for_bytecode(bytecode, name, &vars);
@@ -1428,21 +1523,19 @@ pub async fn interpret_function_with_counts(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_semantic_outputs, interpret_with_vars, output_value, run_interpreter_inner,
+        interpret_resume_in_context, interpret_with_vars, output_sequence, run_interpreter_inner,
+    };
+    use crate::bytecode::program::Bytecode;
+    use crate::bytecode::Instr;
+    use crate::interpreter::api::{InterpreterResumeState, InterpreterState};
+    use futures::executor::block_on;
+    use runmat_runtime::builtins::common::validation::{
         value_is_empty, value_is_greater_than, value_is_greater_than_or_equal, value_is_integer,
         value_is_less_than, value_is_less_than_or_equal, value_is_negative, value_is_nonnegative,
         value_is_nonpositive, value_is_nonzero, value_is_numeric_or_logical, value_is_positive,
         value_is_real, value_is_scalar_or_empty, value_is_text,
     };
-    use crate::bytecode::program::{Bytecode, FunctionBytecode};
-    use crate::bytecode::Instr;
-    use crate::interpreter::api::InterpreterState;
-    use futures::executor::block_on;
-    use runmat_builtins::{
-        CellArray, Closure, HandleRef, ObjectInstance, StructValue, Tensor, Value,
-    };
-    use runmat_hir::FunctionId;
-    use std::collections::{HashMap, HashSet};
+    use runmat_value::{CellArray, HandleRef, StructValue, Tensor, Value};
     use std::sync::{atomic::AtomicBool, Arc};
     #[cfg(feature = "native-accel")]
     use {
@@ -1467,60 +1560,101 @@ mod tests {
             .expect("upload should succeed")
     }
 
-    fn test_function(varargout_slot: Option<usize>) -> FunctionBytecode {
-        FunctionBytecode {
-            function: FunctionId(0),
-            display_name: "f".into(),
-            private_owner_scope: String::new(),
-            source_id: None,
-            instructions: vec![Instr::Return],
-            instr_spans: Vec::new(),
-            call_arg_spans: Vec::new(),
-            var_count: 1,
-            input_slots: Vec::new(),
-            varargin_slot: None,
-            implicit_nargin_slot: None,
-            output_slots: Vec::new(),
-            varargout_slot,
-            implicit_nargout_slot: None,
-            capture_slots: Vec::new(),
-            var_names: HashMap::new(),
-            initially_unassigned_slots: HashSet::new(),
-            argument_validations: Vec::new(),
-        }
+    #[test]
+    fn output_sequence_zero_requested_is_empty() {
+        let sequence = output_sequence(vec![Value::Num(1.0)], 0).unwrap();
+        assert!(sequence.is_empty());
     }
 
     #[test]
-    fn collect_outputs_zero_requested_does_not_consume_varargout() {
-        let func = test_function(Some(0));
-        let varargout = CellArray::new(vec![Value::Num(7.0)], 1, 1).expect("cell");
-        let result_vars = vec![Value::Cell(varargout)];
-        let outputs = collect_semantic_outputs(&func, &result_vars, 0).expect("collect");
-        assert!(outputs.is_empty());
-    }
-
-    #[test]
-    fn collect_outputs_one_requested_reads_varargout() {
-        let func = test_function(Some(0));
-        let varargout = CellArray::new(vec![Value::Num(7.0)], 1, 1).expect("cell");
-        let result_vars = vec![Value::Cell(varargout)];
-        let outputs = collect_semantic_outputs(&func, &result_vars, 1).expect("collect");
-        assert_eq!(outputs, vec![Value::Num(7.0)]);
-    }
-
-    #[test]
-    fn output_value_zero_requested_is_empty_output_list() {
-        let value = output_value(vec![Value::Num(1.0)], 0);
-        assert_eq!(value, Value::OutputList(Vec::new()));
-    }
-
-    #[test]
-    fn output_value_multi_requested_returns_output_list() {
-        let value = output_value(vec![Value::Num(1.0), Value::Num(2.0)], 2);
+    fn output_sequence_multi_requested_remains_transient() {
+        let sequence = output_sequence(vec![Value::Num(1.0), Value::Num(2.0)], 2).unwrap();
         assert_eq!(
-            value,
-            Value::OutputList(vec![Value::Num(1.0), Value::Num(2.0)])
+            sequence.into_values(),
+            vec![Value::Num(1.0), Value::Num(2.0)]
         );
+    }
+
+    #[test]
+    fn interpreter_resume_starts_at_exact_pc_without_replaying_prefix() {
+        super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
+        let bytecode = Bytecode::with_instructions(
+            vec![
+                Instr::LoadConst(99.0),
+                Instr::StoreVar(0),
+                Instr::LoadConst(2.0),
+                Instr::StoreVar(1),
+                Instr::Return,
+            ],
+            3,
+        );
+        let resume = InterpreterResumeState {
+            pc: 2,
+            completion_boundary: None,
+            vars: vec![Some(Value::Num(41.0)), None, None],
+            supplied_inputs: 1,
+            requested_outputs: 1,
+            missing_input_slots: Default::default(),
+            global_aliases: Default::default(),
+            persistent_aliases: Default::default(),
+            side_effect_epoch: 1,
+        };
+        let runtime = runmat_runtime::context::RuntimeContext::new(std::rc::Rc::new(
+            runmat_runtime::execution::RuntimeExecutionService::new(),
+        ));
+        let super::InterpreterOutcome::Completed(completion) = block_on(
+            interpret_resume_in_context(&bytecode, resume, Some("resume_test"), runtime),
+        )
+        .unwrap();
+        assert_eq!(completion.values[0], Value::Num(41.0));
+        assert_eq!(completion.values[1], Value::Num(2.0));
+        assert_eq!(completion.values[2], Value::Num(0.0));
+        assert_eq!(
+            completion.assigned_slots,
+            std::collections::HashSet::from([0, 1])
+        );
+        super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
+    }
+
+    #[test]
+    fn interpreter_resume_stops_before_the_declared_completion_boundary() {
+        super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
+        let bytecode = Bytecode::with_instructions(
+            vec![
+                Instr::LoadConst(7.0),
+                Instr::StoreVar(0),
+                Instr::LoadConst(99.0),
+                Instr::StoreVar(1),
+                Instr::Return,
+            ],
+            2,
+        );
+        let resume = InterpreterResumeState {
+            pc: 0,
+            completion_boundary: Some(
+                crate::interpreter::state::InterpreterCompletionBoundary::before(2),
+            ),
+            vars: vec![None, None],
+            supplied_inputs: 0,
+            requested_outputs: 0,
+            missing_input_slots: Default::default(),
+            global_aliases: Default::default(),
+            persistent_aliases: Default::default(),
+            side_effect_epoch: 0,
+        };
+        let runtime = runmat_runtime::context::RuntimeContext::new(std::rc::Rc::new(
+            runmat_runtime::execution::RuntimeExecutionService::new(),
+        ));
+        let super::InterpreterOutcome::Completed(completion) = block_on(
+            interpret_resume_in_context(&bytecode, resume, Some("bounded_resume_test"), runtime),
+        )
+        .unwrap();
+        assert_eq!(completion.values, vec![Value::Num(7.0), Value::Num(0.0)]);
+        assert_eq!(
+            completion.assigned_slots,
+            std::collections::HashSet::from([0])
+        );
+        super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
     }
 
     #[test]
@@ -1534,7 +1668,7 @@ mod tests {
             "x".to_string()
         )));
         assert!(!value_is_numeric_or_logical(&Value::CharArray(
-            runmat_builtins::CharArray::new("x".chars().collect(), 1, 1).expect("char")
+            runmat_value::CharArray::new("x".chars().collect(), 1, 1).expect("char")
         )));
     }
 
@@ -1542,13 +1676,13 @@ mod tests {
     fn text_validator_accepts_string_char_vector_and_cellstr() {
         assert!(value_is_text(&Value::String("x".to_string())));
         assert!(value_is_text(&Value::CharArray(
-            runmat_builtins::CharArray::new("abc".chars().collect(), 1, 3).expect("char")
+            runmat_value::CharArray::new("abc".chars().collect(), 1, 3).expect("char")
         )));
         assert!(value_is_text(&Value::Cell(
             CellArray::new(
                 vec![
                     Value::CharArray(
-                        runmat_builtins::CharArray::new("a".chars().collect(), 1, 1).expect("char"),
+                        runmat_value::CharArray::new("a".chars().collect(), 1, 1).expect("char"),
                     ),
                     Value::String("b".to_string()),
                 ],
@@ -1564,8 +1698,7 @@ mod tests {
     fn nonempty_validator_rejects_empty_arrays_and_cells() {
         let empty_num = Tensor::new(Vec::new(), vec![0, 0]).expect("empty tensor");
         assert!(value_is_empty(&Value::Tensor(empty_num)));
-        let empty_char =
-            runmat_builtins::CharArray::new(Vec::new(), 1, 0).expect("empty char array");
+        let empty_char = runmat_value::CharArray::new(Vec::new(), 1, 0).expect("empty char array");
         assert!(value_is_empty(&Value::CharArray(empty_char)));
         let empty_cell = CellArray::new(Vec::new(), 0, 0).expect("empty cell");
         assert!(value_is_empty(&Value::Cell(empty_cell)));
@@ -1588,26 +1721,29 @@ mod tests {
         assert!(value_is_real(&Value::Num(1.0)));
         assert!(value_is_real(&Value::Complex(1.0, 0.0)));
         assert!(!value_is_real(&Value::Complex(1.0, 2.0)));
-        let complex_real = runmat_builtins::ComplexTensor::new(vec![(1.0, 0.0)], vec![1, 1])
-            .expect("complex tensor");
-        let complex_imag = runmat_builtins::ComplexTensor::new(vec![(1.0, 2.0)], vec![1, 1])
-            .expect("complex tensor");
+        let complex_real =
+            runmat_value::ComplexTensor::new(vec![(1.0, 0.0)], vec![1, 1]).expect("complex tensor");
+        let complex_imag =
+            runmat_value::ComplexTensor::new(vec![(1.0, 2.0)], vec![1, 1]).expect("complex tensor");
         assert!(value_is_real(&Value::ComplexTensor(complex_real)));
         assert!(!value_is_real(&Value::ComplexTensor(complex_imag)));
     }
 
     #[test]
-    fn integer_validator_accepts_integer_valued_numeric_inputs() {
-        assert!(value_is_integer(&Value::Int(
-            runmat_builtins::IntValue::I64(3)
-        )));
+    fn integer_validator_accepts_integer_valued_numeric_and_logical_inputs() {
+        assert!(value_is_integer(&Value::Int(runmat_value::IntValue::I64(
+            3
+        ))));
         assert!(value_is_integer(&Value::Num(3.0)));
         assert!(!value_is_integer(&Value::Num(3.5)));
         let tensor = Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("tensor");
         assert!(value_is_integer(&Value::Tensor(tensor)));
         let non_integer = Tensor::new(vec![1.0, 2.5], vec![1, 2]).expect("tensor");
         assert!(!value_is_integer(&Value::Tensor(non_integer)));
-        assert!(!value_is_integer(&Value::Bool(true)));
+        assert!(value_is_integer(&Value::Bool(true)));
+        assert!(value_is_integer(&Value::LogicalArray(
+            runmat_value::LogicalArray::new(vec![0, 1], vec![1, 2]).expect("logical array")
+        )));
     }
 
     #[test]
@@ -1615,11 +1751,11 @@ mod tests {
         assert!(value_is_positive(&Value::Num(1.0)));
         assert!(!value_is_positive(&Value::Num(0.0)));
         assert!(!value_is_positive(&Value::Num(-1.0)));
-        assert!(value_is_positive(&Value::Int(
-            runmat_builtins::IntValue::I64(2)
-        )));
+        assert!(value_is_positive(&Value::Int(runmat_value::IntValue::I64(
+            2
+        ))));
         assert!(!value_is_positive(&Value::Int(
-            runmat_builtins::IntValue::I64(0)
+            runmat_value::IntValue::I64(0)
         )));
         let positive = Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("tensor");
         assert!(value_is_positive(&Value::Tensor(positive)));
@@ -1632,9 +1768,9 @@ mod tests {
         assert!(value_is_negative(&Value::Num(-1.0)));
         assert!(!value_is_negative(&Value::Num(0.0)));
         assert!(!value_is_negative(&Value::Num(1.0)));
-        assert!(value_is_negative(&Value::Int(
-            runmat_builtins::IntValue::I64(-2)
-        )));
+        assert!(value_is_negative(&Value::Int(runmat_value::IntValue::I64(
+            -2
+        ))));
         let ok = Tensor::new(vec![-1.0, -2.0], vec![1, 2]).expect("tensor");
         assert!(value_is_negative(&Value::Tensor(ok)));
         let bad = Tensor::new(vec![-1.0, 0.0], vec![1, 2]).expect("tensor");
@@ -1647,7 +1783,7 @@ mod tests {
         assert!(value_is_nonnegative(&Value::Num(2.0)));
         assert!(!value_is_nonnegative(&Value::Num(-1.0)));
         assert!(value_is_nonnegative(&Value::Int(
-            runmat_builtins::IntValue::I64(0)
+            runmat_value::IntValue::I64(0)
         )));
         let ok = Tensor::new(vec![0.0, 1.0], vec![1, 2]).expect("tensor");
         assert!(value_is_nonnegative(&Value::Tensor(ok)));
@@ -1659,12 +1795,12 @@ mod tests {
     fn nonzero_validator_rejects_zero_values() {
         assert!(value_is_nonzero(&Value::Num(1.0)));
         assert!(!value_is_nonzero(&Value::Num(0.0)));
-        assert!(value_is_nonzero(&Value::Int(
-            runmat_builtins::IntValue::I64(2)
-        )));
-        assert!(!value_is_nonzero(&Value::Int(
-            runmat_builtins::IntValue::I64(0)
-        )));
+        assert!(value_is_nonzero(&Value::Int(runmat_value::IntValue::I64(
+            2
+        ))));
+        assert!(!value_is_nonzero(&Value::Int(runmat_value::IntValue::I64(
+            0
+        ))));
         assert!(value_is_nonzero(&Value::Complex(0.0, 1.0)));
         assert!(!value_is_nonzero(&Value::Complex(0.0, 0.0)));
         let ok = Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("tensor");
@@ -1679,7 +1815,7 @@ mod tests {
         assert!(value_is_nonpositive(&Value::Num(-2.0)));
         assert!(!value_is_nonpositive(&Value::Num(1.0)));
         assert!(value_is_nonpositive(&Value::Int(
-            runmat_builtins::IntValue::I64(0)
+            runmat_value::IntValue::I64(0)
         )));
         let ok = Tensor::new(vec![0.0, -1.0], vec![1, 2]).expect("tensor");
         assert!(value_is_nonpositive(&Value::Tensor(ok)));
@@ -1719,6 +1855,7 @@ mod tests {
             shape: vec![1, 1],
             device_id: 0,
             buffer_id: 777_001,
+            descriptor: Default::default(),
         };
         fusion_residency::mark(&handle);
         assert!(fusion_residency::is_resident(&handle));
@@ -1747,6 +1884,7 @@ mod tests {
             shape: vec![1, 1],
             device_id: 0,
             buffer_id: 777_002,
+            descriptor: Default::default(),
         };
         fusion_residency::mark(&handle);
         assert!(fusion_residency::is_resident(&handle));
@@ -1909,7 +2047,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         state.context.locals.push(Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         }));
@@ -1947,7 +2085,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let local_value = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2057,7 +2195,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         state.vars = vec![Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         })];
@@ -2096,7 +2234,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let nested = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2137,7 +2275,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let nested = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2179,7 +2317,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
@@ -2221,7 +2359,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 2,
@@ -2264,7 +2402,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
@@ -2309,14 +2447,14 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
                 expected_outputs: 0,
             });
         state.context.locals.push(Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         }));
@@ -2353,7 +2491,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let local_value = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2363,7 +2501,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
@@ -2405,7 +2543,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let nested = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2415,7 +2553,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 2,
@@ -2437,835 +2575,5 @@ mod tests {
         );
         fusion_residency::clear(&handle);
         let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_releases_stack_only_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![21.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::GpuTensor(handle.clone()));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/await completion should clear residency for stack-only handle"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/await completion should release provider storage for stack-only handle"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_preserves_provider_handle_when_still_live_in_vars() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![31.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::GpuTensor(handle.clone())];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::GpuTensor(handle.clone()));
-        state.vars = vec![Value::GpuTensor(handle.clone())];
-
-        let mut result_vars = vec![Value::GpuTensor(handle.clone())];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/await completion should preserve residency for live-var handle"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/await completion should not release provider storage for live-var handle"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_releases_stack_only_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![41.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::GpuTensor(handle.clone()));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop should complete");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/pop should clear residency for dropped spawned task payload"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/pop should release provider storage for dropped spawned task payload"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_preserves_provider_handle_when_payload_still_live_in_vars() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![51.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::GpuTensor(handle.clone())];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::GpuTensor(handle.clone()));
-        state.vars = vec![Value::GpuTensor(handle.clone())];
-
-        let mut result_vars = vec![Value::GpuTensor(handle.clone())];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop should complete");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/pop should preserve residency for spawned payload handles still referenced by vars"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/pop should not release provider storage for spawned payload handles still referenced by vars"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_preserves_provider_handle_when_payload_still_live_in_locals() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![56.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::GpuTensor(handle.clone()));
-        state.vars = vec![Value::Num(0.0)];
-        state.context.locals.push(Value::GpuTensor(handle.clone()));
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop should complete");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/pop should preserve residency for spawned payload handles still referenced by locals"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/pop should not release provider storage for spawned payload handles still referenced by locals"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_releases_nested_closure_captured_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![61.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::Closure(Closure {
-            function_name: "worker".to_string(),
-            bound_function: None,
-            captures: vec![Value::GpuTensor(handle.clone())],
-        }));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop should complete for closure payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/pop should clear residency for nested closure-captured payload handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/pop should release provider storage for nested closure-captured payload handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_releases_nested_output_list_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![71.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state
-            .stack
-            .push(Value::OutputList(vec![Value::GpuTensor(handle.clone())]));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for nested output payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/await completion should clear residency for nested output-list payload handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/await completion should release provider storage for nested output-list payload handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_releases_nested_struct_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![81.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        state.stack.push(Value::Struct(payload));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for nested struct payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/await completion should clear residency for nested struct payload handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/await completion should release provider storage for nested struct payload handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_releases_nested_object_property_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![91.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = ObjectInstance::new("Payload".to_string());
-        payload
-            .properties
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        state.stack.push(Value::Object(payload));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for nested object payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/await completion should clear residency for nested object-property payload handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/await completion should release provider storage for nested object-property payload handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_preserves_nested_object_property_handle_when_alias_live() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![101.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = ObjectInstance::new("Payload".to_string());
-        payload
-            .properties
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        state.stack.push(Value::Object(payload.clone()));
-        state.vars = vec![Value::Object(payload.clone())];
-
-        let mut result_vars = vec![Value::Object(payload)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for aliased nested object payload");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/await completion should preserve residency for nested object handles still referenced by vars"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/await completion should not release provider storage for nested object handles still referenced by vars"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_releases_nested_cell_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![111.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let payload =
-            CellArray::new(vec![Value::GpuTensor(handle.clone())], 1, 1).expect("cell payload");
-        state.stack.push(Value::Cell(payload));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for nested cell payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/await completion should clear residency for nested cell payload handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/await completion should release provider storage for nested cell payload handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_preserves_nested_cell_handle_when_alias_live() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![121.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let payload =
-            CellArray::new(vec![Value::GpuTensor(handle.clone())], 1, 1).expect("cell payload");
-        state.stack.push(Value::Cell(payload.clone()));
-        state.vars = vec![Value::Cell(payload.clone())];
-
-        let mut result_vars = vec![Value::Cell(payload)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for aliased nested cell payload");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/await completion should preserve residency for nested cell handles still referenced by vars"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/await completion should not release provider storage for nested cell handles still referenced by vars"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_releases_nested_handle_object_target_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![131.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
-        let task_payload = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
-            target,
-            valid: true,
-        });
-        state.stack.push(task_payload);
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for nested handle-object payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/await completion should clear residency for nested handle-object target handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/await completion should release provider storage for nested handle-object target handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_completion_preserves_nested_handle_object_target_handle_when_alias_live() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![141.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
-        let task_payload = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
-            target,
-            valid: true,
-        });
-        state.stack.push(task_payload.clone());
-        state.vars = vec![task_payload.clone()];
-
-        let mut result_vars = vec![task_payload];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for aliased nested handle-object payload");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/await completion should preserve residency for nested handle-object target handles still referenced by vars"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/await completion should not release provider storage for nested handle-object target handles still referenced by vars"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_await_preserves_nested_handle_object_target_alias() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![146.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Await, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
-        let task_payload = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
-            target,
-            valid: true,
-        });
-        state.stack.push(task_payload.clone());
-        state.vars = vec![Value::Num(0.0)];
-        state.context.locals.push(task_payload.clone());
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/await flow should complete for aliased nested handle-object payload");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/await completion should preserve residency for nested handle-object target handles still referenced by locals"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/await completion should not release provider storage for nested handle-object target handles still referenced by locals"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_releases_nested_handle_object_target_provider_handle() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![151.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
-        state.stack.push(Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
-            target,
-            valid: true,
-        }));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop flow should complete for nested handle-object payload");
-        assert!(
-            !fusion_residency::is_resident(&handle),
-            "spawn/pop should clear residency for nested handle-object target handles"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_err(),
-            "spawn/pop should release provider storage for nested handle-object target handles"
-        );
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_preserves_nested_handle_object_target_handle_when_alias_live() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![161.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
-        let task_payload = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
-            target,
-            valid: true,
-        });
-        state.stack.push(task_payload.clone());
-        state.vars = vec![task_payload.clone()];
-
-        let mut result_vars = vec![task_payload];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop flow should complete for aliased nested handle-object payload");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/pop should preserve residency for nested handle-object target handles still referenced by vars"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/pop should not release provider storage for nested handle-object target handles still referenced by vars"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[cfg(feature = "native-accel")]
-    #[test]
-    fn spawn_pop_preserves_nested_handle_object_target_handle_when_alias_live_in_locals() {
-        use runmat_accelerate::fusion_residency;
-
-        let _provider_guard = ThreadProviderGuard::set(Some(&*TEST_PROVIDER));
-        let handle = upload_provider_handle(vec![166.0], vec![1]);
-        assert!(block_on(TEST_PROVIDER.download(&handle)).is_ok());
-        fusion_residency::mark(&handle);
-
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Spawn, Instr::Pop, Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        let mut payload = StructValue::new();
-        payload
-            .fields
-            .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
-        let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
-        let task_payload = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
-            target,
-            valid: true,
-        });
-        state.stack.push(task_payload.clone());
-        state.vars = vec![Value::Num(0.0)];
-        state.context.locals.push(task_payload);
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("spawn/pop flow should complete for aliased nested handle-object payload");
-        assert!(
-            fusion_residency::is_resident(&handle),
-            "spawn/pop should preserve residency for nested handle-object target handles still referenced by locals"
-        );
-        assert!(
-            block_on(TEST_PROVIDER.download(&handle)).is_ok(),
-            "spawn/pop should not release provider storage for nested handle-object target handles still referenced by locals"
-        );
-        fusion_residency::clear(&handle);
-        let _ = TEST_PROVIDER.free(&handle);
-    }
-
-    #[test]
-    fn await_passes_through_non_spawn_value_operand() {
-        let bytecode =
-            Bytecode::with_instructions(vec![Instr::Await, Instr::StoreVar(0), Instr::Return], 1);
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::Num(7.0));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("await should pass through non-task operand");
-        assert_eq!(result_vars[0], Value::Num(7.0));
-    }
-
-    #[test]
-    fn await_succeeds_after_spawn_handle_self_reassignment() {
-        let bytecode = Bytecode::with_instructions(
-            vec![
-                Instr::Spawn,
-                Instr::StoreVar(0),
-                Instr::LoadVar(0),
-                Instr::StoreVar(0),
-                Instr::LoadVar(0),
-                Instr::Await,
-                Instr::StoreVar(0),
-                Instr::Return,
-            ],
-            1,
-        );
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::Num(9.0));
-        state.vars = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("await should still succeed after self-reassignment of spawn handle");
-        assert_eq!(result_vars[0], Value::Num(9.0));
-    }
-
-    #[test]
-    fn await_succeeds_after_overwriting_one_spawn_handle_alias() {
-        let bytecode = Bytecode::with_instructions(
-            vec![
-                Instr::Spawn,
-                Instr::StoreVar(0),
-                Instr::LoadVar(0),
-                Instr::StoreVar(1),
-                Instr::LoadConst(0.0),
-                Instr::StoreVar(0),
-                Instr::LoadVar(1),
-                Instr::Await,
-                Instr::StoreVar(0),
-                Instr::Return,
-            ],
-            2,
-        );
-        let mut seed_vars = vec![Value::Num(0.0), Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::Num(9.0));
-        state.vars = vec![Value::Num(0.0), Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0), Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("await should succeed when another alias still carries the spawn task handle");
-        assert_eq!(result_vars[0], Value::Num(9.0));
-    }
-
-    #[test]
-    fn await_succeeds_after_overwriting_one_local_spawn_handle_alias() {
-        let bytecode = Bytecode::with_instructions(
-            vec![
-                Instr::Spawn,
-                Instr::StoreLocal(0),
-                Instr::LoadLocal(0),
-                Instr::StoreLocal(1),
-                Instr::LoadConst(0.0),
-                Instr::StoreLocal(0),
-                Instr::LoadLocal(1),
-                Instr::Await,
-                Instr::StoreVar(0),
-                Instr::Return,
-            ],
-            1,
-        );
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::Num(9.0));
-        state.vars = vec![Value::Num(0.0)];
-        state
-            .context
-            .call_stack
-            .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
-                return_address: 0,
-                locals_start: 0,
-                locals_count: 2,
-                expected_outputs: 0,
-            });
-        state.context.locals = vec![Value::Num(0.0), Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars)).expect(
-            "await should succeed when another local alias still carries the spawn task handle",
-        );
-        assert_eq!(result_vars[0], Value::Num(9.0));
-    }
-
-    #[test]
-    fn await_succeeds_after_overwriting_var_alias_when_local_spawn_handle_alias_live() {
-        let bytecode = Bytecode::with_instructions(
-            vec![
-                Instr::Spawn,
-                Instr::StoreLocal(0),
-                Instr::LoadLocal(0),
-                Instr::StoreVar(0),
-                Instr::LoadConst(0.0),
-                Instr::StoreVar(0),
-                Instr::LoadLocal(0),
-                Instr::Await,
-                Instr::StoreVar(0),
-                Instr::Return,
-            ],
-            1,
-        );
-        let mut seed_vars = vec![Value::Num(0.0)];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.stack.push(Value::Num(9.0));
-        state.vars = vec![Value::Num(0.0)];
-        state
-            .context
-            .call_stack
-            .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
-                return_address: 0,
-                locals_start: 0,
-                locals_count: 1,
-                expected_outputs: 0,
-            });
-        state.context.locals = vec![Value::Num(0.0)];
-
-        let mut result_vars = vec![Value::Num(0.0)];
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars)).expect(
-            "await should succeed when var alias is overwritten but local alias still carries the spawn task handle",
-        );
-        assert_eq!(result_vars[0], Value::Num(9.0));
-    }
-
-    #[test]
-    fn await_succeeds_after_scope_exit_when_var_alias_keeps_spawn_task_id_live() {
-        let mut task = runmat_builtins::StructValue::new();
-        task.fields.insert(
-            "__runmat_spawn_kind".to_string(),
-            Value::String("task".to_string()),
-        );
-        task.fields.insert(
-            "__runmat_spawn_id".to_string(),
-            Value::Int(runmat_builtins::IntValue::U64(23)),
-        );
-        task.fields
-            .insert("__runmat_spawn_payload".to_string(), Value::Num(4.0));
-        let task_value = Value::Struct(task);
-
-        let bytecode = Bytecode::with_instructions(
-            vec![
-                Instr::ExitScope(1),
-                Instr::LoadVar(0),
-                Instr::Await,
-                Instr::Return,
-            ],
-            1,
-        );
-        let mut seed_vars = vec![task_value.clone()];
-        let mut state = InterpreterState::new(bytecode, &mut seed_vars, Some("<main>"), Vec::new());
-        state.context.locals.push(task_value);
-        state.context.spawned_task_ids.insert(23);
-        state.vars = seed_vars.clone();
-
-        let mut result_vars = seed_vars.clone();
-        let _ = block_on(run_interpreter_inner(state, &mut result_vars))
-            .expect("await should succeed when var alias keeps the spawn task id live");
-        assert!(
-            matches!(result_vars[0], Value::Struct(_)),
-            "await in this sequence does not overwrite var0"
-        );
     }
 }

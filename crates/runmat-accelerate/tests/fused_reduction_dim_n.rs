@@ -11,7 +11,8 @@ use runmat_accelerate::graph::{
 };
 use runmat_accelerate::ReductionAxes;
 use runmat_accelerate_api::{AccelProvider, GpuTensorHandle, HostTensorView, ReductionFlavor};
-use runmat_builtins::{Type, Value};
+use runmat_builtins::Type;
+use runmat_value::Value;
 use std::collections::HashMap;
 
 fn upload(
@@ -162,7 +163,7 @@ async fn fused_sum_mul_dim_n_equals_manual_for_n1_and_n2() {
                     output: Some(v_mul),
                 },
                 FusionOp::Builtin {
-                    name: "sum".to_string(),
+                    name: "sum".into(),
                     inputs: vec![v_mul, v_dim],
                     output: Some(v_y),
                 },
@@ -191,6 +192,8 @@ async fn fused_sum_mul_dim_n_equals_manual_for_n1_and_n2() {
         let req = FusionExecutionRequest {
             plan: &plan,
             inputs: vec![Value::GpuTensor(x.clone()), Value::GpuTensor(w.clone())],
+            placement: None,
+            runtime: None,
         };
         let (reduce_len, num_slices) = if dim_val == 1.0 {
             (rows, cols)

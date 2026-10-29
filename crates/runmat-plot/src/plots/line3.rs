@@ -8,17 +8,21 @@ use crate::geometry::stroke3d::{
 };
 use crate::gpu::line3::{Line3GpuInputs, Line3GpuParams};
 use crate::gpu::util::readback_scalar_buffer_f64;
+use crate::plots::NumericPlotData;
 use glam::{Vec3, Vec4};
 use log::warn;
+use runmat_value::NumericStorage;
 
 const POINTS_TO_PX: f32 = 96.0 / 72.0;
 const TUBE_RADIAL_SEGMENTS: usize = 8;
 
+pub type HostLine3Data = (Vec<f64>, Vec<f64>, Vec<f64>);
+
 #[derive(Debug, Clone)]
 pub struct Line3Plot {
-    pub x_data: Vec<f64>,
-    pub y_data: Vec<f64>,
-    pub z_data: Vec<f64>,
+    source_x: Option<NumericPlotData>,
+    source_y: Option<NumericPlotData>,
+    source_z: Option<NumericPlotData>,
     pub color: Vec4,
     pub line_width: f32,
     pub line_style: crate::plots::line::LineStyle,
@@ -39,6 +43,21 @@ impl Line3Plot {
     }
 
     pub fn new(x_data: Vec<f64>, y_data: Vec<f64>, z_data: Vec<f64>) -> Result<Self, String> {
+        let x_len = x_data.len();
+        let y_len = y_data.len();
+        let z_len = z_data.len();
+        Self::from_numeric_data(
+            NumericPlotData::from_f64(x_data, vec![1, x_len])?,
+            NumericPlotData::from_f64(y_data, vec![1, y_len])?,
+            NumericPlotData::from_f64(z_data, vec![1, z_len])?,
+        )
+    }
+
+    pub fn from_numeric_data(
+        x_data: NumericPlotData,
+        y_data: NumericPlotData,
+        z_data: NumericPlotData,
+    ) -> Result<Self, String> {
         if x_data.len() != y_data.len() || x_data.len() != z_data.len() {
             return Err("Data length mismatch for plot3".to_string());
         }
@@ -46,9 +65,9 @@ impl Line3Plot {
             return Err("plot3 requires at least one point".to_string());
         }
         Ok(Self {
-            x_data,
-            y_data,
-            z_data,
+            source_x: Some(x_data),
+            source_y: Some(y_data),
+            source_z: Some(z_data),
             color: Vec4::new(0.0, 0.5, 1.0, 1.0),
             line_width: 1.0,
             line_style: crate::plots::line::LineStyle::Solid,
@@ -72,9 +91,9 @@ impl Line3Plot {
         bounds: BoundingBox,
     ) -> Self {
         Self {
-            x_data: Vec::new(),
-            y_data: Vec::new(),
-            z_data: Vec::new(),
+            source_x: None,
+            source_y: None,
+            source_z: None,
             color,
             line_width,
             line_style,
@@ -97,9 +116,9 @@ impl Line3Plot {
         bounds: BoundingBox,
     ) -> Self {
         Self {
-            x_data: Vec::new(),
-            y_data: Vec::new(),
-            z_data: Vec::new(),
+            source_x: None,
+            source_y: None,
+            source_z: None,
             color,
             line_width,
             line_style,
@@ -121,23 +140,25 @@ impl Line3Plot {
     }
 
     pub async fn export_scene_xyz_data(&self) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), String> {
-        if !self.x_data.is_empty()
-            && self.x_data.len() == self.y_data.len()
-            && self.x_data.len() == self.z_data.len()
-        {
+        if let Some((x, y, z)) = self.export_numeric_xyz_data().await? {
             return Ok((
-                self.x_data.clone(),
-                self.y_data.clone(),
-                self.z_data.clone(),
+                x.materialize_f64(),
+                y.materialize_f64(),
+                z.materialize_f64(),
             ));
         }
-        if !self.x_data.is_empty() || !self.y_data.is_empty() || !self.z_data.is_empty() {
-            return Err(format!(
-                "plot3 line has incomplete CPU data: x={}, y={}, z={}",
-                self.x_data.len(),
-                self.y_data.len(),
-                self.z_data.len()
-            ));
+        Ok((Vec::new(), Vec::new(), Vec::new()))
+    }
+
+    pub async fn export_numeric_xyz_data(
+        &self,
+    ) -> Result<Option<(NumericPlotData, NumericPlotData, NumericPlotData)>, String> {
+        match (&self.source_x, &self.source_y, &self.source_z) {
+            (Some(x), Some(y), Some(z)) if x.len() == y.len() && x.len() == z.len() => {
+                return Ok(Some((x.clone(), y.clone(), z.clone())));
+            }
+            (None, None, None) => {}
+            _ => return Err("plot3 line has incomplete CPU data".to_string()),
         }
 
         if let Some(inputs) = &self.gpu_line_inputs {
@@ -169,7 +190,17 @@ impl Line3Plot {
                 inputs.scalar,
             )
             .await?;
-            return Ok((x, y, z));
+            let shape = vec![1, len];
+            let wrap = |values: Vec<f64>| match inputs.scalar {
+                crate::gpu::ScalarType::F64 => {
+                    NumericPlotData::new(NumericStorage::F64(values), shape.clone())
+                }
+                crate::gpu::ScalarType::F32 => NumericPlotData::new(
+                    NumericStorage::F32(values.into_iter().map(|v| v as f32).collect()),
+                    shape.clone(),
+                ),
+            };
+            return Ok(Some((wrap(x)?, wrap(y)?, wrap(z)?)));
         }
 
         if self.gpu_vertices.is_some() {
@@ -178,7 +209,7 @@ impl Line3Plot {
             );
         }
 
-        Ok((Vec::new(), Vec::new(), Vec::new()))
+        Ok(None)
     }
 
     pub fn with_label<S: Into<String>>(mut self, label: S) -> Self {
@@ -201,6 +232,77 @@ impl Line3Plot {
         self
     }
 
+    pub fn update_data(
+        &mut self,
+        x_data: Vec<f64>,
+        y_data: Vec<f64>,
+        z_data: Vec<f64>,
+    ) -> Result<(), String> {
+        let x_len = x_data.len();
+        let y_len = y_data.len();
+        let z_len = z_data.len();
+        self.update_numeric_data(
+            NumericPlotData::from_f64(x_data, vec![1, x_len])?,
+            NumericPlotData::from_f64(y_data, vec![1, y_len])?,
+            NumericPlotData::from_f64(z_data, vec![1, z_len])?,
+        )
+    }
+
+    pub fn update_numeric_data(
+        &mut self,
+        x_data: NumericPlotData,
+        y_data: NumericPlotData,
+        z_data: NumericPlotData,
+    ) -> Result<(), String> {
+        if x_data.len() != y_data.len() || x_data.len() != z_data.len() {
+            return Err("Data length mismatch for plot3".to_string());
+        }
+        if x_data.is_empty() {
+            return Err("plot3 requires at least one point".to_string());
+        }
+        self.source_x = Some(x_data);
+        self.source_y = Some(y_data);
+        self.source_z = Some(z_data);
+        self.vertices = None;
+        self.bounds = None;
+        self.dirty = true;
+        self.gpu_vertices = None;
+        self.gpu_vertex_count = None;
+        self.gpu_line_inputs = None;
+        Ok(())
+    }
+
+    pub fn source_data(
+        &self,
+    ) -> (
+        Option<&NumericPlotData>,
+        Option<&NumericPlotData>,
+        Option<&NumericPlotData>,
+    ) {
+        (
+            self.source_x.as_ref(),
+            self.source_y.as_ref(),
+            self.source_z.as_ref(),
+        )
+    }
+
+    pub fn host_xyz_f64(&self) -> Result<Option<HostLine3Data>, String> {
+        match (&self.source_x, &self.source_y, &self.source_z) {
+            (Some(x), Some(y), Some(z)) if x.len() == y.len() && x.len() == z.len() => Ok(Some((
+                x.materialize_f64(),
+                y.materialize_f64(),
+                z.materialize_f64(),
+            ))),
+            (None, None, None) => Ok(None),
+            (x, y, z) => Err(format!(
+                "plot3 line has incomplete CPU data: x={}, y={}, z={}",
+                x.as_ref().map_or(0, NumericPlotData::len),
+                y.as_ref().map_or(0, NumericPlotData::len),
+                z.as_ref().map_or(0, NumericPlotData::len)
+            )),
+        }
+    }
+
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
     }
@@ -213,11 +315,14 @@ impl Line3Plot {
             return self.vertices.as_ref().unwrap();
         }
         if self.dirty || self.vertices.is_none() {
-            let points: Vec<Vec3> = self
-                .x_data
+            let (x_data, y_data, z_data) = self
+                .host_xyz_f64()
+                .expect("validated plot3 host source")
+                .unwrap_or_default();
+            let points: Vec<Vec3> = x_data
                 .iter()
-                .zip(self.y_data.iter())
-                .zip(self.z_data.iter())
+                .zip(y_data.iter())
+                .zip(z_data.iter())
                 .map(|((&x, &y), &z)| Vec3::new(x as f32, y as f32, z as f32))
                 .collect();
             let vertices = if points.len() == 1 {
@@ -247,15 +352,18 @@ impl Line3Plot {
     }
 
     pub fn bounds(&mut self) -> BoundingBox {
-        if self.bounds.is_some() && self.x_data.is_empty() {
+        if self.bounds.is_some() && self.source_x.is_none() {
             return self.bounds.unwrap();
         }
         if self.bounds.is_none() || self.dirty {
-            let points: Vec<Vec3> = self
-                .x_data
+            let (x_data, y_data, z_data) = self
+                .host_xyz_f64()
+                .expect("validated plot3 host source")
+                .unwrap_or_default();
+            let points: Vec<Vec3> = x_data
                 .iter()
-                .zip(self.y_data.iter())
-                .zip(self.z_data.iter())
+                .zip(y_data.iter())
+                .zip(z_data.iter())
                 .map(|((&x, &y), &z)| Vec3::new(x as f32, y as f32, z as f32))
                 .collect();
             self.bounds = Some(BoundingBox::from_points(&points));
@@ -264,7 +372,8 @@ impl Line3Plot {
     }
 
     pub fn render_data(&mut self) -> RenderData {
-        let single_point = self.x_data.len() == 1 || self.gpu_vertex_count == Some(1);
+        let single_point = self.source_x.as_ref().map_or(0, NumericPlotData::len) == 1
+            || self.gpu_vertex_count == Some(1);
         let vertex_count = self
             .gpu_vertex_count
             .unwrap_or_else(|| self.generate_vertices().len());
@@ -353,8 +462,7 @@ impl Line3Plot {
         view_angles_deg: Option<(f32, f32)>,
         gpu: Option<&GpuPackContext<'_>>,
     ) -> RenderData {
-        let can_gpu_pack = self.line_width_px() <= 1.0;
-        if can_gpu_pack && self.gpu_line_inputs.is_some() && self.gpu_vertices.is_none() {
+        if self.gpu_line_inputs.is_some() && self.gpu_vertices.is_none() {
             if let (Some(gpu), Some(vp)) = (gpu, viewport_px) {
                 if let Err(err) = self.pack_gpu_vertices_if_needed(gpu, vp) {
                     warn!("plot3 gpu pack failed: {err}");
@@ -377,17 +485,20 @@ impl Line3Plot {
             return self.render_data();
         }
 
-        let single_point = self.x_data.len() == 1;
+        let single_point = self.source_x.as_ref().map_or(0, NumericPlotData::len) == 1;
         let width_px = self.line_width_px();
         let (vertices, vertex_count, pipeline) = if !single_point && width_px > 1.0 {
             let Some(vp) = viewport_px else {
                 return self.render_data();
             };
-            let points: Vec<Vec3> = self
-                .x_data
+            let (x_data, y_data, z_data) = self
+                .host_xyz_f64()
+                .expect("validated plot3 host source")
+                .unwrap_or_default();
+            let points: Vec<Vec3> = x_data
                 .iter()
-                .zip(self.y_data.iter())
-                .zip(self.z_data.iter())
+                .zip(y_data.iter())
+                .zip(z_data.iter())
                 .map(|((&x, &y), &z)| Vec3::new(x as f32, y as f32, z as f32))
                 .collect();
             let bounds = self.bounds();
@@ -452,6 +563,37 @@ impl Line3Plot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pollster::FutureExt;
+    use std::sync::Arc;
+    use wgpu::util::DeviceExt;
+
+    fn maybe_device() -> Option<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
+        if std::env::var("RUNMAT_PLOT_SKIP_GPU_TESTS").is_ok()
+            || std::env::var("RUNMAT_PLOT_FORCE_GPU_TESTS").is_err()
+        {
+            return None;
+        }
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .block_on()?;
+        let (device, queue) = adapter
+            .request_device(
+                &crate::wgpu_compat::device_descriptor(
+                    Some("runmat-plot-line3-test-device"),
+                    wgpu::Features::empty(),
+                    adapter.limits(),
+                ),
+                None,
+            )
+            .block_on()
+            .ok()?;
+        Some((Arc::new(device), Arc::new(queue)))
+    }
 
     #[test]
     fn line3_creation_and_bounds() {
@@ -485,5 +627,55 @@ mod tests {
         assert_eq!(render.pipeline_type, PipelineType::Scatter3);
         assert_eq!(render.vertices.len(), 1);
         assert!(render.vertices[0].normal[2] >= 6.0);
+    }
+
+    #[test]
+    fn line3_gpu_source_packs_default_width_as_thick_geometry() {
+        let Some((device, queue)) = maybe_device() else {
+            return;
+        };
+        let x_buffer = Arc::new(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("line3-test-x"),
+                contents: bytemuck::cast_slice(&[0.0f32, 1.0f32]),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        );
+        let y_buffer = Arc::new(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("line3-test-y"),
+                contents: bytemuck::cast_slice(&[0.0f32, 1.0f32]),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        );
+        let z_buffer = Arc::new(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("line3-test-z"),
+                contents: bytemuck::cast_slice(&[0.0f32, 1.0f32]),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        );
+        let mut plot = Line3Plot::from_gpu_xyz(
+            Line3GpuInputs {
+                x_buffer,
+                y_buffer,
+                z_buffer,
+                len: 2,
+                scalar: crate::gpu::ScalarType::F32,
+            },
+            Vec4::ONE,
+            1.0,
+            crate::plots::line::LineStyle::Solid,
+            BoundingBox::new(Vec3::ZERO, Vec3::ONE),
+        );
+        let gpu = GpuPackContext {
+            device: &device,
+            queue: &queue,
+        };
+        let render = plot.render_data_with_viewport_gpu(Some((800, 600)), None, Some(&gpu));
+        assert_eq!(render.pipeline_type, PipelineType::Triangles);
+        assert_eq!(render.vertices.len(), 0);
+        assert!(render.gpu_vertices.is_some());
+        assert_eq!(render.draw_calls[0].vertex_count, 6);
     }
 }

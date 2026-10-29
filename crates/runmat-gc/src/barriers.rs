@@ -138,6 +138,7 @@ impl WriteBarrierAware for Value {
                 // This is a placeholder - in reality we'd check generations
                 !cells.data.is_empty()
             }
+            Value::StructArray(array) => !array.is_empty(),
             _ => false,
         }
     }
@@ -442,7 +443,7 @@ mod tests {
     #[test]
     fn test_value_write_barrier_aware() {
         let value =
-            Value::Cell(runmat_builtins::CellArray::new(vec![Value::Num(42.0)], 1, 1).unwrap());
+            Value::Cell(runmat_value::CellArray::new(vec![Value::Num(42.0)], 1, 1).unwrap());
         assert!(value.has_young_references());
 
         let value2 = Value::Num(42.0);

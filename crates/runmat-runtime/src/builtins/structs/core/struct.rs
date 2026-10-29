@@ -1,16 +1,21 @@
 //! MATLAB-compatible `struct` builtin.
 
+use crate::builtins::common::identifiers::is_valid_varname;
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
-use crate::builtins::structs::type_resolvers::struct_type;
+use crate::builtins::common::tensor;
+use runmat_builtins::BuiltinErrorDescriptor;
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CellArray, CharArray, StructValue, Value,
+    STRUCT_ERROR_ASSEMBLE_FAILED, STRUCT_ERROR_CELL_SIZE_MISMATCH, STRUCT_ERROR_DUPLICATE_FIELD,
+    STRUCT_ERROR_EMPTY_ARRAY_FAILED, STRUCT_ERROR_FIELD_NAME_CHAR_VECTOR,
+    STRUCT_ERROR_FIELD_NAME_EMPTY, STRUCT_ERROR_FIELD_NAME_SCALAR,
+    STRUCT_ERROR_FIELD_NAME_START_CHAR, STRUCT_ERROR_FIELD_NAME_TYPE,
+    STRUCT_ERROR_INVALID_SINGLE_INPUT, STRUCT_ERROR_NAME_VALUE_PAIRS, STRUCT_ERROR_SIZE_OVERFLOW,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CellArray, CharArray, StructArray, StructValue, Value};
 
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
@@ -53,187 +58,6 @@ enum FieldValue {
 
 const BUILTIN_NAME: &str = "struct";
 
-const STRUCT_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "S",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Scalar struct or struct array.",
-}];
-
-const STRUCT_INPUTS_EMPTY: [BuiltinParamDescriptor; 0] = [];
-const STRUCT_INPUTS_TEMPLATE: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "template",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Existing struct/struct-array template or empty array for struct([]).",
-}];
-const STRUCT_INPUTS_PAIRS: [BuiltinParamDescriptor; 3] = [
-    BuiltinParamDescriptor {
-        name: "field",
-        ty: BuiltinParamType::PropertyName,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Field name.",
-    },
-    BuiltinParamDescriptor {
-        name: "value",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Field value or cell array of field values.",
-    },
-    BuiltinParamDescriptor {
-        name: "name_value_pairs",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Variadic,
-        default: None,
-        description: "Additional field/value pairs.",
-    },
-];
-
-const STRUCT_SIGNATURES: [BuiltinSignatureDescriptor; 3] = [
-    BuiltinSignatureDescriptor {
-        label: "S = struct()",
-        inputs: &STRUCT_INPUTS_EMPTY,
-        outputs: &STRUCT_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "S = struct(template)",
-        inputs: &STRUCT_INPUTS_TEMPLATE,
-        outputs: &STRUCT_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "S = struct(field, value, ...)",
-        inputs: &STRUCT_INPUTS_PAIRS,
-        outputs: &STRUCT_OUTPUT,
-    },
-];
-
-const STRUCT_ERROR_INVALID_SINGLE_INPUT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.INVALID_SINGLE_INPUT",
-    identifier: Some("RunMat:struct:InvalidSingleInput"),
-    when: "Single input is neither struct, struct-array cell, nor empty numeric/logical array.",
-    message:
-        "struct: expected name/value pairs, an existing struct or struct array, or [] to create an empty struct array",
-};
-
-const STRUCT_ERROR_NAME_VALUE_PAIRS: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.NAME_VALUE_PAIRS",
-    identifier: Some("RunMat:struct:NameValuePairs"),
-    when: "Name/value arguments are not supplied in complete pairs.",
-    message: "struct: expected name/value pairs",
-};
-
-const STRUCT_ERROR_CELL_SIZE_MISMATCH: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.CELL_SIZE_MISMATCH",
-    identifier: Some("RunMat:struct:CellSizeMismatch"),
-    when: "Cell value inputs for struct-array construction do not share the same shape.",
-    message: "struct: cell inputs must have matching sizes",
-};
-
-const STRUCT_ERROR_SIZE_OVERFLOW: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.SIZE_OVERFLOW",
-    identifier: Some("RunMat:struct:SizeOverflow"),
-    when: "Requested struct-array size exceeds platform limits.",
-    message: "struct: struct array size exceeds platform limits",
-};
-
-const STRUCT_ERROR_ASSEMBLE_FAILED: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.ASSEMBLE_FAILED",
-    identifier: Some("RunMat:struct:AssembleFailed"),
-    when: "Internal struct-array assembly failed.",
-    message: "struct: failed to assemble struct array",
-};
-
-const STRUCT_ERROR_EMPTY_ARRAY_FAILED: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.EMPTY_ARRAY_FAILED",
-    identifier: Some("RunMat:struct:EmptyArrayFailed"),
-    when: "Internal empty struct-array creation failed.",
-    message: "struct: failed to create empty struct array",
-};
-
-const STRUCT_ERROR_STRUCT_ARRAY_CONTENTS: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.STRUCT_ARRAY_CONTENTS",
-    identifier: Some("RunMat:struct:StructArrayContents"),
-    when: "Single-argument struct-array cell input contains non-struct values.",
-    message: "struct: single argument cell input must contain structs",
-};
-
-const STRUCT_ERROR_STRUCT_ARRAY_COPY_FAILED: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.STRUCT_ARRAY_COPY_FAILED",
-    identifier: Some("RunMat:struct:StructArrayCopyFailed"),
-    when: "Copying a single-argument struct-array cell input failed.",
-    message: "struct: failed to copy struct array",
-};
-
-const STRUCT_ERROR_FIELD_NAME_TYPE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.FIELD_NAME_TYPE",
-    identifier: Some("RunMat:struct:FieldNameType"),
-    when: "Field name is not a string scalar or 1xN character vector.",
-    message: "struct: field names must be strings or character vectors",
-};
-
-const STRUCT_ERROR_FIELD_NAME_SCALAR: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.FIELD_NAME_SCALAR",
-    identifier: Some("RunMat:struct:FieldNameScalar"),
-    when: "Field name char/string-array input is not scalar.",
-    message: "struct: field names must be scalar string arrays or character vectors",
-};
-
-const STRUCT_ERROR_FIELD_NAME_CHAR_VECTOR: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.FIELD_NAME_CHAR_VECTOR",
-    identifier: Some("RunMat:struct:FieldNameCharVector"),
-    when: "Character-array field name input is not a 1-by-N character vector.",
-    message: "struct: field names must be 1-by-N character vectors",
-};
-
-const STRUCT_ERROR_FIELD_NAME_EMPTY: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.FIELD_NAME_EMPTY",
-    identifier: Some("RunMat:struct:FieldNameEmpty"),
-    when: "Field name is empty.",
-    message: "struct: field names must be nonempty",
-};
-
-const STRUCT_ERROR_FIELD_NAME_START_CHAR: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.FIELD_NAME_START_CHAR",
-    identifier: Some("RunMat:struct:FieldNameStartChar"),
-    when: "Field name does not start with a letter or underscore.",
-    message: "struct: field names must begin with a letter or underscore",
-};
-
-const STRUCT_ERROR_FIELD_NAME_INVALID_CHAR: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.STRUCT.FIELD_NAME_INVALID_CHAR",
-    identifier: Some("RunMat:struct:FieldNameInvalidChar"),
-    when: "Field name includes unsupported characters.",
-    message: "struct: invalid character in field name",
-};
-
-const STRUCT_ERRORS: [BuiltinErrorDescriptor; 14] = [
-    STRUCT_ERROR_INVALID_SINGLE_INPUT,
-    STRUCT_ERROR_NAME_VALUE_PAIRS,
-    STRUCT_ERROR_CELL_SIZE_MISMATCH,
-    STRUCT_ERROR_SIZE_OVERFLOW,
-    STRUCT_ERROR_ASSEMBLE_FAILED,
-    STRUCT_ERROR_EMPTY_ARRAY_FAILED,
-    STRUCT_ERROR_STRUCT_ARRAY_CONTENTS,
-    STRUCT_ERROR_STRUCT_ARRAY_COPY_FAILED,
-    STRUCT_ERROR_FIELD_NAME_TYPE,
-    STRUCT_ERROR_FIELD_NAME_SCALAR,
-    STRUCT_ERROR_FIELD_NAME_CHAR_VECTOR,
-    STRUCT_ERROR_FIELD_NAME_EMPTY,
-    STRUCT_ERROR_FIELD_NAME_START_CHAR,
-    STRUCT_ERROR_FIELD_NAME_INVALID_CHAR,
-];
-
-pub const STRUCT_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &STRUCT_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &STRUCT_ERRORS,
-};
-
 fn struct_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
     struct_error_with_message(error.message, error)
 }
@@ -251,20 +75,18 @@ fn struct_error_with_message(
 
 #[runtime_builtin(
     name = "struct",
-    category = "structs/core",
-    summary = "Create scalar structs or struct arrays from field/value inputs.",
-    keywords = "struct,structure,name-value,record",
-    type_resolver(struct_type),
-    descriptor(crate::builtins::structs::core::r#struct::STRUCT_DESCRIPTOR),
+    binding_variant = "default",
     builtin_path = "crate::builtins::structs::core::r#struct"
 )]
 async fn struct_builtin(rest: Vec<Value>) -> BuiltinResult<Value> {
     match rest.len() {
         0 => Ok(Value::Struct(StructValue::new())),
         1 => match rest.into_iter().next().unwrap() {
-            Value::Struct(existing) => Ok(Value::Struct(existing.clone())),
-            Value::Cell(cell) => clone_struct_array(&cell),
-            Value::Tensor(tensor) if tensor.data.is_empty() => empty_struct_array(),
+            Value::Struct(existing) => Ok(Value::Struct(existing)),
+            Value::StructArray(existing) => Ok(Value::StructArray(existing)),
+            Value::Tensor(tensor) if tensor::tensor_element_len(&tensor) == 0 => {
+                empty_struct_array()
+            }
             Value::LogicalArray(logical) if logical.data.is_empty() => empty_struct_array(),
             other => Err(struct_error_with_message(
                 format!(
@@ -282,10 +104,14 @@ async fn struct_builtin(rest: Vec<Value>) -> BuiltinResult<Value> {
 fn build_from_pairs(args: Vec<Value>) -> BuiltinResult<Value> {
     let mut entries: Vec<FieldEntry> = Vec::new();
     let mut target_shape: Option<Vec<usize>> = None;
+    let mut field_names = std::collections::HashSet::with_capacity(args.len() / 2);
 
     let mut iter = args.into_iter();
     while let (Some(name_value), Some(field_value)) = (iter.next(), iter.next()) {
         let field_name = parse_field_name(&name_value)?;
+        if !field_names.insert(field_name.clone()) {
+            return Err(struct_error(&STRUCT_ERROR_DUPLICATE_FIELD));
+        }
         match field_value {
             Value::Cell(cell) => {
                 let shape = cell.shape.clone();
@@ -351,69 +177,46 @@ fn build_struct_array(entries: Vec<FieldEntry>, shape: Vec<usize>) -> BuiltinRes
         }
     }
 
-    let mut structs: Vec<Value> = Vec::with_capacity(total_len);
+    let column_major_cells = entries
+        .iter()
+        .map(|entry| match &entry.value {
+            FieldValue::Cell(cell) => Some(cell.to_column_major()),
+            FieldValue::Single(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let mut structs = Vec::with_capacity(total_len);
     for idx in 0..total_len {
         let mut fields = StructValue::new();
-        for entry in &entries {
+        for (entry, column_major) in entries.iter().zip(&column_major_cells) {
             let value = match &entry.value {
                 FieldValue::Single(val) => val.clone(),
-                FieldValue::Cell(cell) => clone_cell_element(cell, idx)?,
+                FieldValue::Cell(_) => column_major
+                    .as_ref()
+                    .and_then(|values| values.get(idx))
+                    .cloned()
+                    .ok_or_else(|| struct_error(&STRUCT_ERROR_CELL_SIZE_MISMATCH))?,
             };
             fields.fields.insert(entry.name.clone(), value);
         }
-        structs.push(Value::Struct(fields));
+        structs.push(fields);
     }
 
-    CellArray::new_with_shape(structs, shape)
-        .map(Value::Cell)
-        .map_err(|e| {
-            struct_error_with_message(
-                format!("{}: {e}", STRUCT_ERROR_ASSEMBLE_FAILED.message),
-                &STRUCT_ERROR_ASSEMBLE_FAILED,
-            )
-        })
-}
-
-fn clone_cell_element(cell: &CellArray, index: usize) -> BuiltinResult<Value> {
-    cell.data
-        .get(index)
-        .cloned()
-        .ok_or_else(|| struct_error(&STRUCT_ERROR_CELL_SIZE_MISMATCH))
+    let field_names = entries.iter().map(|entry| entry.name.clone()).collect();
+    StructArray::normalize(field_names, structs, shape).map_err(|e| {
+        struct_error_with_message(
+            format!("{}: {e}", STRUCT_ERROR_ASSEMBLE_FAILED.message),
+            &STRUCT_ERROR_ASSEMBLE_FAILED,
+        )
+    })
 }
 
 fn empty_struct_array() -> BuiltinResult<Value> {
-    CellArray::new(Vec::new(), 0, 0)
-        .map(Value::Cell)
+    StructArray::empty(Vec::new(), vec![0, 0])
+        .map(Value::StructArray)
         .map_err(|e| {
             struct_error_with_message(
                 format!("{}: {e}", STRUCT_ERROR_EMPTY_ARRAY_FAILED.message),
                 &STRUCT_ERROR_EMPTY_ARRAY_FAILED,
-            )
-        })
-}
-
-fn clone_struct_array(array: &CellArray) -> BuiltinResult<Value> {
-    let mut values: Vec<Value> = Vec::with_capacity(array.data.len());
-    for (index, handle) in array.data.iter().enumerate() {
-        let value = handle.clone();
-        if !matches!(value, Value::Struct(_)) {
-            return Err(struct_error_with_message(
-                format!(
-                    "{} (element {} is not a struct)",
-                    STRUCT_ERROR_STRUCT_ARRAY_CONTENTS.message,
-                    index + 1
-                ),
-                &STRUCT_ERROR_STRUCT_ARRAY_CONTENTS,
-            ));
-        }
-        values.push(value);
-    }
-    CellArray::new_with_shape(values, array.shape.clone())
-        .map(Value::Cell)
-        .map_err(|e| {
-            struct_error_with_message(
-                format!("{}: {e}", STRUCT_ERROR_STRUCT_ARRAY_COPY_FAILED.message),
-                &STRUCT_ERROR_STRUCT_ARRAY_COPY_FAILED,
             )
         })
 }
@@ -451,11 +254,8 @@ fn validate_field_name(name: &str) -> BuiltinResult<()> {
     if name.is_empty() {
         return Err(struct_error(&STRUCT_ERROR_FIELD_NAME_EMPTY));
     }
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return Err(struct_error(&STRUCT_ERROR_FIELD_NAME_EMPTY));
-    };
-    if !is_first_char_valid(first) {
+
+    if !is_valid_varname(name) {
         return Err(struct_error_with_message(
             format!(
                 "{} (got '{name}')",
@@ -464,31 +264,15 @@ fn validate_field_name(name: &str) -> BuiltinResult<()> {
             &STRUCT_ERROR_FIELD_NAME_START_CHAR,
         ));
     }
-    if let Some(bad) = chars.find(|c| !is_subsequent_char_valid(*c)) {
-        return Err(struct_error_with_message(
-            format!(
-                "{} ('{bad}' in '{name}')",
-                STRUCT_ERROR_FIELD_NAME_INVALID_CHAR.message
-            ),
-            &STRUCT_ERROR_FIELD_NAME_INVALID_CHAR,
-        ));
-    }
     Ok(())
-}
-
-fn is_first_char_valid(c: char) -> bool {
-    c == '_' || c.is_ascii_alphabetic()
-}
-
-fn is_subsequent_char_valid(c: char) -> bool {
-    c == '_' || c.is_ascii_alphanumeric()
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::builtins::common::identifiers::MATLAB_NAME_LENGTH_MAX;
     use runmat_accelerate_api::GpuTensorHandle;
-    use runmat_builtins::{CellArray, IntValue, StringArray, StructValue, Tensor};
+    use runmat_value::{CellArray, IntValue, StringArray, StructArray, StructValue, Tensor};
 
     #[cfg(feature = "wgpu")]
     use runmat_accelerate_api::HostTensorView;
@@ -516,13 +300,23 @@ pub(crate) mod tests {
         let tensor = Tensor::new(Vec::new(), vec![0, 0]).unwrap();
         let value = run_struct(vec![Value::Tensor(tensor)]).expect("struct([])");
         match value {
-            Value::Cell(cell) => {
-                assert_eq!(cell.rows, 0);
-                assert_eq!(cell.cols, 0);
-                assert!(cell.data.is_empty());
+            Value::StructArray(array) => {
+                assert_eq!(array.shape(), &[0, 0]);
+                assert!(array.is_empty());
             }
             other => panic!("expected empty struct array, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn struct_uses_typed_integer_storage_to_detect_empty_input() {
+        let tensor =
+            Tensor::new_integer(runmat_value::IntegerStorage::U64(Vec::new()), vec![0, 0]).unwrap();
+
+        assert!(matches!(
+            run_struct(vec![Value::Tensor(tensor)]).unwrap(),
+            Value::StructArray(_)
+        ));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -530,7 +324,7 @@ pub(crate) mod tests {
     fn struct_name_value_pairs() {
         let args = vec![
             Value::from("name"),
-            Value::from("Ada"),
+            Value::from("entry-a"),
             Value::from("score"),
             Value::Int(IntValue::I32(42)),
         ];
@@ -538,7 +332,7 @@ pub(crate) mod tests {
             panic!("expected struct value");
         };
         assert_eq!(s.fields.len(), 2);
-        assert!(matches!(s.fields.get("name"), Some(Value::String(v)) if v == "Ada"));
+        assert!(matches!(s.fields.get("name"), Some(Value::String(v)) if v == "entry-a"));
         assert!(matches!(
             s.fields.get("score"),
             Some(Value::Int(IntValue::I32(42)))
@@ -548,7 +342,8 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn struct_struct_array_from_cells() {
-        let names = CellArray::new(vec![Value::from("Ada"), Value::from("Grace")], 1, 2).unwrap();
+        let names =
+            CellArray::new(vec![Value::from("entry-a"), Value::from("entry-b")], 1, 2).unwrap();
         let ages = CellArray::new(
             vec![Value::Int(IntValue::I32(36)), Value::Int(IntValue::I32(45))],
             1,
@@ -566,7 +361,7 @@ pub(crate) mod tests {
         assert_eq!(structs.len(), 2);
         assert!(matches!(
             structs[0].fields.get("name"),
-            Some(Value::String(v)) if v == "Ada"
+            Some(Value::String(v)) if v == "entry-a"
         ));
         assert!(matches!(
             structs[1].fields.get("age"),
@@ -577,7 +372,8 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn struct_struct_array_replicates_scalars() {
-        let names = CellArray::new(vec![Value::from("Ada"), Value::from("Grace")], 1, 2).unwrap();
+        let names =
+            CellArray::new(vec![Value::from("entry-a"), Value::from("entry-b")], 1, 2).unwrap();
         let result = run_struct(vec![
             Value::from("name"),
             Value::Cell(names),
@@ -598,7 +394,8 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn struct_struct_array_cell_size_mismatch_errors() {
-        let names = CellArray::new(vec![Value::from("Ada"), Value::from("Grace")], 1, 2).unwrap();
+        let names =
+            CellArray::new(vec![Value::from("entry-a"), Value::from("entry-b")], 1, 2).unwrap();
         let scores = CellArray::new(vec![Value::Int(IntValue::I32(1))], 1, 1).unwrap();
         let err = error_message(
             run_struct(vec![
@@ -614,21 +411,28 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn struct_overwrites_duplicates() {
+    fn struct_rejects_duplicate_scalar_fields() {
         let args = vec![
             Value::from("version"),
             Value::Int(IntValue::I32(1)),
             Value::from("version"),
             Value::Int(IntValue::I32(2)),
         ];
-        let Value::Struct(s) = run_struct(args).expect("struct") else {
-            panic!("expected struct value");
-        };
-        assert_eq!(s.fields.len(), 1);
-        assert!(matches!(
-            s.fields.get("version"),
-            Some(Value::Int(IntValue::I32(2)))
-        ));
+        let error = run_struct(args).unwrap_err();
+        assert_eq!(error.identifier(), Some("RunMat:struct:DuplicateField"));
+    }
+
+    #[test]
+    fn struct_rejects_duplicate_array_fields() {
+        let values = || CellArray::new(vec![Value::Num(1.0), Value::Num(2.0)], 1, 2).unwrap();
+        let error = run_struct(vec![
+            Value::from("version"),
+            Value::Cell(values()),
+            Value::from("version"),
+            Value::Cell(values()),
+        ])
+        .unwrap_err();
+        assert_eq!(error.identifier(), Some("RunMat:struct:DuplicateField"));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -644,7 +448,32 @@ pub(crate) mod tests {
         let err = error_message(
             run_struct(vec![Value::from("1bad"), Value::Int(IntValue::I32(1))]).unwrap_err(),
         );
-        assert!(err.contains("begin with a letter or underscore"));
+        assert!(err.contains("valid MATLAB identifiers"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn struct_field_names_follow_shared_identifier_rules() {
+        let max_len = "a".repeat(MATLAB_NAME_LENGTH_MAX);
+        let Value::Struct(s) = run_struct(vec![
+            Value::from(max_len.clone()),
+            Value::Int(IntValue::I32(1)),
+        ])
+        .expect("max length field name") else {
+            panic!("expected struct value");
+        };
+        assert!(s.fields.contains_key(&max_len));
+
+        for bad in [
+            "_hidden".to_string(),
+            "for".to_string(),
+            "éclair".to_string(),
+            "a".repeat(MATLAB_NAME_LENGTH_MAX + 1),
+        ] {
+            let err =
+                error_message(run_struct(vec![Value::from(bad), Value::Num(1.0)]).unwrap_err());
+            assert!(err.contains("valid MATLAB identifiers"));
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -695,29 +524,18 @@ pub(crate) mod tests {
         proto
             .fields
             .insert("id".into(), Value::Int(IntValue::I32(7)));
-        let struct_array = CellArray::new(
-            vec![
-                Value::Struct(proto.clone()),
-                Value::Struct(proto.clone()),
-                Value::Struct(proto.clone()),
-            ],
-            1,
-            3,
-        )
-        .unwrap();
+        let struct_array = StructArray::new(vec![proto.clone(); 3], vec![1, 3]).unwrap();
         let original = struct_array.clone();
-        let result = run_struct(vec![Value::Cell(struct_array)]).expect("struct array clone");
-        let cloned = expect_struct_array(result);
-        let baseline = expect_struct_array(Value::Cell(original));
-        assert_eq!(cloned, baseline);
+        let result =
+            run_struct(vec![Value::StructArray(struct_array)]).expect("struct array clone");
+        assert_eq!(result, Value::StructArray(original));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn struct_rejects_cell_argument_without_structs() {
         let cell = CellArray::new(vec![Value::Num(1.0)], 1, 1).unwrap();
-        let err = error_message(run_struct(vec![Value::Cell(cell)]).unwrap_err());
-        assert!(err.contains("must contain structs"));
+        assert!(run_struct(vec![Value::Cell(cell)]).is_err());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -727,6 +545,7 @@ pub(crate) mod tests {
             shape: vec![2, 2],
             device_id: 1,
             buffer_id: 99,
+            descriptor: Default::default(),
         };
         let args = vec![Value::from("data"), Value::GpuTensor(handle.clone())];
         let Value::Struct(s) = run_struct(args).expect("struct") else {
@@ -742,11 +561,13 @@ pub(crate) mod tests {
             shape: vec![1, 1],
             device_id: 2,
             buffer_id: 11,
+            descriptor: Default::default(),
         };
         let second = GpuTensorHandle {
             shape: vec![1, 1],
             device_id: 2,
             buffer_id: 12,
+            descriptor: Default::default(),
         };
         let cell = CellArray::new(
             vec![
@@ -792,14 +613,7 @@ pub(crate) mod tests {
 
     fn expect_struct_array(value: Value) -> Vec<StructValue> {
         match value {
-            Value::Cell(cell) => cell
-                .data
-                .into_iter()
-                .map(|value| match value {
-                    Value::Struct(st) => st,
-                    other => panic!("expected struct element, got {other:?}"),
-                })
-                .collect(),
+            Value::StructArray(array) => array.into_elements(),
             Value::Struct(st) => vec![st],
             other => panic!("expected struct or struct array, got {other:?}"),
         }

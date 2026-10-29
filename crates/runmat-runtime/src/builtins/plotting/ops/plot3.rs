@@ -1,11 +1,18 @@
 use runmat_accelerate_api::ProviderPrecision;
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
+};
+use runmat_builtins::{
+    BuiltinIntegerBackendRule, BuiltinIntegerCapabilityDescriptor, BuiltinIntegerComputationDomain,
+    BuiltinIntegerInputAvailability, BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule,
+    BuiltinIntegerOverflowRule, BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule,
 };
 use runmat_macros::runtime_builtin;
 use runmat_plot::gpu::{line3::Line3GpuInputs, ScalarType};
+use runmat_plot::plots::NumericPlotData;
 use runmat_plot::plots::{Line3Plot, LineStyle};
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -13,7 +20,7 @@ use crate::builtins::common::spec::{
 };
 use crate::builtins::plotting::type_resolvers::handle_scalar_type;
 
-use super::common::numeric_triplet;
+use super::common::numeric_plot_data_triplet;
 use super::gpu_helpers::gpu_xyz_bounds_async;
 use super::op_common::line_inputs::NumericInput;
 use super::op_common::{apply_axes_target, split_leading_axes_handle};
@@ -23,6 +30,26 @@ use super::style::{parse_line_style_args, LineAppearance, LineStyleParseOptions}
 use crate::{build_runtime_error, RuntimeError};
 
 const BUILTIN_NAME: &str = "plot3";
+
+const PLOT3_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 1] =
+    [BuiltinIntegerInputCapability {
+        name: "X/Y/Z",
+        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
+        availability: BuiltinIntegerInputAvailability::Documented,
+        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
+        notes: "Three-dimensional coordinate data accept all eight integer classes and retain native class, shape, and exact values as graphics-object source properties.",
+    }];
+pub const PLOT3_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 1] =
+    [BuiltinIntegerCapabilityDescriptor {
+        form: "h = plot3(integer_X, integer_Y, integer_Z, ...)",
+        inputs: &PLOT3_INTEGER_INPUTS,
+        computation_domain: BuiltinIntegerComputationDomain::FunctionSpecific,
+        output_class: BuiltinIntegerOutputClassRule::NotApplicable,
+        overflow: BuiltinIntegerOverflowRule::NotApplicable,
+        backend: BuiltinIntegerBackendRule::GatherFallback,
+        overload: BuiltinIntegerOverloadKind::Multiple,
+        notes: "Native numeric storage remains authoritative for XData/YData/ZData and figure persistence. Rendering is an explicit floating geometry boundary; integer gpuArray inputs gather exactly because the direct WGPU line path is floating-only.",
+    }];
 
 const PLOT3_OUTPUT_HANDLE: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "h",
@@ -379,13 +406,14 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
     suppress_auto_output = true,
     type_resolver(handle_scalar_type),
     descriptor(crate::builtins::plotting::plot3::PLOT3_DESCRIPTOR),
+    integer_capabilities(crate::builtins::plotting::plot3::PLOT3_INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::plotting::plot3"
 )]
 pub async fn plot3_builtin(args: Vec<Value>) -> crate::BuiltinResult<f64> {
     let (axes_target, args) =
         split_leading_axes_handle(args, BUILTIN_NAME).map_err(map_plot3_invalid_argument)?;
     apply_axes_target(axes_target, BUILTIN_NAME).map_err(map_plot3_invalid_argument)?;
-    let (mut plans, _line_style_order) =
+    let (mut plans, line_style_order) =
         parse_plot3_series_specs(args).map_err(map_plot3_invalid_argument)?;
 
     let opts = PlotRenderOptions {
@@ -397,14 +425,20 @@ pub async fn plot3_builtin(args: Vec<Value>) -> crate::BuiltinResult<f64> {
     };
 
     let mut plots = Vec::with_capacity(plans.len());
+    let mut ordered_style_idx = 0usize;
     for (series_idx, mut plan) in plans.drain(..).enumerate() {
         if !plan.line_style_explicit {
-            plan.appearance.line_style = match series_idx % 4 {
-                0 => LineStyle::Solid,
-                1 => LineStyle::Dashed,
-                2 => LineStyle::Dotted,
-                _ => LineStyle::DashDot,
-            };
+            if let Some(order) = line_style_order.as_ref().filter(|order| !order.is_empty()) {
+                plan.appearance.line_style = order[ordered_style_idx % order.len()];
+                ordered_style_idx += 1;
+            } else {
+                plan.appearance.line_style = match series_idx % 4 {
+                    0 => LineStyle::Solid,
+                    1 => LineStyle::Dashed,
+                    2 => LineStyle::Dotted,
+                    _ => LineStyle::DashDot,
+                };
+            }
         }
         let label = plan
             .label
@@ -423,9 +457,9 @@ pub async fn plot3_builtin(args: Vec<Value>) -> crate::BuiltinResult<f64> {
             .await
             .map_err(map_plot3_invalid_argument)?;
         let (x, y, z) =
-            numeric_triplet(x, y, z, BUILTIN_NAME).map_err(map_plot3_invalid_argument)?;
+            numeric_plot_data_triplet(x, y, z, BUILTIN_NAME).map_err(map_plot3_invalid_argument)?;
         plots.push(
-            build_line3_plot(x, y, z, &label, &plan.appearance)
+            build_line3_plot_from_numeric_data(x, y, z, &label, &plan.appearance)
                 .map_err(map_plot3_invalid_argument)?,
         );
     }
@@ -490,9 +524,9 @@ impl Plot3SeriesInput {
         self,
         name: &'static str,
     ) -> crate::BuiltinResult<(
-        runmat_builtins::Tensor,
-        runmat_builtins::Tensor,
-        runmat_builtins::Tensor,
+        runmat_value::Tensor,
+        runmat_value::Tensor,
+        runmat_value::Tensor,
     )> {
         Ok((
             self.x.into_tensor_async(name).await?,
@@ -561,6 +595,12 @@ fn parse_plot3_series_specs(
             }
         }
         let parsed = parse_line_style_args(&style_tokens, &opts)?;
+        if parsed.appearance.marker.is_some() {
+            return Err(plotting_error(
+                BUILTIN_NAME,
+                "plot3: marker LineSpec and Marker options are not supported until Line3 marker rendering is implemented",
+            ));
+        }
         if let Some(order) = parsed.line_style_order.clone() {
             line_style_order = Some(order);
         }
@@ -581,7 +621,8 @@ fn is_numeric_value(value: &Value) -> bool {
     )
 }
 
-fn build_line3_plot(
+pub(super) fn build_line3_plot_for_builtin(
+    builtin: &'static str,
     x: Vec<f64>,
     y: Vec<f64>,
     z: Vec<f64>,
@@ -589,13 +630,41 @@ fn build_line3_plot(
     appearance: &LineAppearance,
 ) -> crate::BuiltinResult<Line3Plot> {
     Ok(Line3Plot::new(x, y, z)
-        .map_err(|e| plotting_error(BUILTIN_NAME, format!("plot3: {e}")))?
+        .map_err(|e| plotting_error(builtin, format!("{builtin}: {e}")))?
         .with_style(
             appearance.color,
             appearance.line_width,
             appearance.line_style,
         )
         .with_label(label))
+}
+
+pub(super) fn build_line3_plot_from_numeric_data_for_builtin(
+    builtin: &'static str,
+    x: NumericPlotData,
+    y: NumericPlotData,
+    z: NumericPlotData,
+    label: &str,
+    appearance: &LineAppearance,
+) -> crate::BuiltinResult<Line3Plot> {
+    Ok(Line3Plot::from_numeric_data(x, y, z)
+        .map_err(|e| plotting_error(builtin, format!("{builtin}: {e}")))?
+        .with_style(
+            appearance.color,
+            appearance.line_width,
+            appearance.line_style,
+        )
+        .with_label(label))
+}
+
+fn build_line3_plot_from_numeric_data(
+    x: NumericPlotData,
+    y: NumericPlotData,
+    z: NumericPlotData,
+    label: &str,
+    appearance: &LineAppearance,
+) -> crate::BuiltinResult<Line3Plot> {
+    build_line3_plot_from_numeric_data_for_builtin(BUILTIN_NAME, x, y, z, label, appearance)
 }
 
 async fn build_line3_gpu_plot_async(
@@ -605,6 +674,15 @@ async fn build_line3_gpu_plot_async(
     label: &str,
     appearance: &LineAppearance,
 ) -> crate::BuiltinResult<Line3Plot> {
+    if runmat_accelerate_api::handle_integer_type(x).is_some()
+        || runmat_accelerate_api::handle_integer_type(y).is_some()
+        || runmat_accelerate_api::handle_integer_type(z).is_some()
+    {
+        return Err(plotting_error(
+            BUILTIN_NAME,
+            "plot3: integer gpuArray source requires exact host property retention",
+        ));
+    }
     let _ = crate::builtins::plotting::gpu_helpers::ensure_shared_wgpu_context(BUILTIN_NAME)?;
     let x_ref = runmat_accelerate_api::export_wgpu_buffer(x)
         .ok_or_else(|| plotting_error(BUILTIN_NAME, "plot3: unable to export GPU X data"))?;
@@ -618,18 +696,25 @@ async fn build_line3_gpu_plot_async(
             "plot3: X, Y, and Z inputs must have identical non-empty lengths",
         ));
     }
-    let host_x =
-        crate::builtins::plotting::common::gather_tensor_from_gpu_async(x.clone(), BUILTIN_NAME)
-            .await?;
-    let host_y =
-        crate::builtins::plotting::common::gather_tensor_from_gpu_async(y.clone(), BUILTIN_NAME)
-            .await?;
-    let host_z =
-        crate::builtins::plotting::common::gather_tensor_from_gpu_async(z.clone(), BUILTIN_NAME)
-            .await?;
-    let (host_x, host_y, host_z) = numeric_triplet(host_x, host_y, host_z, BUILTIN_NAME)?;
     if x_ref.len == 1 {
-        return build_line3_plot(host_x, host_y, host_z, label, appearance);
+        let host_x = crate::builtins::plotting::common::gather_tensor_from_gpu_async(
+            x.clone(),
+            BUILTIN_NAME,
+        )
+        .await?;
+        let host_y = crate::builtins::plotting::common::gather_tensor_from_gpu_async(
+            y.clone(),
+            BUILTIN_NAME,
+        )
+        .await?;
+        let host_z = crate::builtins::plotting::common::gather_tensor_from_gpu_async(
+            z.clone(),
+            BUILTIN_NAME,
+        )
+        .await?;
+        let (host_x, host_y, host_z) =
+            numeric_plot_data_triplet(host_x, host_y, host_z, BUILTIN_NAME)?;
+        return build_line3_plot_from_numeric_data(host_x, host_y, host_z, label, appearance);
     }
     if x_ref.precision != y_ref.precision || x_ref.precision != z_ref.precision {
         return Err(plotting_error(
@@ -637,16 +722,24 @@ async fn build_line3_gpu_plot_async(
             "plot3: gpuArray precision must match across X, Y, and Z",
         ));
     }
+    let len = u32::try_from(x_ref.len)
+        .map_err(|_| plotting_error(BUILTIN_NAME, "plot3: point count exceeds supported range"))?;
     let inputs = Line3GpuInputs {
         x_buffer: x_ref.buffer.clone(),
         y_buffer: y_ref.buffer.clone(),
         z_buffer: z_ref.buffer.clone(),
-        len: x_ref.len as u32,
+        len,
         scalar: ScalarType::from_is_f64(x_ref.precision == ProviderPrecision::F64),
     };
     let bounds = gpu_xyz_bounds_async(x, y, z, BUILTIN_NAME).await?;
-    Ok(build_line3_plot(host_x, host_y, host_z, label, appearance)?
-        .with_gpu_xyz_inputs(inputs, bounds))
+    Ok(runmat_plot::plots::Line3Plot::from_gpu_xyz(
+        inputs,
+        appearance.color,
+        appearance.line_width,
+        appearance.line_style,
+        bounds,
+    )
+    .with_label(label))
 }
 
 #[cfg(test)]
@@ -658,17 +751,11 @@ mod tests {
         clear_figure, clone_figure, configure_subplot, current_figure_handle,
         reset_hold_state_for_run,
     };
-    use runmat_builtins::{NumericDType, Tensor};
     use runmat_plot::plots::PlotElement;
+    use runmat_value::Tensor;
 
     fn vec_tensor(data: &[f64]) -> Tensor {
-        Tensor {
-            data: data.to_vec(),
-            shape: vec![data.len()],
-            rows: data.len(),
-            cols: 1,
-            dtype: NumericDType::F64,
-        }
+        Tensor::new(data.to_vec(), vec![data.len()]).expect("plot3 test vector")
     }
 
     #[test]
@@ -754,15 +841,66 @@ mod tests {
             Value::Num(1.0),
             Value::Num(2.0),
             Value::Num(3.0),
-            Value::String("o".into()),
         ]));
         let fig = clone_figure(current_figure_handle()).unwrap();
         let PlotElement::Line3(line) = fig.plots().next().unwrap() else {
             panic!("expected line3")
         };
-        assert_eq!(line.x_data, vec![1.0]);
-        assert_eq!(line.y_data, vec![2.0]);
-        assert_eq!(line.z_data, vec![3.0]);
+        let (x, y, z) = line.host_xyz_f64().unwrap().unwrap();
+        assert_eq!(x, vec![1.0]);
+        assert_eq!(y, vec![2.0]);
+        assert_eq!(z, vec![3.0]);
+        assert_eq!(line.line_style, LineStyle::Solid);
+    }
+
+    #[test]
+    fn plot3_rejects_marker_linespec_until_line3_markers_exist() {
+        let _guard = lock_plot_registry();
+        ensure_plot_test_env();
+        reset_hold_state_for_run();
+        let _ = clear_figure(None);
+        let err = futures::executor::block_on(plot3_builtin(vec![
+            Value::Tensor(vec_tensor(&[0.0, 1.0])),
+            Value::Tensor(vec_tensor(&[1.0, 2.0])),
+            Value::Tensor(vec_tensor(&[2.0, 3.0])),
+            Value::String("o".into()),
+        ]))
+        .expect_err("plot3 marker specs should fail until rendered");
+        assert!(err.message.contains("marker LineSpec"));
+    }
+
+    #[test]
+    fn plot3_applies_line_style_order_to_implicit_series_styles() {
+        let _guard = lock_plot_registry();
+        ensure_plot_test_env();
+        reset_hold_state_for_run();
+        let _ = clear_figure(None);
+        let _ = futures::executor::block_on(plot3_builtin(vec![
+            Value::Tensor(vec_tensor(&[0.0, 1.0])),
+            Value::Tensor(vec_tensor(&[1.0, 2.0])),
+            Value::Tensor(vec_tensor(&[2.0, 3.0])),
+            Value::String("LineStyleOrder".into()),
+            Value::StringArray(runmat_value::StringArray {
+                data: vec!["--".into(), ":".into()],
+                shape: vec![1, 2],
+                rows: 1,
+                cols: 2,
+            }),
+            Value::Tensor(vec_tensor(&[0.0, 1.0])),
+            Value::Tensor(vec_tensor(&[2.0, 3.0])),
+            Value::Tensor(vec_tensor(&[4.0, 5.0])),
+        ]))
+        .expect("plot3 with LineStyleOrder");
+        let fig = clone_figure(current_figure_handle()).unwrap();
+        let mut plots = fig.plots();
+        let PlotElement::Line3(first) = plots.next().unwrap() else {
+            panic!("expected first line3")
+        };
+        let PlotElement::Line3(second) = plots.next().unwrap() else {
+            panic!("expected second line3")
+        };
+        assert_eq!(first.line_style, LineStyle::Dashed);
+        assert_eq!(second.line_style, LineStyle::Dotted);
     }
 
     #[test]

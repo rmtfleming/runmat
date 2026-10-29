@@ -1,26 +1,30 @@
-use crate::hir::{
-    FunctionArgDefaultValue, FunctionArgDim, FunctionArgSizeSpec, FunctionArgValidator,
-    FunctionArgumentValidation,
-};
+use crate::hir::FunctionArgumentValidation;
 use crate::{
     AssignmentCreationPolicy, AssignmentShapePolicy, BindingId, BindingName, BindingOwner,
     BindingResolution, BindingRole, BindingStorage, BuiltinId, CallKind, CallResolution,
-    CallSyntax, CapturedBinding, ClassArgumentBlock, ClassEnumeration, ClassEvent, ClassId,
-    ClassKind, ClassMethod, ClassProperty, ClassResolution, CommandArgument, DefPath,
-    DefPathSegment, EntrypointId, EntrypointName, EntrypointOrigin, EntrypointPolicy, ExprId,
-    FunctionAbi, FunctionId, FunctionKind, FunctionModifiers, FunctionName, FunctionOutputArity,
-    FunctionResolution, HirAssembly, HirBinding, HirBlock, HirCall, HirCallableRef, HirClass,
-    HirCommandCall, HirEntrypoint, HirError, HirExpr, HirExprKind, HirFunction, HirImport,
-    HirIndex, HirModule, HirPlace, HirStmt as HirStmtNode, HirStmtKind, ImportResolution,
-    IndexComponent, IndexKind, IndexResultContext, IndexingSemantics, LoweringContext,
-    LoweringResult, MemberAccess, MemberName, ModuleId, OperatorKind, PackageName, PlaceMutation,
-    PlaceMutationKind, QualifiedName, ReferenceKind, ReferenceResolution, RequestedOutputCount,
-    SourceId, SourceUnitKind, Span, StmtId, StringLiteral, SymbolName, WorkspaceExportPolicy,
-    WorkspaceVisibility, AWAIT_EXTENSION_NAME, NARGIN_BUILTIN_NAME, NARGOUT_BUILTIN_NAME,
-    SPAWN_EXTENSION_NAME,
+    CallSyntax, CapturedBinding, ClassArgumentBlock, ClassDeclaration, ClassId, ClassIdentity,
+    ClassKind, ClassPropertyDefault, ClassResolution, CommandArgument, DefPath, DefPathSegment,
+    EntrypointId, EntrypointName, EntrypointOrigin, EntrypointPolicy, EnumerationDeclaration,
+    EventDeclaration, ExprId, FunctionAbi, FunctionId, FunctionKind, FunctionModifiers,
+    FunctionName, FunctionOutputArity, FunctionResolution, HirAssembly, HirBinding, HirBlock,
+    HirCall, HirCallableRef, HirClass, HirCommandCall, HirEntrypoint, HirError, HirExpr,
+    HirExprKind, HirFunction, HirImport, HirIndex, HirModule, HirPlace, HirStmt as HirStmtNode,
+    HirStmtKind, ImportResolution, IndexComponent, IndexKind, IndexResultContext,
+    IndexingSemantics, InheritanceDeclaration, LoweringContext, LoweringResult, MemberAccess,
+    MemberName, MethodDeclaration, ModuleId, OperatorKind, PackageName, PlaceMutation,
+    PlaceMutationKind, PropertyDeclaration, QualifiedName, ReferenceKind, ReferenceResolution,
+    RequestedOutputCount, SourceId, SourceUnitKind, Span, StmtId, StringLiteral, SymbolName,
+    WorkspaceExportPolicy, WorkspaceVisibility, AWAIT_EXTENSION_NAME, NARGIN_BUILTIN_NAME,
+    NARGOUT_BUILTIN_NAME, SPAWN_EXTENSION_NAME,
 };
 use runmat_parser::{BinOp, Expr as AstExpr, Program as AstProgram, Stmt as AstStmt, UnOp};
+use runmat_types::{
+    FunctionArgDefaultValue, FunctionArgDim, FunctionArgRangeInclusivity, FunctionArgSizeSpec,
+    FunctionArgValidationLiteral, FunctionArgValidator,
+};
 use std::collections::{HashMap, HashSet};
+
+mod subscript_chain;
 
 const IDENT_AWAIT_EXTENSION_DISABLED: &str = "RunMat:AwaitExtensionDisabled";
 const IDENT_AWAIT_CONTEXT_INVALID: &str = "RunMat:AwaitContextInvalid";
@@ -34,7 +38,6 @@ const IDENT_CLASS_ACCESS_VALUE_INVALID: &str = "RunMat:ClassAccessValueInvalid";
 const IDENT_CLASS_SELF_INHERITANCE_INVALID: &str = "RunMat:ClassSelfInheritanceInvalid";
 const IDENT_CLASS_MEMBER_DUPLICATE: &str = "RunMat:ClassMemberDuplicate";
 const IDENT_CLASS_MEMBER_NAME_CONFLICT: &str = "RunMat:ClassMemberNameConflict";
-const IDENT_AGGREGATE_SHAPE_MISMATCH: &str = "RunMat:AggregateShapeMismatch";
 const IDENT_IMPORT_AMBIGUOUS: &str = "RunMat:ImportAmbiguous";
 const IDENT_IMPORT_DUPLICATE: &str = "RunMat:ImportDuplicate";
 const IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN: &str = "RunMat:FunctionArgumentValidationUnknown";
@@ -63,6 +66,7 @@ struct LoweringCtx {
     next_stmt: usize,
     next_function: usize,
     next_class: usize,
+    next_parallel_region: HashMap<FunctionId, u32>,
     scopes: Vec<ScopeFrame>,
     function_modifiers: Vec<FunctionModifiers>,
     top_level_await: Vec<bool>,
@@ -80,6 +84,7 @@ struct LoweringCtx {
     local_function_output_arities: HashMap<FunctionId, FunctionOutputArity>,
     external_function_output_arities: HashMap<FunctionId, FunctionOutputArity>,
     captures: HashMap<FunctionId, Vec<CapturedBinding>>,
+    external_class_declarations: Vec<runmat_types::ExternalClassDeclaration>,
 }
 
 struct LowerFunctionSpec<'a> {
@@ -108,13 +113,16 @@ pub fn lower(prog: &AstProgram, context: &LoweringContext<'_>) -> Result<Lowerin
 
 impl LoweringCtx {
     fn class_for_id(&self, id: ClassId) -> Option<&HirClass> {
-        self.assembly.classes.iter().find(|class| class.id == id)
+        self.assembly
+            .classes
+            .iter()
+            .find(|class| class.declaration.id == id)
     }
 
     fn class_has_public_static_property(&self, class_name: &str, property_name: &str) -> bool {
         if let Some(class_id) = self.class_id_for_name(class_name) {
             if let Some(class_def) = self.class_for_id(class_id) {
-                if class_def.properties.iter().any(|property| {
+                if class_def.declaration.properties.iter().any(|property| {
                     property.name.0 == property_name
                         && property.attributes.is_static
                         && matches!(property.attributes.get_access, MemberAccess::Public)
@@ -124,14 +132,33 @@ impl LoweringCtx {
                 }
             }
         }
-        if let Some((property, _owner)) =
-            runmat_builtins::lookup_property(class_name, property_name)
-        {
-            return property.is_static
-                && property.get_access == runmat_builtins::Access::Public
-                && property.set_access == runmat_builtins::Access::Public;
-        }
-        false
+        self.external_class_declaration(class_name)
+            .is_some_and(|class| {
+                class
+                    .properties
+                    .iter()
+                    .find(|property| property.name.0 == property_name)
+                    .is_some_and(|property| {
+                        property.attributes.is_static
+                            && property.attributes.get_access == MemberAccess::Public
+                            && property.attributes.set_access == MemberAccess::Public
+                    })
+            })
+    }
+
+    fn external_class_declaration(
+        &self,
+        name: &str,
+    ) -> Option<runmat_types::ExternalClassDeclaration> {
+        self.external_class_declarations
+            .iter()
+            .find(|declaration| declaration.name.display_name().as_deref() == Some(name))
+            .cloned()
+            .or_else(|| {
+                runmat_types::ClassIdentity::new(name)
+                    .ok()
+                    .and_then(|identity| runmat_builtins::standard_class_declaration(&identity))
+            })
     }
 
     fn class_id_for_name(&self, name: &str) -> Option<ClassId> {
@@ -148,8 +175,10 @@ impl LoweringCtx {
         self.assembly
             .classes
             .iter()
-            .find(|class| class.name.0.len() == 1 && class.name.0[0].0 == name)
-            .map(|class| class.id)
+            .find(|class| {
+                class.declaration.name.0.len() == 1 && class.declaration.name.0[0].0 == name
+            })
+            .map(|class| class.declaration.id)
     }
 
     fn qualified_name_string(name: &QualifiedName) -> String {
@@ -175,14 +204,16 @@ impl LoweringCtx {
         let method_name = qualified.0[qualified.0.len() - 1].0.as_str();
         let class_segments = &qualified.0[..qualified.0.len() - 1];
         self.assembly.classes.iter().any(|class| {
-            class.name.0.len() == class_segments.len()
+            class.declaration.name.0.len() == class_segments.len()
                 && class
+                    .declaration
                     .name
                     .0
                     .iter()
                     .zip(class_segments.iter())
                     .all(|(a, b)| a.0 == b.0)
                 && class
+                    .declaration
                     .methods
                     .iter()
                     .any(|method| method.is_static && method.name.0 == method_name)
@@ -193,29 +224,6 @@ impl LoweringCtx {
         let mut segments = import_path.0.clone();
         segments.push(SymbolName(name.to_string()));
         QualifiedName(segments)
-    }
-
-    fn is_well_formed_qualified_name(name: &str) -> bool {
-        let segments = name.split('.').collect::<Vec<_>>();
-        segments.len() > 1 && segments.iter().all(|segment| !segment.is_empty())
-    }
-
-    fn validate_rectangular_aggregate(
-        &self,
-        kind: &str,
-        rows: &[Vec<AstExpr>],
-    ) -> Result<(), HirError> {
-        let Some(expected_cols) = rows.first().map(Vec::len) else {
-            return Ok(());
-        };
-        if rows.iter().all(|row| row.len() == expected_cols) {
-            return Ok(());
-        }
-
-        Err(HirError::new(format!(
-            "{kind} literal rows must have consistent column counts",
-        ))
-        .with_identifier(IDENT_AGGREGATE_SHAPE_MISMATCH))
     }
 
     fn lower_program(
@@ -230,6 +238,7 @@ impl LoweringCtx {
             next_stmt: 0,
             next_function: 0,
             next_class: 0,
+            next_parallel_region: HashMap::new(),
             scopes: Vec::new(),
             function_modifiers: Vec::new(),
             top_level_await: Vec::new(),
@@ -247,6 +256,7 @@ impl LoweringCtx {
             local_function_output_arities: HashMap::new(),
             external_function_output_arities: context.function_output_arities.clone(),
             captures: HashMap::new(),
+            external_class_declarations: context.external_class_declarations.to_vec(),
         };
 
         ctx.assembly.modules.push(HirModule {
@@ -258,6 +268,16 @@ impl LoweringCtx {
             top_level_functions: Vec::new(),
             classes: Vec::new(),
             synthetic_entry_function: None,
+            script_sections: prog
+                .sections
+                .iter()
+                .map(|section| crate::HirScriptSection {
+                    ordinal: section.ordinal,
+                    title: section.title.clone(),
+                    marker_span: section.marker_span,
+                    body_span: section.body_span,
+                })
+                .collect(),
         });
 
         for stmt in &prog.body {
@@ -269,6 +289,19 @@ impl LoweringCtx {
             }
             if let AstStmt::ClassDef { name, .. } = stmt {
                 let _ = ctx.reserve_class_name(name);
+            }
+        }
+
+        for (alias, target) in context.project_symbol_aliases {
+            if !ctx.function_names.contains_key(alias) {
+                if let Some(target_id) = ctx.function_names.get(target).copied() {
+                    ctx.function_names.insert(alias.clone(), target_id);
+                }
+            }
+            if !ctx.class_names.contains_key(alias) {
+                if let Some(target_id) = ctx.class_names.get(target).copied() {
+                    ctx.class_names.insert(alias.clone(), target_id);
+                }
             }
         }
 
@@ -536,6 +569,19 @@ impl LoweringCtx {
         id
     }
 
+    fn alloc_parallel_region_id(&mut self) -> runmat_types::ParallelRegionId {
+        let function = self.current_scope().owner;
+        let ordinal = self.next_parallel_region.entry(function).or_default();
+        let id = runmat_types::ParallelRegionId(runmat_types::RegionId {
+            function: runmat_types::ProgramFunctionId(
+                u32::try_from(function.0).expect("HIR function IDs must fit portable u32 identity"),
+            ),
+            ordinal: *ordinal,
+        });
+        *ordinal += 1;
+        id
+    }
+
     fn with_scope<T>(
         &mut self,
         owner: FunctionId,
@@ -674,8 +720,12 @@ impl LoweringCtx {
             _ => return Ok(false),
         };
 
-        let Some(semantics) = runmat_builtins::builtin_function_by_name(call_name)
-            .map(|builtin| builtin.semantics())
+        let Some(semantics) = runmat_builtins::builtin_catalog_entry_by_name(call_name)
+            .map(|entry| entry.legacy_semantics())
+            .or_else(|| {
+                runmat_builtins::builtin_function_by_name(call_name)
+                    .map(|builtin| builtin.semantics())
+            })
             .or_else(|| runmat_builtins::builtin_semantics_for_name(call_name))
         else {
             return Ok(false);
@@ -715,8 +765,11 @@ impl LoweringCtx {
         {
             return Ok(None);
         }
-        if let Some(semantics) = runmat_builtins::builtin_function_by_name(name)
-            .map(|builtin| builtin.semantics())
+        if let Some(semantics) = runmat_builtins::builtin_catalog_entry_by_name(name)
+            .map(|entry| entry.legacy_semantics())
+            .or_else(|| {
+                runmat_builtins::builtin_function_by_name(name).map(|builtin| builtin.semantics())
+            })
             .or_else(|| runmat_builtins::builtin_semantics_for_name(name))
         {
             return Ok(semantics.workspace_effect);
@@ -752,6 +805,9 @@ impl LoweringCtx {
                     return RequestedOutputCount::Zero;
                 }
             }
+            if runmat_builtins::builtin_declares_zero_outputs(name) {
+                return RequestedOutputCount::Zero;
+            }
         }
         RequestedOutputCount::One
     }
@@ -770,7 +826,7 @@ impl LoweringCtx {
             span,
         };
         let needs_dynamic_call_dispatch = force_dynamic_call_dispatch
-            || requested_outputs.fixed_count() != 1
+            || requested_outputs.known_count() != Some(1)
             || args.iter().any(|arg| {
                 matches!(
                     &arg.kind,
@@ -1013,7 +1069,7 @@ impl LoweringCtx {
                                     class_name = None;
                                     parser_validators.push(
                                         runmat_parser::FunctionArgValidatorDecl {
-                                            name: name.to_string(),
+                                            name: name.into(),
                                             args: Vec::new(),
                                         },
                                     );
@@ -1157,6 +1213,7 @@ impl LoweringCtx {
         let class_id = self.reserve_class_name(name);
         self.assembly.modules[self.module.0].classes.push(class_id);
         let mut properties = Vec::new();
+        let mut property_defaults = Vec::new();
         let mut methods = Vec::new();
         let mut events = Vec::new();
         let mut enumerations = Vec::new();
@@ -1172,7 +1229,10 @@ impl LoweringCtx {
 
         for member in members {
             match member {
-                runmat_parser::ClassMember::Properties { attributes, names } => {
+                runmat_parser::ClassMember::Properties {
+                    attributes, names, ..
+                } => {
+                    let declared_attributes = semantic_attributes(attributes);
                     let attributes = property_attributes(name, attributes)?;
                     for property_decl in names {
                         let prop_name = &property_decl.name;
@@ -1193,15 +1253,26 @@ impl LoweringCtx {
                             .as_ref()
                             .map(|expr| self.lower_expr_semantic(expr))
                             .transpose()?;
-                        properties.push(ClassProperty {
-                            name: crate::MemberName(prop_name.clone()),
+                        let property_name = crate::MemberName(prop_name.clone());
+                        if let Some(value) = default {
+                            property_defaults.push(ClassPropertyDefault {
+                                property: property_name.clone(),
+                                value,
+                            });
+                        }
+                        properties.push(PropertyDeclaration {
+                            name: property_name,
                             attributes: attributes.clone(),
-                            default,
-                            span,
+                            declared_attributes: declared_attributes.clone(),
+                            has_default: property_decl.default.is_some(),
+                            span: property_decl.span,
                         });
                     }
                 }
-                runmat_parser::ClassMember::Methods { attributes, body } => {
+                runmat_parser::ClassMember::Methods {
+                    attributes, body, ..
+                } => {
+                    let declared_attributes = semantic_attributes(attributes);
                     let is_static = attributes
                         .iter()
                         .any(|attr| attr.name.eq_ignore_ascii_case("Static"));
@@ -1286,11 +1357,12 @@ impl LoweringCtx {
                                 ))
                                 .with_identifier(IDENT_CLASS_MEMBER_NAME_CONFLICT));
                             }
-                            methods.push(ClassMethod {
+                            methods.push(MethodDeclaration {
                                 function: function_id,
                                 name: crate::MethodName(method_name.clone()),
                                 is_static,
                                 attributes: method_attributes.clone(),
+                                declared_attributes: declared_attributes.clone(),
                                 span: *span,
                             });
                         } else if method_attributes.is_abstract {
@@ -1330,61 +1402,82 @@ impl LoweringCtx {
                                 ))
                                 .with_identifier(IDENT_CLASS_MEMBER_NAME_CONFLICT));
                             }
-                            methods.push(ClassMethod {
+                            methods.push(MethodDeclaration {
                                 function: function_id,
                                 name: crate::MethodName(method_name),
                                 is_static,
                                 attributes: method_attributes.clone(),
+                                declared_attributes: declared_attributes.clone(),
                                 span: method_span,
                             });
                         }
                     }
                 }
-                runmat_parser::ClassMember::Events { names, .. } => {
+                runmat_parser::ClassMember::Events {
+                    attributes, names, ..
+                } => {
+                    let declared_attributes = semantic_attributes(attributes);
                     let mut seen = HashSet::new();
-                    for event_name in names {
-                        if !seen.insert(event_name) {
+                    for event in names {
+                        if !seen.insert(&event.name) {
                             return Err(HirError::new(format!(
-                                "Duplicate event '{event_name}' in class {name}"
+                                "Duplicate event '{}' in class {name}",
+                                event.name
                             ))
                             .with_identifier(IDENT_CLASS_MEMBER_DUPLICATE));
                         }
-                        if property_names.contains(event_name) || method_names.contains(event_name)
+                        if property_names.contains(&event.name)
+                            || method_names.contains(&event.name)
                         {
                             return Err(HirError::new(format!(
-                                "Name '{event_name}' used for event conflicts with existing member in class {name}"
+                                "Name '{}' used for event conflicts with existing member in class {name}",
+                                event.name
                             ))
                             .with_identifier(IDENT_CLASS_MEMBER_NAME_CONFLICT));
                         }
-                        events.push(ClassEvent {
-                            name: SymbolName(event_name.clone()),
-                            span,
+                        events.push(EventDeclaration {
+                            name: crate::MemberName(event.name.clone()),
+                            declared_attributes: declared_attributes.clone(),
+                            span: event.span,
                         });
                     }
                 }
-                runmat_parser::ClassMember::Enumeration { names, .. } => {
+                runmat_parser::ClassMember::Enumeration {
+                    attributes, names, ..
+                } => {
+                    let declared_attributes = semantic_attributes(attributes);
                     let mut seen = HashSet::new();
-                    for enum_name in names {
-                        if !seen.insert(enum_name) {
+                    for enumeration in names {
+                        if !seen.insert(&enumeration.name) {
                             return Err(HirError::new(format!(
-                                "Duplicate enumeration '{enum_name}' in class {name}"
+                                "Duplicate enumeration '{}' in class {name}",
+                                enumeration.name
                             ))
                             .with_identifier(IDENT_CLASS_MEMBER_DUPLICATE));
                         }
-                        if property_names.contains(enum_name) || method_names.contains(enum_name) {
+                        if property_names.contains(&enumeration.name)
+                            || method_names.contains(&enumeration.name)
+                        {
                             return Err(HirError::new(format!(
-                                "Name '{enum_name}' used for enumeration conflicts with existing member in class {name}"
+                                "Name '{}' used for enumeration conflicts with existing member in class {name}",
+                                enumeration.name
                             ))
                             .with_identifier(IDENT_CLASS_MEMBER_NAME_CONFLICT));
                         }
-                        enumerations.push(ClassEnumeration {
-                            name: SymbolName(enum_name.clone()),
-                            span,
+                        enumerations.push(EnumerationDeclaration {
+                            name: crate::MemberName(enumeration.name.clone()),
+                            declared_attributes: declared_attributes.clone(),
+                            span: enumeration.span,
                         });
                     }
                 }
-                runmat_parser::ClassMember::Arguments { .. } => {
-                    arguments.push(ClassArgumentBlock { span });
+                runmat_parser::ClassMember::Arguments {
+                    attributes, span, ..
+                } => {
+                    arguments.push(ClassArgumentBlock {
+                        declared_attributes: semantic_attributes(attributes),
+                        span: *span,
+                    });
                 }
             }
         }
@@ -1396,8 +1489,12 @@ impl LoweringCtx {
             span,
         });
 
+        let builtin_super_class = super_class
+            .filter(|super_name| self.external_class_declaration(super_name).is_some())
+            .map(ToOwned::to_owned);
+
         let resolved_super = super_class.and_then(|super_name| {
-            if super_name.eq_ignore_ascii_case("handle") {
+            if builtin_super_class.is_some() {
                 None
             } else {
                 self.class_names.get(super_name).copied().or_else(|| {
@@ -1405,19 +1502,25 @@ impl LoweringCtx {
                         .classes
                         .iter()
                         .find(|candidate| {
-                            candidate.name.0.len() == 1 && candidate.name.0[0].0 == super_name
+                            candidate.declaration.name.0.len() == 1
+                                && candidate.declaration.name.0[0].0 == super_name
                         })
-                        .map(|candidate| candidate.id)
+                        .map(|candidate| candidate.declaration.id)
                 })
             }
         });
 
-        let kind = if super_class
-            .map(|name| name.eq_ignore_ascii_case("handle"))
-            .unwrap_or(false)
-            || resolved_super
-                .and_then(|id| self.assembly.classes.iter().find(|class| class.id == id))
-                .is_some_and(|class| matches!(class.kind, ClassKind::Handle))
+        let kind = if super_class.is_some_and(|name| {
+            self.external_class_declaration(name)
+                .is_some_and(|declaration| matches!(declaration.kind, ClassKind::Handle))
+        }) || resolved_super
+            .and_then(|id| {
+                self.assembly
+                    .classes
+                    .iter()
+                    .find(|class| class.declaration.id == id)
+            })
+            .is_some_and(|class| matches!(class.declaration.kind, ClassKind::Handle))
         {
             ClassKind::Handle
         } else {
@@ -1425,19 +1528,27 @@ impl LoweringCtx {
         };
 
         Ok(HirClass {
-            id: class_id,
             module: self.module,
-            name: qualified,
-            super_class: resolved_super,
-            kind,
-            is_sealed,
-            is_abstract,
-            properties,
-            methods,
-            events,
-            enumerations,
+            declaration: ClassDeclaration {
+                id: class_id,
+                name: qualified,
+                inheritance: InheritanceDeclaration {
+                    declared_super_class: super_class.map(ToOwned::to_owned),
+                    resolved_super_class: resolved_super,
+                    builtin_super_class,
+                },
+                kind,
+                is_sealed,
+                is_abstract,
+                declared_attributes: semantic_attributes(class_attributes),
+                properties,
+                methods,
+                events,
+                enumerations,
+                span,
+            },
+            property_defaults,
             arguments,
-            span,
         })
     }
 
@@ -1446,6 +1557,9 @@ impl LoweringCtx {
         span: Span,
     ) -> Result<FunctionArgDefaultValue, HirError> {
         match expr {
+            AstExpr::IntegerLiteral(value, _) => {
+                Ok(FunctionArgDefaultValue::Integer(value.clone()))
+            }
             AstExpr::Number(_, _) | AstExpr::Unary(UnOp::Plus, _, _) | AstExpr::Unary(UnOp::Minus, _, _) => {
                 let parsed = Self::lower_validator_numeric_literal_expr(expr).ok_or_else(|| {
                     HirError::new("arguments default value must be a numeric literal")
@@ -1485,18 +1599,48 @@ impl LoweringCtx {
         span: Span,
     ) -> Result<FunctionArgValidator, HirError> {
         match validator.name.as_str() {
+            "mustBeA" => Ok(FunctionArgValidator::A(Self::lower_validator_text_list(
+                &validator.args,
+                span,
+            )?)),
+            "mustBeColumn" => Ok(FunctionArgValidator::Column),
+            "mustBeFile" => Ok(FunctionArgValidator::File),
             "mustBeFinite" => Ok(FunctionArgValidator::Finite),
+            "mustBeFloat" => Ok(FunctionArgValidator::Float),
+            "mustBeFolder" => Ok(FunctionArgValidator::Folder),
             "mustBeNumericOrLogical" => Ok(FunctionArgValidator::NumericOrLogical),
+            "mustBeNumeric" => Ok(FunctionArgValidator::Numeric),
             "mustBeText" => Ok(FunctionArgValidator::Text),
+            "mustBeTextScalar" => Ok(FunctionArgValidator::TextScalar),
+            "mustBeNonzeroLengthText" => Ok(FunctionArgValidator::NonzeroLengthText),
             "mustBeNonempty" => Ok(FunctionArgValidator::Nonempty),
             "mustBeScalarOrEmpty" => Ok(FunctionArgValidator::ScalarOrEmpty),
             "mustBeReal" => Ok(FunctionArgValidator::Real),
             "mustBeInteger" => Ok(FunctionArgValidator::Integer),
+            "mustBeVector" => Ok(FunctionArgValidator::Vector {
+                allow_all_empties: Self::lower_vector_allow_all_empties(&validator.args, span)?,
+            }),
             "mustBePositive" => Ok(FunctionArgValidator::Positive),
             "mustBeNegative" => Ok(FunctionArgValidator::Negative),
             "mustBeNonnegative" => Ok(FunctionArgValidator::Nonnegative),
+            "mustBeNonmissing" => Ok(FunctionArgValidator::Nonmissing),
+            "mustBeNonNan" => Ok(FunctionArgValidator::NonNan),
             "mustBeNonzero" => Ok(FunctionArgValidator::Nonzero),
             "mustBeNonpositive" => Ok(FunctionArgValidator::Nonpositive),
+            "mustBeNonsparse" => Ok(FunctionArgValidator::Nonsparse),
+            "mustBeSparse" => Ok(FunctionArgValidator::Sparse),
+            "mustBeValidVariableName" => Ok(FunctionArgValidator::ValidVariableName),
+            "mustBeUnderlyingType" => Ok(FunctionArgValidator::UnderlyingType(
+                Self::lower_validator_text_list(&validator.args, span)?,
+            )),
+            "mustBeMember" => Ok(FunctionArgValidator::Member(
+                Self::lower_validator_literal_list(&validator.args, span)?,
+            )),
+            "mustBeInRange" => {
+                let (lower, upper, inclusivity) =
+                    Self::lower_validator_numeric_bounds(&validator.args, span)?;
+                Ok(FunctionArgValidator::InRange(lower, upper, inclusivity))
+            }
             "mustBeGreaterThanOrEqual" => {
                 let threshold = Self::lower_validator_numeric_threshold(&validator.args, span)?;
                 Ok(FunctionArgValidator::GreaterThanOrEqual(threshold))
@@ -1519,6 +1663,260 @@ impl LoweringCtx {
             ))
             .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
             .with_span(span)),
+        }
+    }
+
+    fn lower_validator_payload_arg(args: &[AstExpr], span: Span) -> Result<&AstExpr, HirError> {
+        match args {
+            [value] => Ok(value),
+            [_, value] => Ok(value),
+            _ => Err(
+                HirError::new("validator requires one literal payload argument")
+                    .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                    .with_span(span),
+            ),
+        }
+    }
+
+    fn lower_vector_allow_all_empties(args: &[AstExpr], span: Span) -> Result<bool, HirError> {
+        match args {
+            [] | [_] => Ok(false),
+            [_, AstExpr::String(flag, _)]
+                if Self::normalize_validator_string_literal(flag)
+                    .eq_ignore_ascii_case("allow-all-empties") =>
+            {
+                Ok(true)
+            }
+            _ => Err(HirError::new(
+                "mustBeVector accepts only the literal option 'allow-all-empties'",
+            )
+            .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+            .with_span(span)),
+        }
+    }
+
+    fn lower_validator_text_list(args: &[AstExpr], span: Span) -> Result<Vec<String>, HirError> {
+        let payload = Self::lower_validator_payload_arg(args, span)?;
+        let mut out = Vec::new();
+        Self::collect_validator_text_literals(payload, &mut out)?;
+        if out.is_empty() {
+            return Err(HirError::new("validator text payload must not be empty")
+                .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                .with_span(span));
+        }
+        Ok(out)
+    }
+
+    fn collect_validator_text_literals(
+        expr: &AstExpr,
+        out: &mut Vec<String>,
+    ) -> Result<(), HirError> {
+        match expr {
+            AstExpr::String(value, _) => {
+                out.push(Self::normalize_validator_string_literal(value));
+                Ok(())
+            }
+            AstExpr::Tensor(rows, _) | AstExpr::Cell(rows, _) => {
+                for row in rows {
+                    for item in row {
+                        Self::collect_validator_text_literals(item, out)?;
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(HirError::new(
+                "validator text payload must be a string literal or literal string collection",
+            )
+            .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+            .with_span(expr.span())),
+        }
+    }
+
+    fn lower_validator_literal_list(
+        args: &[AstExpr],
+        span: Span,
+    ) -> Result<Vec<FunctionArgValidationLiteral>, HirError> {
+        let payload = Self::lower_validator_payload_arg(args, span)?;
+        let mut out = Vec::new();
+        Self::collect_validator_literals(payload, &mut out)?;
+        if out.is_empty() {
+            return Err(HirError::new("validator member payload must not be empty")
+                .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                .with_span(span));
+        }
+        Ok(out)
+    }
+
+    fn collect_validator_literals(
+        expr: &AstExpr,
+        out: &mut Vec<FunctionArgValidationLiteral>,
+    ) -> Result<(), HirError> {
+        match expr {
+            AstExpr::String(value, _) => {
+                out.push(FunctionArgValidationLiteral::Text(
+                    Self::normalize_validator_string_literal(value),
+                ));
+                Ok(())
+            }
+            AstExpr::Number(_, _) | AstExpr::Unary(_, _, _) => {
+                let Some(value) = Self::lower_validator_numeric_literal_expr(expr) else {
+                    return Err(HirError::new(
+                        "validator member numeric payload must be a numeric literal",
+                    )
+                    .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                    .with_span(expr.span()));
+                };
+                out.push(FunctionArgValidationLiteral::Number(value));
+                Ok(())
+            }
+            AstExpr::IntegerLiteral(value, _) => {
+                out.push(FunctionArgValidationLiteral::Integer(value.clone()));
+                Ok(())
+            }
+            AstExpr::Ident(name, _) if name == "true" => {
+                out.push(FunctionArgValidationLiteral::Bool(true));
+                Ok(())
+            }
+            AstExpr::Ident(name, _) if name == "false" => {
+                out.push(FunctionArgValidationLiteral::Bool(false));
+                Ok(())
+            }
+            AstExpr::Tensor(rows, _) | AstExpr::Cell(rows, _) => {
+                for row in rows {
+                    for item in row {
+                        Self::collect_validator_literals(item, out)?;
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(HirError::new(
+                "validator member payload must be a literal scalar or literal collection",
+            )
+            .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+            .with_span(expr.span())),
+        }
+    }
+
+    fn lower_validator_numeric_bounds(
+        args: &[AstExpr],
+        span: Span,
+    ) -> Result<(f64, f64, FunctionArgRangeInclusivity), HirError> {
+        let (lower_expr, upper_expr, flag_exprs): (&AstExpr, &AstExpr, &[AstExpr]) = match args {
+            [lower, upper] => (lower, upper, &[]),
+            [first, second, third] if Self::validator_arg_is_explicit_value(first) => {
+                (second, third, &[])
+            }
+            [lower, upper, flag] => (lower, upper, std::slice::from_ref(flag)),
+            [first, second, third, flag] if Self::validator_arg_is_explicit_value(first) => {
+                (second, third, std::slice::from_ref(flag))
+            }
+            [lower, upper, _, _] => (lower, upper, &args[2..4]),
+            [first, second, third, _, _] if Self::validator_arg_is_explicit_value(first) => {
+                (second, third, &args[3..5])
+            }
+            _ => {
+                return Err(
+                    HirError::new("validator requires lower and upper numeric bounds")
+                        .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                        .with_span(span),
+                )
+            }
+        };
+        let lower = Self::lower_validator_numeric_literal_expr(lower_expr).ok_or_else(|| {
+            HirError::new("validator lower bound must be a numeric literal")
+                .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                .with_span(span)
+        })?;
+        let upper = Self::lower_validator_numeric_literal_expr(upper_expr).ok_or_else(|| {
+            HirError::new("validator upper bound must be a numeric literal")
+                .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                .with_span(span)
+        })?;
+        let inclusivity = Self::lower_validator_range_inclusivity(flag_exprs, span)?;
+        Ok((lower, upper, inclusivity))
+    }
+
+    fn validator_arg_is_explicit_value(expr: &AstExpr) -> bool {
+        matches!(expr, AstExpr::Ident(_, _))
+    }
+
+    fn lower_validator_range_inclusivity(
+        flags: &[AstExpr],
+        span: Span,
+    ) -> Result<FunctionArgRangeInclusivity, HirError> {
+        match flags {
+            [] => Ok(FunctionArgRangeInclusivity::CLOSED),
+            [flag] => {
+                let flag = Self::lower_validator_text_literal(flag)?;
+                Self::lower_validator_single_range_flag(&flag, span)
+            }
+            [lower, upper] => {
+                let lower = Self::lower_validator_bound_flag(
+                    &Self::lower_validator_text_literal(lower)?,
+                    span,
+                )?;
+                let upper = Self::lower_validator_bound_flag(
+                    &Self::lower_validator_text_literal(upper)?,
+                    span,
+                )?;
+                Ok(FunctionArgRangeInclusivity { lower, upper })
+            }
+            _ => Err(
+                HirError::new("validator range accepts at most two inclusivity flags")
+                    .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                    .with_span(span),
+            ),
+        }
+    }
+
+    fn lower_validator_text_literal(expr: &AstExpr) -> Result<String, HirError> {
+        match expr {
+            AstExpr::String(value, _) => Ok(Self::normalize_validator_string_literal(value)),
+            _ => Err(
+                HirError::new("validator range flag must be a string literal")
+                    .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+                    .with_span(expr.span()),
+            ),
+        }
+    }
+
+    fn lower_validator_single_range_flag(
+        flag: &str,
+        span: Span,
+    ) -> Result<FunctionArgRangeInclusivity, HirError> {
+        match flag.trim().to_ascii_lowercase().as_str() {
+            "inclusive" => Ok(FunctionArgRangeInclusivity::CLOSED),
+            "exclusive" => Ok(FunctionArgRangeInclusivity::OPEN),
+            "exclude-lower" | "openleft" | "open-left" => Ok(FunctionArgRangeInclusivity::OPEN_LEFT),
+            "exclude-upper" | "openright" | "open-right" => Ok(FunctionArgRangeInclusivity::OPEN_RIGHT),
+            _ => Err(HirError::new(
+                "validator range flag must be 'inclusive', 'exclusive', 'exclude-lower', or 'exclude-upper'",
+            )
+            .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+            .with_span(span)),
+        }
+    }
+
+    fn lower_validator_bound_flag(flag: &str, span: Span) -> Result<bool, HirError> {
+        match flag.trim().to_ascii_lowercase().as_str() {
+            "inclusive" => Ok(true),
+            "exclusive" => Ok(false),
+            _ => Err(HirError::new(
+                "validator range bound flag must be 'inclusive' or 'exclusive'",
+            )
+            .with_identifier(IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN_VALIDATOR)
+            .with_span(span)),
+        }
+    }
+
+    fn normalize_validator_string_literal(value: &str) -> String {
+        if value.len() >= 2
+            && ((value.starts_with('\'') && value.ends_with('\''))
+                || (value.starts_with('"') && value.ends_with('"')))
+        {
+            value[1..value.len() - 1].to_string()
+        } else {
+            value.to_string()
         }
     }
 
@@ -1558,17 +1956,34 @@ impl LoweringCtx {
         matches!(
             name,
             "mustBeFinite"
+                | "mustBeA"
+                | "mustBeColumn"
+                | "mustBeFile"
+                | "mustBeFloat"
+                | "mustBeFolder"
                 | "mustBeNumericOrLogical"
+                | "mustBeNumeric"
                 | "mustBeText"
+                | "mustBeTextScalar"
+                | "mustBeNonzeroLengthText"
                 | "mustBeNonempty"
                 | "mustBeScalarOrEmpty"
                 | "mustBeReal"
                 | "mustBeInteger"
+                | "mustBeVector"
                 | "mustBePositive"
                 | "mustBeNegative"
                 | "mustBeNonnegative"
+                | "mustBeNonmissing"
+                | "mustBeNonNan"
                 | "mustBeNonzero"
                 | "mustBeNonpositive"
+                | "mustBeNonsparse"
+                | "mustBeSparse"
+                | "mustBeValidVariableName"
+                | "mustBeUnderlyingType"
+                | "mustBeMember"
+                | "mustBeInRange"
                 | "mustBeGreaterThanOrEqual"
                 | "mustBeLessThanOrEqual"
                 | "mustBeGreaterThan"
@@ -1597,13 +2012,11 @@ impl LoweringCtx {
             let Some((text, span)) = syms_argument_text(arg, allow_word_args) else {
                 continue;
             };
-            for token in runmat_builtins::symbolic::symbolic_declaration_tokens(&text) {
+            for token in runmat_types::symbolic_declaration_tokens(&text) {
                 if saw_declared_symbol && is_syms_assumption_keyword(token) {
                     continue;
                 }
-                if let Ok(declaration) =
-                    runmat_builtins::symbolic::parse_symbolic_declaration(token)
-                {
+                if let Ok(declaration) = runmat_types::parse_symbolic_declaration(token) {
                     self.binding_for_write(&declaration.name, span);
                     for parameter in declaration.parameters {
                         self.binding_for_write(&parameter, span);
@@ -1634,7 +2047,11 @@ impl LoweringCtx {
                     self.requested_outputs_for_expr_stmt(expr)
                 };
                 let stmt = HirStmtKind::ExprStmt(
-                    self.lower_expr_semantic_requested(expr, requested_outputs)?,
+                    self.lower_expr_semantic_requested_in_context(
+                        expr,
+                        requested_outputs,
+                        runmat_types::ObjectIndexingContext::Statement,
+                    )?,
                     *suppressed,
                 );
                 if loads_external_bindings {
@@ -1669,6 +2086,20 @@ impl LoweringCtx {
                         creation_policy,
                         AssignmentShapePolicy::MatlabCompatible,
                     );
+                    if let Some(target) = sequence_target_from_place(place.clone()) {
+                        return Ok(Some(HirStmtNode {
+                            id: self.alloc_stmt_id(),
+                            kind: HirStmtKind::SequenceAssign {
+                                target,
+                                value: self.lower_expr_semantic_requested(
+                                    expr,
+                                    RequestedOutputCount::DestinationSequenceCardinality,
+                                )?,
+                                suppressed: *suppressed,
+                            },
+                            span,
+                        }));
+                    }
                     let requested = requested_outputs_for_lvalue_assignment(lvalue, expr);
                     return Ok(Some(HirStmtNode {
                         id: self.alloc_stmt_id(),
@@ -1697,20 +2128,28 @@ impl LoweringCtx {
                                     creation_policy,
                                     AssignmentShapePolicy::MatlabCompatible,
                                 );
-                                Ok(crate::OutputTarget::Place(place))
+                                Ok(sequence_target_from_place(place.clone()).map_or(
+                                    crate::OutputTarget::Place(place),
+                                    crate::OutputTarget::Sequence,
+                                ))
                             }
                         }
                     })
                     .collect::<Result<Vec<_>, HirError>>()?;
+                let has_sequence_target = lowered_targets
+                    .iter()
+                    .any(|target| matches!(target, crate::OutputTarget::Sequence(_)));
+                let requested_outputs = if has_sequence_target {
+                    RequestedOutputCount::DestinationSequenceCardinality
+                } else {
+                    RequestedOutputCount::Exactly(lowered_targets.len())
+                };
                 HirStmtKind::MultiAssign(
                     crate::OutputTargetList {
-                        requested_outputs: RequestedOutputCount::Exactly(lowered_targets.len()),
+                        requested_outputs,
                         targets: lowered_targets,
                     },
-                    self.lower_expr_semantic_requested(
-                        expr,
-                        RequestedOutputCount::Exactly(targets.len()),
-                    )?,
+                    self.lower_expr_semantic_requested(expr, requested_outputs)?,
                     *suppressed,
                 )
             }
@@ -1752,6 +2191,50 @@ impl LoweringCtx {
                     body: self.lower_stmts_semantic(body)?,
                 }
             }
+            AstStmt::ParFor {
+                var,
+                expr,
+                maximum_workers,
+                body,
+                ..
+            } => {
+                let region = self.alloc_parallel_region_id();
+                let binding =
+                    self.define_binding(var, BindingRole::Local, BindingStorage::Lexical, span);
+                HirStmtKind::ParFor {
+                    region,
+                    binding,
+                    range: self.lower_expr_semantic(expr)?,
+                    maximum_workers: maximum_workers
+                        .as_ref()
+                        .map(|value| self.lower_expr_semantic(value))
+                        .transpose()?,
+                    body: self.lower_stmts_semantic(body)?,
+                }
+            }
+            AstStmt::Spmd { header, body, .. } => HirStmtKind::Spmd {
+                region: self.alloc_parallel_region_id(),
+                header: match header {
+                    runmat_parser::SpmdHeader::Default => crate::parallel::SpmdHeader::Default,
+                    runmat_parser::SpmdHeader::One(value) => {
+                        crate::parallel::SpmdHeader::One(self.lower_expr_semantic(value)?)
+                    }
+                    runmat_parser::SpmdHeader::Two(first, second) => {
+                        crate::parallel::SpmdHeader::Two(
+                            self.lower_expr_semantic(first)?,
+                            self.lower_expr_semantic(second)?,
+                        )
+                    }
+                    runmat_parser::SpmdHeader::Three(first, second, third) => {
+                        crate::parallel::SpmdHeader::Three(
+                            self.lower_expr_semantic(first)?,
+                            self.lower_expr_semantic(second)?,
+                            self.lower_expr_semantic(third)?,
+                        )
+                    }
+                },
+                body: self.lower_stmts_semantic(body)?,
+            },
             AstStmt::Global(names, _) => {
                 let ids = names
                     .iter()
@@ -1929,24 +2412,26 @@ impl LoweringCtx {
             }
             AstExpr::Member(base, name, _) => Ok(HirExpr {
                 id: self.alloc_expr_id(),
-                kind: HirExprKind::Member(
-                    Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
-                    crate::MemberName(name.clone()),
-                ),
+                kind: HirExprKind::Member {
+                    base: Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
+                    member: crate::MemberName(name.clone()),
+                    sequence_use: runmat_types::SequenceUse::RequireSingle,
+                },
                 span: expr.span(),
             }),
             AstExpr::MemberDynamic(base, name, _) => Ok(HirExpr {
                 id: self.alloc_expr_id(),
-                kind: HirExprKind::MemberDynamic(
-                    Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
-                    Box::new(self.lower_expr_semantic(name)?),
-                ),
+                kind: HirExprKind::MemberDynamic {
+                    base: Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
+                    member: Box::new(self.lower_expr_semantic(name)?),
+                    sequence_use: runmat_types::SequenceUse::RequireSingle,
+                },
                 span: expr.span(),
             }),
             AstExpr::Index(base, indices, _) => Ok(HirExpr {
                 id: self.alloc_expr_id(),
                 kind: HirExprKind::Index(
-                    Box::new(self.lower_assignment_base_expr(base, span, index_context.clone())?),
+                    Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
                     self.lower_indexing_with_context(indices, IndexKind::Paren, index_context)?,
                 ),
                 span: expr.span(),
@@ -1954,7 +2439,7 @@ impl LoweringCtx {
             AstExpr::IndexCell(base, indices, _) => Ok(HirExpr {
                 id: self.alloc_expr_id(),
                 kind: HirExprKind::Index(
-                    Box::new(self.lower_assignment_base_expr(base, span, index_context.clone())?),
+                    Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
                     self.lower_indexing_with_context(indices, IndexKind::Brace, index_context)?,
                 ),
                 span: expr.span(),
@@ -1987,9 +2472,28 @@ impl LoweringCtx {
         expr: &AstExpr,
         requested_outputs: RequestedOutputCount,
     ) -> Result<HirExpr, HirError> {
+        self.lower_expr_semantic_requested_in_context(
+            expr,
+            requested_outputs,
+            runmat_types::ObjectIndexingContext::Expression,
+        )
+    }
+
+    fn lower_expr_semantic_requested_in_context(
+        &mut self,
+        expr: &AstExpr,
+        requested_outputs: RequestedOutputCount,
+        indexing_context: runmat_types::ObjectIndexingContext,
+    ) -> Result<HirExpr, HirError> {
+        if let Some(chain) =
+            self.lower_subscript_chain(expr, requested_outputs, indexing_context)?
+        {
+            return Ok(chain);
+        }
         let span = expr.span();
         let kind = match expr {
             AstExpr::Number(value, _) => HirExprKind::Number(value.clone()),
+            AstExpr::IntegerLiteral(value, _) => HirExprKind::IntegerLiteral(value.clone()),
             AstExpr::String(value, _) => HirExprKind::String(StringLiteral(value.clone())),
             AstExpr::NameValueArg(_, _, _) => {
                 return Err(HirError::new(
@@ -2002,15 +2506,10 @@ impl LoweringCtx {
                 if let Some(binding) = self.binding_for_read(name, span) {
                     HirExprKind::Binding(binding)
                 } else if self.current_scope().external_bindings_visible
-                    && runmat_builtins::constants()
-                        .iter()
-                        .any(|c| c.name == name.as_str())
+                    && runmat_builtins::builtin_constant_catalog_entry_by_name(name).is_some()
                 {
                     HirExprKind::Binding(self.define_external_binding_for_read(name, span))
-                } else if runmat_builtins::constants()
-                    .iter()
-                    .any(|c| c.name == name.as_str())
-                {
+                } else if runmat_builtins::builtin_constant_catalog_entry_by_name(name).is_some() {
                     HirExprKind::Constant(SymbolName(name.clone()))
                 } else if let Some(class_name) =
                     self.resolve_imported_static_property_target(name, span)?
@@ -2022,8 +2521,12 @@ impl LoweringCtx {
                             property: MemberName(name.clone()),
                         }
                     } else {
-                        let class_ref = self.classref_expr(&class_name, span)?;
-                        HirExprKind::Member(Box::new(class_ref), MemberName(name.clone()))
+                        let class_ref = self.classref_expr(class_name.display_name(), span)?;
+                        HirExprKind::Member {
+                            base: Box::new(class_ref),
+                            member: MemberName(name.clone()),
+                            sequence_use: runmat_types::SequenceUse::RequireSingle,
+                        }
                     }
                 } else if is_builtin(name)
                     || self.resolve_scoped_function_name(name).is_some()
@@ -2057,7 +2560,7 @@ impl LoweringCtx {
                 if name == AWAIT_EXTENSION_NAME && args.len() == 1 {
                     if !self.runmat_extensions_enabled {
                         return Err(HirError::new(
-                            "await is a RunMat extension and is not available in MATLAB strict mode",
+                            "await is a RunMat extension and is available only in RunMat compatibility mode",
                         )
                         .with_span(span)
                         .with_identifier(IDENT_AWAIT_EXTENSION_DISABLED));
@@ -2073,7 +2576,7 @@ impl LoweringCtx {
                 } else if name == SPAWN_EXTENSION_NAME && args.len() == 1 {
                     if !self.runmat_extensions_enabled {
                         return Err(HirError::new(
-                            "spawn is a RunMat extension and is not available in MATLAB strict mode",
+                            "spawn is a RunMat extension and is available only in RunMat compatibility mode",
                         )
                         .with_span(span)
                         .with_identifier(IDENT_SPAWN_EXTENSION_DISABLED));
@@ -2175,7 +2678,17 @@ impl LoweringCtx {
                 args: args.iter().map(command_argument).collect(),
             }),
             AstExpr::FuncHandle(name, _) => {
-                HirExprKind::FunctionHandle(self.resolve_function_handle_target(name, span)?)
+                let target = self.resolve_function_handle_target(name, span)?;
+                self.hir_index
+                    .function_handles
+                    .push(crate::FunctionHandleResolution {
+                        name: qualified_name(
+                            &name.split('.').map(ToString::to_string).collect::<Vec<_>>(),
+                        ),
+                        target: target.clone(),
+                        span,
+                    });
+                HirExprKind::FunctionHandle(target)
             }
             AstExpr::AnonFunc { params, body, span } => {
                 let function_id = self.take_function_id();
@@ -2252,30 +2765,24 @@ impl LoweringCtx {
                 binary_op(*op),
                 Box::new(self.lower_expr_semantic(right)?),
             ),
-            AstExpr::Tensor(rows, _) => {
-                self.validate_rectangular_aggregate("tensor", rows)?;
-                HirExprKind::Tensor(
-                    rows.iter()
-                        .map(|row| {
-                            row.iter()
-                                .map(|expr| self.lower_expr_semantic(expr))
-                                .collect()
-                        })
-                        .collect::<Result<_, _>>()?,
-                )
-            }
-            AstExpr::Cell(rows, _) => {
-                self.validate_rectangular_aggregate("cell", rows)?;
-                HirExprKind::Cell(
-                    rows.iter()
-                        .map(|row| {
-                            row.iter()
-                                .map(|expr| self.lower_expr_semantic(expr))
-                                .collect()
-                        })
-                        .collect::<Result<_, _>>()?,
-                )
-            }
+            AstExpr::Tensor(rows, _) => HirExprKind::Tensor(
+                rows.iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|expr| self.lower_aggregate_element(expr))
+                            .collect()
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
+            AstExpr::Cell(rows, _) => HirExprKind::Cell(
+                rows.iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|expr| self.lower_aggregate_element(expr))
+                            .collect()
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
             AstExpr::StructLiteral(fields, _) => HirExprKind::StructLiteral(
                 fields
                     .iter()
@@ -2351,12 +2858,19 @@ impl LoweringCtx {
                 } else {
                     self.lower_expr_semantic(base)?
                 };
-                HirExprKind::Member(Box::new(lowered_base), crate::MemberName(name.clone()))
+                HirExprKind::Member {
+                    base: Box::new(lowered_base),
+                    member: crate::MemberName(name.clone()),
+                    sequence_use: runmat_types::SequenceUse::from_requested_outputs(
+                        requested_outputs,
+                    ),
+                }
             }
-            AstExpr::MemberDynamic(base, name, _) => HirExprKind::MemberDynamic(
-                Box::new(self.lower_expr_semantic(base)?),
-                Box::new(self.lower_expr_semantic(name)?),
-            ),
+            AstExpr::MemberDynamic(base, name, _) => HirExprKind::MemberDynamic {
+                base: Box::new(self.lower_expr_semantic(base)?),
+                member: Box::new(self.lower_expr_semantic(name)?),
+                sequence_use: runmat_types::SequenceUse::from_requested_outputs(requested_outputs),
+            },
             AstExpr::DottedInvoke(base, name, args, _)
             | AstExpr::MethodCall(base, name, args, _) => {
                 if let AstExpr::MetaClass(class_name, _) = &**base {
@@ -2375,8 +2889,16 @@ impl LoweringCtx {
                     });
                 }
                 if let AstExpr::Ident(class_name, _) = &**base {
-                    if let Some((method, _)) = runmat_builtins::lookup_method(class_name, name) {
-                        if !method.is_static || method.access != runmat_builtins::Access::Public {
+                    if let Some(method) =
+                        self.external_class_declaration(class_name)
+                            .and_then(|declaration| {
+                                declaration
+                                    .methods
+                                    .into_iter()
+                                    .find(|method| method.name.0 == *name)
+                            })
+                    {
+                        if !method.is_static || method.attributes.access != MemberAccess::Public {
                             return Err(HirError::new(format!(
                                 "method {class_name}.{name} is not accessible as a public static method"
                             ))
@@ -2390,7 +2912,12 @@ impl LoweringCtx {
                                 span: base.span(),
                             });
                         }
-                        let function_name = method.function_name;
+                        let Some(function_name) = method.callable.display_name() else {
+                            return Err(HirError::new(format!(
+                                "method {class_name}.{name} has no callable name"
+                            ))
+                            .with_span(span));
+                        };
                         return Ok(HirExpr {
                             id: self.alloc_expr_id(),
                             kind: HirExprKind::Call(self.call_for_name(
@@ -2572,7 +3099,34 @@ impl LoweringCtx {
                 span: arg.span(),
             });
         }
-        self.lower_expr_semantic_requested(arg, requested_outputs)
+        let mut lowered = self.lower_expr_semantic_requested(arg, requested_outputs)?;
+        match &mut lowered.kind {
+            HirExprKind::Member { sequence_use, .. }
+            | HirExprKind::MemberDynamic { sequence_use, .. } => {
+                *sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            HirExprKind::SubscriptChain(chain) if chain.terminal_expands_sequence() => {
+                chain.sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            _ => {}
+        }
+        Ok(lowered)
+    }
+
+    fn lower_aggregate_element(&mut self, expression: &AstExpr) -> Result<HirExpr, HirError> {
+        let mut lowered =
+            self.lower_expr_semantic_requested(expression, RequestedOutputCount::One)?;
+        match &mut lowered.kind {
+            HirExprKind::Member { sequence_use, .. }
+            | HirExprKind::MemberDynamic { sequence_use, .. } => {
+                *sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            HirExprKind::SubscriptChain(chain) if chain.terminal_expands_sequence() => {
+                chain.sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            _ => {}
+        }
+        Ok(lowered)
     }
 
     fn lower_indexing_with_context(
@@ -2669,7 +3223,7 @@ impl LoweringCtx {
             (
                 HirCallableRef::ExternalFunction {
                     function: *function,
-                    display_name: name.to_string(),
+                    display_name: name.into(),
                 },
                 CallKind::DirectFunction(*function),
             )
@@ -2679,10 +3233,17 @@ impl LoweringCtx {
                 CallKind::Dynamic,
             )
         } else if is_builtin(name) {
-            let builtin = BuiltinId(name.to_string());
+            let builtin = runmat_builtins::builtin_id_by_name(name)
+                .unwrap_or_else(|| BuiltinId(name.to_string()));
             (
                 HirCallableRef::Builtin(builtin.clone()),
                 CallKind::Builtin(builtin),
+            )
+        } else if self.known_project_symbols.contains(name) {
+            let path = def_path_for_import_path(&qualified_call_name);
+            (
+                HirCallableRef::Imported(path.clone()),
+                CallKind::PackageFunction(path),
             )
         } else if let Some(def_path) = self.resolve_imported_call_target(name, span)? {
             (
@@ -2699,7 +3260,8 @@ impl LoweringCtx {
             name: qualified_call_name,
             callee: callee.clone(),
             kind,
-            requested_outputs: requested_outputs.clone(),
+            syntax: syntax.clone(),
+            requested_outputs,
             span,
         });
         Ok(HirCall {
@@ -2842,6 +3404,7 @@ impl LoweringCtx {
             .filter(|import| {
                 !import.wildcard && import.path.0.last().map(|part| part.0.as_str()) == Some(name)
             })
+            .filter(|import| self.wildcard_candidate_is_resolvable(&import.path))
             .collect();
         if specific_matches.len() == 1 {
             return Ok(Some(def_path_for_import_path(&specific_matches[0].path)));
@@ -2876,13 +3439,15 @@ impl LoweringCtx {
         &self,
         name: &str,
         span: Span,
-    ) -> Result<Option<String>, HirError> {
+    ) -> Result<Option<ClassIdentity>, HirError> {
         let imports = &self.assembly.modules[self.module.0].imports;
-        let specific_candidates: Vec<String> = imports
+        let specific_candidates: Vec<ClassIdentity> = imports
             .iter()
             .filter(|import| import.wildcard)
-            .map(|import| Self::qualified_name_string(&import.path))
-            .filter(|qualified_class| self.class_has_public_static_property(qualified_class, name))
+            .filter_map(|import| ClassIdentity::new(Self::qualified_name_string(&import.path)).ok())
+            .filter(|qualified_class| {
+                self.class_has_public_static_property(qualified_class.display_name(), name)
+            })
             .collect();
         if specific_candidates.len() == 1 {
             return Ok(specific_candidates.first().cloned());
@@ -2908,13 +3473,20 @@ impl LoweringCtx {
         if let Some(function) = self.external_function_names.get(name) {
             return Ok(crate::FunctionHandleTarget::ExternalFunction {
                 function: *function,
-                display_name: name.to_string(),
+                display_name: name.into(),
             });
         }
         if is_builtin(name) {
-            return Ok(crate::FunctionHandleTarget::Builtin(BuiltinId(
-                name.to_string(),
-            )));
+            let builtin = runmat_builtins::builtin_id_by_name(name)
+                .unwrap_or_else(|| BuiltinId(name.to_string()));
+            return Ok(crate::FunctionHandleTarget::Builtin(builtin));
+        }
+        if self.known_project_symbols.contains(name) {
+            return Ok(crate::FunctionHandleTarget::DefPath(
+                def_path_for_import_path(&qualified_name(
+                    &name.split('.').map(ToString::to_string).collect::<Vec<_>>(),
+                )),
+            ));
         }
         if let Some((qualified_constructor, _)) =
             self.resolve_imported_constructor_target(name, span)?
@@ -2949,13 +3521,6 @@ impl LoweringCtx {
                     }
                 }
             }
-            if Self::is_well_formed_qualified_name(name) {
-                return Ok(crate::FunctionHandleTarget::DefPath(
-                    def_path_for_import_path(&qualified_name(
-                        &name.split('.').map(ToString::to_string).collect::<Vec<_>>(),
-                    )),
-                ));
-            }
             return Ok(crate::FunctionHandleTarget::DynamicName(SymbolName(
                 name.to_string(),
             )));
@@ -2966,6 +3531,7 @@ impl LoweringCtx {
             .filter(|import| {
                 !import.wildcard && import.path.0.last().map(|part| part.0.as_str()) == Some(name)
             })
+            .filter(|import| self.wildcard_candidate_is_resolvable(&import.path))
             .collect();
         if specific_matches.len() > 1 {
             return Err(HirError::new(format!(
@@ -3102,6 +3668,9 @@ fn command_argument(expr: &AstExpr) -> CommandArgument {
         AstExpr::Ident(word, _) | AstExpr::Number(word, _) => {
             CommandArgument::Word(SymbolName(word.clone()))
         }
+        AstExpr::IntegerLiteral(value, _) => {
+            CommandArgument::Word(SymbolName(value.text().to_string()))
+        }
         AstExpr::String(value, _) => CommandArgument::StringLiteral(StringLiteral(value.clone())),
         AstExpr::EndKeyword(_) => CommandArgument::Word(SymbolName("end".to_string())),
         _ => CommandArgument::StringLiteral(StringLiteral(format!("{expr:?}"))),
@@ -3167,6 +3736,19 @@ fn requested_outputs_for_lvalue_assignment(
         .unwrap_or(RequestedOutputCount::One)
 }
 
+fn sequence_target_from_place(place: HirPlace) -> Option<crate::HirSequenceTarget> {
+    match place {
+        HirPlace::Member(base, member) => Some(crate::HirSequenceTarget::Member { base, member }),
+        HirPlace::MemberDynamic(base, member) => {
+            Some(crate::HirSequenceTarget::DynamicMember { base, member })
+        }
+        HirPlace::IndexCell(base, indexing) => {
+            Some(crate::HirSequenceTarget::CellContents { base, indexing })
+        }
+        HirPlace::Binding(_) | HirPlace::Index(_, _) => None,
+    }
+}
+
 fn lvalue_requires_current_nargout(lvalue: &runmat_parser::LValue) -> bool {
     use runmat_parser::LValue;
     let indices = match lvalue {
@@ -3221,7 +3803,10 @@ fn static_lvalue_assignment_count(lvalue: &runmat_parser::LValue) -> Option<usiz
 
 fn static_index_component_count(expr: &AstExpr) -> Option<usize> {
     match expr {
-        AstExpr::Number(_, _) | AstExpr::Ident(_, _) | AstExpr::EndKeyword(_) => Some(1),
+        AstExpr::Number(_, _)
+        | AstExpr::IntegerLiteral(_, _)
+        | AstExpr::Ident(_, _)
+        | AstExpr::EndKeyword(_) => Some(1),
         AstExpr::Tensor(rows, _) => Some(rows.iter().map(Vec::len).sum()),
         AstExpr::Range(start, step, end, _) => {
             let start = static_numeric_literal(start)?;
@@ -3343,6 +3928,17 @@ fn parse_member_access_value(
     }
 }
 
+fn semantic_attributes(attributes: &[runmat_parser::Attr]) -> Vec<crate::SemanticAttribute> {
+    attributes
+        .iter()
+        .map(|attribute| crate::SemanticAttribute {
+            name: attribute.name.clone(),
+            value: attribute.value.clone(),
+            span: attribute.span,
+        })
+        .collect()
+}
+
 fn property_attributes(
     class_name: &str,
     attrs: &[runmat_parser::Attr],
@@ -3372,8 +3968,8 @@ fn property_attributes(
                 ))
             })?;
             let access = parse_member_access_value(class_name, "properties", raw)?;
-            result.access = access.clone();
-            result.get_access = access.clone();
+            result.access = access;
+            result.get_access = access;
             result.set_access = access;
         } else if attr.name.eq_ignore_ascii_case("GetAccess") {
             let raw = attr.value.as_deref().ok_or_else(|| {
@@ -3450,9 +4046,7 @@ fn is_builtin(name: &str) -> bool {
     if matches!(name, NARGIN_BUILTIN_NAME | NARGOUT_BUILTIN_NAME) {
         return true;
     }
-    runmat_builtins::builtin_functions()
-        .iter()
-        .any(|builtin| builtin.name == name)
+    runmat_builtins::builtin_name_is_known(name)
         || runmat_builtins::builtin_semantics_for_name(name).is_some()
 }
 

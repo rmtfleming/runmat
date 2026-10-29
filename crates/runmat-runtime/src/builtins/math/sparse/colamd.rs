@@ -39,9 +39,10 @@ use std::collections::HashSet;
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Tensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{Tensor, Value};
 
 use crate::builtins::common::gpu_helpers;
 use crate::builtins::common::spec::{
@@ -262,7 +263,8 @@ fn internal_error(detail: String) -> RuntimeError {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{builtin_function_by_name, CharArray, LogicalArray, SparseTensor};
+    use runmat_builtins::builtin_function_by_name;
+    use runmat_value::{CharArray, LogicalArray, SparseTensor};
 
     fn run_colamd(value: Value) -> Value {
         block_on(super::colamd_builtin(value)).expect("colamd")
@@ -284,11 +286,11 @@ pub(crate) mod tests {
             vec![1, n],
             "output must be a 1×{n} row vector"
         );
-        assert_eq!(tensor.data.len(), n);
+        assert_eq!(tensor.len(), n);
         // Valid permutation of 1..n: each index appears exactly once.
         let mut seen = vec![false; n];
         let mut perm = Vec::with_capacity(n);
-        for &raw in &tensor.data {
+        for &raw in &tensor.materialize_f64() {
             assert_eq!(raw.fract(), 0.0, "permutation entries must be integers");
             let idx = raw as usize;
             assert!(idx >= 1 && idx <= n, "index {idx} out of range 1..{n}");
@@ -334,7 +336,7 @@ pub(crate) mod tests {
         let Value::Tensor(t) = result else {
             panic!("expected tensor");
         };
-        assert_eq!(t.data, vec![2.0, 1.0, 3.0]);
+        assert_eq!(t.materialize_f64(), vec![2.0, 1.0, 3.0]);
     }
 
     // Normative [colamd.permutation-vector] — a dense matrix is accepted by

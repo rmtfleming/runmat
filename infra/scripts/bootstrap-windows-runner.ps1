@@ -237,18 +237,9 @@ Remove-Item Env:F90 -ErrorAction SilentlyContinue
 $env:Path = [string]::Join(';', $keptPath)
 
 Write-Host 'Installing vcpkg packages used by Windows CI'
-& (Join-Path $VcpkgRoot 'vcpkg.exe') install "openblas:$Triplet"
-if ($LASTEXITCODE -ne 0) {
-    throw "vcpkg install openblas failed with exit code $LASTEXITCODE"
-}
-& (Join-Path $VcpkgRoot 'vcpkg.exe') install "zeromq:$Triplet"
-if ($LASTEXITCODE -ne 0) {
-    throw "vcpkg install zeromq failed with exit code $LASTEXITCODE"
-}
-& (Join-Path $VcpkgRoot 'vcpkg.exe') install "opencascade:$Triplet"
-if ($LASTEXITCODE -ne 0) {
-    throw "vcpkg install opencascade failed with exit code $LASTEXITCODE"
-}
+& (Join-Path $PSScriptRoot 'ensure-windows-vcpkg-dependencies.ps1') `
+    -VcpkgRoot $VcpkgRoot `
+    -Triplet $Triplet
 
 Write-Host 'Writing machine-wide environment variables'
 [Environment]::SetEnvironmentVariable('VCPKG_ROOT', $VcpkgRoot, 'Machine')
@@ -265,6 +256,7 @@ $lapackLibs = if (Test-Path (Join-Path $vcpkgInstalled 'lib\libf2c.lib')) { 'lap
 [Environment]::SetEnvironmentVariable('ZMQ_INCLUDE_DIR', (Join-Path $vcpkgInstalled 'include'), 'Machine')
 [Environment]::SetEnvironmentVariable('ZMQ_LIB_DIR', (Join-Path $vcpkgInstalled 'lib'), 'Machine')
 [Environment]::SetEnvironmentVariable('PKG_CONFIG_PATH', (Join-Path $vcpkgInstalled 'lib\pkgconfig'), 'Machine')
+[Environment]::SetEnvironmentVariable('HDF5_DIR', $vcpkgInstalled, 'Machine')
 [Environment]::SetEnvironmentVariable('RUNMAT_OCCT_ROOT', $vcpkgInstalled, 'Machine')
 [Environment]::SetEnvironmentVariable('RUNMAT_OCCT_INCLUDE_DIR', (Join-Path $vcpkgInstalled 'include\opencascade'), 'Machine')
 [Environment]::SetEnvironmentVariable('RUNMAT_OCCT_LIB_DIR', (Join-Path $vcpkgInstalled 'lib'), 'Machine')
@@ -314,8 +306,11 @@ if (-not [string]::Equals($resolvedCargo, $expectedCargo, [System.StringComparis
 
 $requiredPaths = @(
     (Join-Path $vcpkgInstalled 'include\zmq.h'),
+    (Join-Path $vcpkgInstalled 'include\H5pubconf.h'),
     (Join-Path $vcpkgInstalled 'include\opencascade'),
     (Join-Path $vcpkgInstalled 'lib\openblas.lib'),
+    (Join-Path $vcpkgInstalled 'lib\hdf5.lib'),
+    (Join-Path $vcpkgInstalled 'bin\hdf5.dll'),
     (Join-Path $vcpkgInstalled 'lib\TKBRep.lib'),
     (Join-Path $vcpkgInstalled 'lib\pkgconfig\libzmq.pc')
 )
