@@ -197,10 +197,14 @@ mod tests {
             for entry in std::fs::read_dir(&directory).expect("read repository directory") {
                 let path = entry.expect("read repository entry").path();
                 if path.is_dir() {
+                    // `specs/` holds clean-room specification evidence whose
+                    // imported files must stay byte-identical and record the
+                    // release they were observed on (fork-local exception).
                     if !matches!(
                         path.file_name().and_then(|name| name.to_str()),
                         Some(".git" | "target")
-                    ) {
+                    ) && path != workspace_root.join("specs")
+                    {
                         pending.push(path);
                     }
                 } else if path != canonical_policy && path != runtime_policy {

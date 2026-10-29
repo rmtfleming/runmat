@@ -8,9 +8,9 @@
 //! version.version-strings).
 //!
 //! CONTRACT vs IDENTITY (Constitution Principle II / honesty): the approved
-//! export records MATLAB's *own* observed identity — `version` =>
-//! `'26.1.0.3276743 (R2026a) Update 3'` and `version('-release')` =>
-//! `'2026a'`. Those strings are MATLAB's identity and are **non-normative**
+//! export records MATLAB's *own* observed identity — the full `version`
+//! string and the `version('-release')` tag of the observed release (see the
+//! imported provenance; the pin itself lives only in `crate::compatibility`). Those strings are MATLAB's identity and are **non-normative**
 //! here: RunMat is not MATLAB, and returning them verbatim would be factually
 //! false. RunMat honours only the observable *contract* (output class `char`,
 //! a char row vector; a `-release` substring form) while returning its **own**
@@ -40,9 +40,15 @@ pub(crate) const RUNMAT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// RunMat-defined release tag returned by `version('-release')`. This is a
 /// documented independent choice signalling the MATLAB release RunMat targets
-/// for compatibility; it is deliberately NOT MATLAB's own release string
-/// (`'2026a'`), which would be an impersonation.
-pub(crate) const RUNMAT_RELEASE: &str = "R2026a-compat";
+/// for compatibility; it is deliberately NOT MATLAB's own release string,
+/// which would be an impersonation. Derived from the central compatibility
+/// pin so the release appears in one place only.
+pub(crate) fn runmat_release() -> String {
+    format!(
+        "{}-compat",
+        crate::compatibility::MATLAB_COMPATIBILITY_RELEASE
+    )
+}
 
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     name: "version",
@@ -162,7 +168,7 @@ fn dispatch_version(args: &[Value]) -> BuiltinResult<Value> {
         return Ok(char_row(&runmat_version_string()));
     };
     match option_text(option) {
-        Some(text) if text.eq_ignore_ascii_case("-release") => Ok(char_row(RUNMAT_RELEASE)),
+        Some(text) if text.eq_ignore_ascii_case("-release") => Ok(char_row(&runmat_release())),
         _ => Err(version_error(&VERSION_ERROR_INVALID_OPTION)),
     }
 }
@@ -212,19 +218,23 @@ pub(crate) mod tests {
             "version() {text:?} must self-identify as RunMat"
         );
         // Honesty guard: RunMat MUST NOT emit MATLAB's observed identity.
-        assert!(!text.contains("R2026a) Update"));
+        assert!(!text.contains(&format!(
+            "({}) Update",
+            crate::compatibility::MATLAB_COMPATIBILITY_RELEASE
+        )));
     }
 
     // CONTRACT [FR-033-02; version.output-class]: `version('-release')`
     // returns a char row vector (the observed class/shape). The value is
-    // RunMat's release tag, a documented choice — NOT MATLAB's '2026a'.
+    // RunMat's release tag, a documented choice — NOT MATLAB's bare release.
     #[test]
     fn contract_release_option_returns_char_release_tag() {
         let value = run_version(vec![Value::CharArray(CharArray::new_row("-release"))])
             .expect("version('-release')");
         let text = char_row_text(&value);
-        assert_eq!(text, RUNMAT_RELEASE);
-        assert_ne!(text, "2026a", "must not reproduce MATLAB's release string");
+        assert_eq!(text, runmat_release());
+        let bare = crate::compatibility::MATLAB_COMPATIBILITY_RELEASE.trim_start_matches('R');
+        assert_ne!(text, bare, "must not reproduce MATLAB's release string");
     }
 
     // documented_choice [FR-033-02]: the option is matched case-insensitively
@@ -233,7 +243,7 @@ pub(crate) mod tests {
     fn documented_choice_release_option_case_insensitive_and_string() {
         let value =
             run_version(vec![Value::String("-RELEASE".to_string())]).expect("version('-RELEASE')");
-        assert_eq!(char_row_text(&value), RUNMAT_RELEASE);
+        assert_eq!(char_row_text(&value), runmat_release());
     }
 
     // documented_choice [FR-033-02]: unrecognized options (e.g. '-date',

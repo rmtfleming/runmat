@@ -25,7 +25,7 @@ use crate::builtins::common::spec::{
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
 use crate::builtins::parallel_implementations::version::{
-    option_text, RUNMAT_RELEASE, RUNMAT_VERSION,
+    option_text, runmat_release, RUNMAT_VERSION,
 };
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
@@ -138,7 +138,7 @@ pub(crate) fn runmat_ver_struct() -> Value {
     let mut st = StructValue::new();
     st.insert("Name", char_row(RUNMAT_NAME));
     st.insert("Version", char_row(RUNMAT_VERSION));
-    st.insert("Release", char_row(RUNMAT_RELEASE));
+    st.insert("Release", char_row(&runmat_release()));
     st.insert("Date", char_row(RUNMAT_DATE));
     Value::Struct(st)
 }
@@ -219,7 +219,7 @@ pub(crate) mod tests {
         };
         assert_eq!(field_char(&st, "Name"), "RunMat");
         assert_eq!(field_char(&st, "Version"), RUNMAT_VERSION);
-        assert_eq!(field_char(&st, "Release"), RUNMAT_RELEASE);
+        assert_eq!(field_char(&st, "Release"), runmat_release());
         assert_eq!(field_char(&st, "Date"), RUNMAT_DATE);
     }
 
@@ -232,10 +232,10 @@ pub(crate) mod tests {
             panic!("ver('RunMat') must return a struct");
         };
         assert_eq!(field_char(&st, "Version"), RUNMAT_VERSION);
-        assert_ne!(
-            field_char(&st, "Version"),
-            "26.1.0.3276743 (R2026a) Update 3"
-        );
+        assert!(!field_char(&st, "Version").contains(&format!(
+            "({})",
+            crate::compatibility::MATLAB_COMPATIBILITY_RELEASE
+        )));
     }
 
     // documented_choice [FR-033-04]: RunMat is not MATLAB, so ver('MATLAB')

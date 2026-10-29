@@ -8,6 +8,7 @@ mod io;
 mod predicates;
 mod selectors;
 mod timetable;
+mod variable_editing;
 
 #[allow(unused_imports)]
 pub(crate) use {

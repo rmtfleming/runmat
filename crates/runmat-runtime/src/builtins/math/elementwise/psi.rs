@@ -297,7 +297,7 @@ pub(crate) mod tests {
 
     /// Observed values from the approved export
     /// (`observations/psi_observations.json`, cases `scalar` and `vector`,
-    /// R2026a GLNXA64). Floating-point observations; reproduced to
+    /// release/platform per the imported provenance). Floating-point observations; reproduced to
     /// `OBSERVED_TOLERANCE`.
     const OBSERVED_PSI_ONE: f64 = -0.577_215_664_901_532_3;
     const OBSERVED_PSI_TWO: f64 = 0.422_784_335_098_467_47;
@@ -354,7 +354,7 @@ pub(crate) mod tests {
     }
 
     // Normative [FR-021-01, FR-021-02; psi.digamma-values, psi.output-class;
-    // R2026a] — observed case `scalar`: psi(1) => -0.57721566490153231,
+    // see provenance] — observed case `scalar`: psi(1) => -0.57721566490153231,
     // class double, size 1x1.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
@@ -366,7 +366,7 @@ pub(crate) mod tests {
     }
 
     // Normative [FR-021-01..03; psi.digamma-values, psi.output-class;
-    // R2026a] — observed case `vector`: psi([1 2 3]) =>
+    // see provenance] — observed case `vector`: psi([1 2 3]) =>
     // [-0.57721566490153231 0.42278433509846747 0.92278433509846747],
     // class double, size 1x3.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

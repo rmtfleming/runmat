@@ -4,7 +4,7 @@
 //! claims getReport.signature-primary, getReport.output-class,
 //! getReport.char-report).
 //!
-//! Observed behaviour (normative, captured on R2026a / GLNXA64):
+//! Observed behaviour (normative; release and platform in the imported provenance):
 //! `getReport(MException('x:y','oops'))` => `'oops'` (1×4 char). The observed
 //! report of a plain `MException` is exactly its message text, returned as a
 //! char row vector. The fuller MATLAB report — identifier formatting, a stack

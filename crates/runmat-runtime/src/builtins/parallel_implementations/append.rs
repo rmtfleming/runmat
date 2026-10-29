@@ -5,7 +5,7 @@
 //!
 //! `append` (R2020b+) concatenates text pieces in order. Unlike `strcat`, it
 //! does **not** trim trailing whitespace from character-array inputs. Observed
-//! behaviour (clean-room export `append` 0.2.0, R2026a):
+//! behaviour (clean-room export `append` 0.2.0):
 //! - `append("a","b") -> "ab"` (string scalar, class `string`, size `[1 1]`)
 //! - `append("x","y","z") -> "xyz"` (string scalar)
 //! - `append('a','b') -> 'ab'` (char row, class `char`, size `[1 2]`)
