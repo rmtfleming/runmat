@@ -22,9 +22,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Tensor, Value};
 
 use crate::builtins::common::map_control_flow_with_builtin;
 use crate::builtins::common::spec::{
@@ -205,7 +205,7 @@ async fn parse_width_args(args: Vec<Value>) -> BuiltinResult<usize> {
                 0.0
             }
         }
-        Value::Tensor(t) if t.data.len() == 1 => t.data[0],
+        Value::Tensor(t) if t.len() == 1 => t.materialize_f64()[0],
         _ => {
             return Err(dec2bin_error(&DEC2BIN_ERROR_INVALID_WIDTH));
         }
@@ -241,7 +241,7 @@ fn extract_nonnegative_integers(value: Value) -> BuiltinResult<Vec<u64>> {
 
 fn tensor_to_integers(tensor: Tensor) -> BuiltinResult<Vec<u64>> {
     tensor
-        .data
+        .materialize_f64()
         .iter()
         .map(|&v| to_nonnegative_integer(v))
         .collect()
@@ -299,7 +299,8 @@ fn format_binary_rows(values: &[u64], requested_width: usize) -> BuiltinResult<C
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
-    use runmat_builtins::{IntValue, LogicalArray, ResolveContext, Type};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::{IntValue, LogicalArray};
 
     fn run_dec2bin(value: Value) -> Value {
         futures::executor::block_on(super::dec2bin_builtin(value, Vec::new())).expect("dec2bin")
@@ -518,7 +519,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![5.0], vec![1, 1]).expect("tensor");
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");

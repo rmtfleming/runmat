@@ -1,14 +1,15 @@
 //! XML file compatibility helpers.
 
+use runmat_builtins::{BuiltinIntegerAuditDescriptor, BuiltinIntegerAuditKind};
 use std::collections::BTreeMap;
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinOutputMode, BuiltinParamArity,
-    BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, CellArray,
-    ObjectInstance, StructValue, Value,
+    BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_filesystem as vfs;
 use runmat_macros::runtime_builtin;
+use runmat_value::{CellArray, ObjectInstance, StructValue, Value};
 
 use crate::builtins::common::fs::path_to_string;
 use crate::builtins::common::identifiers::is_valid_varname;
@@ -94,6 +95,11 @@ xml_descriptor!(
     &INPUTS_THREE,
     &OUTPUT_VALUE
 );
+pub const XMLREAD_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
+    kind: BuiltinIntegerAuditKind::NotApplicable,
+    canonical_builtin: None,
+    notes: "xmlread accepts a text filename only; integer and resident numeric inputs reject before file or provider access.",
+};
 xml_descriptor!(
     XMLREAD_SIGNATURES,
     XMLREAD_DESCRIPTOR,
@@ -150,9 +156,16 @@ async fn readstruct_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
     accel = "cpu",
     type_resolver(crate::builtins::io::type_resolvers::struct_type),
     descriptor(crate::builtins::io::repl_fs::xml::XMLREAD_DESCRIPTOR),
+    integer_audit(crate::builtins::io::repl_fs::xml::XMLREAD_INTEGER_AUDIT),
     builtin_path = "crate::builtins::io::repl_fs::xml"
 )]
 async fn xmlread_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
+    if args
+        .iter()
+        .any(crate::builtins::common::validation::value_has_native_integer_class)
+    {
+        return Err(compat_error("xmlread", "xmlread: filename must be text"));
+    }
     let args = gather_args("xmlread", &args).await?;
     if args.len() != 1 {
         return Err(compat_error(
@@ -653,7 +666,7 @@ fn scalar_xml_text(value: &Value) -> BuiltinResult<String> {
         Value::CharArray(chars) if chars.rows == 1 => Ok(chars.data.iter().collect()),
         Value::StringArray(array) if array.data.len() == 1 => Ok(array.data[0].clone()),
         Value::Num(number) => Ok(number.to_string()),
-        Value::Int(number) => Ok(number.to_i64().to_string()),
+        Value::Int(number) => Ok(number.decimal_string()),
         Value::Bool(flag) => Ok(flag.to_string()),
         _ => Err(compat_error(
             "xmlwrite",
@@ -688,13 +701,32 @@ mod tests {
     use crate::builtins::common::fs::path_to_string;
     use crate::builtins::io::repl_fs::REPL_FS_TEST_LOCK;
 
+    fn fs_test_guard() -> (
+        std::sync::MutexGuard<'static, ()>,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        let provider_guard = runmat_filesystem::provider_override_lock();
+        let repl_guard = REPL_FS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        (provider_guard, repl_guard)
+    }
+
+    #[test]
+    fn xml_scalar_text_preserves_exact_uint64() {
+        assert_eq!(
+            scalar_xml_text(&Value::Int(runmat_value::IntValue::U64(u64::MAX))).expect("xml text"),
+            "18446744073709551615"
+        );
+    }
+
     fn run(value: impl std::future::Future<Output = BuiltinResult<Value>>) -> BuiltinResult<Value> {
         futures::executor::block_on(value)
     }
 
     #[test]
     fn xmlread_returns_lightweight_document_object() {
-        let _guard = REPL_FS_TEST_LOCK.lock().unwrap();
+        let _guard = fs_test_guard();
         let path = std::env::temp_dir().join("runmat_xmlread_test.xml");
         std::fs::write(
             &path,
@@ -725,7 +757,7 @@ mod tests {
 
     #[test]
     fn readstruct_imports_xml_children_attributes_and_repeats() {
-        let _guard = REPL_FS_TEST_LOCK.lock().unwrap();
+        let _guard = fs_test_guard();
         let path = std::env::temp_dir().join("runmat_readstruct_test.xml");
         std::fs::write(
             &path,
@@ -755,7 +787,7 @@ mod tests {
 
     #[test]
     fn readstruct_supports_xml_option_aliases() {
-        let _guard = REPL_FS_TEST_LOCK.lock().unwrap();
+        let _guard = fs_test_guard();
         let path = std::env::temp_dir().join("runmat_readstruct_options_test.xml");
         std::fs::write(&path, r#"<root id="r1">body</root>"#).unwrap();
         let value = run(readstruct_builtin(vec![
@@ -778,7 +810,7 @@ mod tests {
 
     #[test]
     fn xmlwrite_serializes_dom_to_string_or_file() {
-        let _guard = REPL_FS_TEST_LOCK.lock().unwrap();
+        let _guard = fs_test_guard();
         let mut root = ObjectInstance::new("org.w3c.dom.Element".to_string());
         root.properties
             .insert("TagName".to_string(), char_value("root"));
@@ -808,7 +840,7 @@ mod tests {
 
     #[test]
     fn xmlread_rejects_mismatched_tags() {
-        let _guard = REPL_FS_TEST_LOCK.lock().unwrap();
+        let _guard = fs_test_guard();
         let path = std::env::temp_dir().join("runmat_xmlread_bad_test.xml");
         std::fs::write(&path, "<root><a></root>").unwrap();
         let err = run(xmlread_builtin(vec![Value::String(path_to_string(&path))])).unwrap_err();

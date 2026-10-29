@@ -18,9 +18,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Tensor, Value};
 
 use crate::builtins::common::map_control_flow_with_builtin;
 use crate::builtins::common::spec::{
@@ -166,7 +166,7 @@ fn tensor_to_real_data(tensor: Tensor) -> BuiltinResult<(Vec<f64>, usize, usize)
     }
     let rows = tensor.rows();
     let cols = tensor.cols();
-    Ok((tensor.data, rows, cols))
+    Ok((tensor.materialize_f64(), rows, cols))
 }
 
 /// Round each element (ties away from zero, per int2str.rounding-and-char),
@@ -237,7 +237,8 @@ fn format_rounded_value(value: f64) -> String {
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
-    use runmat_builtins::{IntValue, LogicalArray, ResolveContext, Type};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::{IntValue, LogicalArray};
 
     fn run_int2str(value: Value) -> Value {
         futures::executor::block_on(super::int2str_builtin(value)).expect("int2str")
@@ -400,7 +401,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![1.2, 3.8], vec![1, 2]).expect("tensor");
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");

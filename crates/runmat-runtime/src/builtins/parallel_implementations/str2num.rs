@@ -25,9 +25,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{Tensor, Value};
 
 use crate::builtins::common::map_control_flow_with_builtin;
 use crate::builtins::common::spec::{
@@ -535,7 +535,8 @@ impl ExprParser<'_> {
 #[cfg(all(test, feature = "parallel_xval"))]
 pub(crate) mod tests {
     use super::*;
-    use runmat_builtins::{CharArray, ResolveContext, Type};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::CharArray;
 
     fn run_str2num(value: Value) -> Value {
         futures::executor::block_on(super::str2num_builtin(value)).expect("str2num")
@@ -549,7 +550,7 @@ pub(crate) mod tests {
         match value {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![0, 0]);
-                assert!(t.data.is_empty());
+                assert!(t.is_empty());
             }
             other => panic!("expected 0x0 empty double, got {other:?}"),
         }
@@ -570,7 +571,7 @@ pub(crate) mod tests {
         match run_str2num(char_row("[1 2 3]")) {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 3]);
-                assert_eq!(t.data, vec![1.0, 2.0, 3.0]);
+                assert_eq!(t.materialize_f64(), vec![1.0, 2.0, 3.0]);
             }
             other => panic!("expected 1x3 double, got {other:?}"),
         }
@@ -585,7 +586,7 @@ pub(crate) mod tests {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![2, 2]);
                 // Column-major storage of [1 2; 3 4].
-                assert_eq!(t.data, vec![1.0, 3.0, 2.0, 4.0]);
+                assert_eq!(t.materialize_f64(), vec![1.0, 3.0, 2.0, 4.0]);
             }
             other => panic!("expected 2x2 double, got {other:?}"),
         }
@@ -625,7 +626,7 @@ pub(crate) mod tests {
         match run_str2num(char_row("[1,2,3]")) {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 3]);
-                assert_eq!(t.data, vec![1.0, 2.0, 3.0]);
+                assert_eq!(t.materialize_f64(), vec![1.0, 2.0, 3.0]);
             }
             other => panic!("expected 1x3 double, got {other:?}"),
         }
@@ -639,7 +640,7 @@ pub(crate) mod tests {
         match run_str2num(char_row("[1 -2]")) {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 2]);
-                assert_eq!(t.data, vec![1.0, -2.0]);
+                assert_eq!(t.materialize_f64(), vec![1.0, -2.0]);
             }
             other => panic!("expected 1x2 double, got {other:?}"),
         }

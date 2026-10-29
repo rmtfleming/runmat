@@ -26,10 +26,11 @@ default build/test stays green:
 cargo test -p runmat-runtime --features parallel_xval
 ```
 
-A handful of these tests currently need small updates for `0-6-0` drift (they assert on
-type-resolver internals and the `SparseTensor` representation, which changed since the branch was
-authored) — fix those when enabling the feature. The implementations themselves compile in the
-default build.
+These tests were brought up to date with upstream `main` (v0.6.2) when it was merged in: the
+value types moved to `runmat_value`, `Tensor`/`SparseTensor` storage became private (reads go
+through `materialize_f64()`/`len()`/`numeric_dtype()`), and the tests that asserted on type
+resolvers stripped from the unregistered copies were removed. `eps_is_registered_as_builtin_and_not_constant`
+is `#[ignore]`d, because an unregistered copy cannot satisfy it.
 
 ## Contents
 
@@ -53,6 +54,12 @@ registered normally in their natural category modules (not in this directory):
 `colamd`, `computer`, `dissect`, `fields`, `getReport`, `inputParser`
 `isdir`, `isstr`, `isstruct`, `license`, `methods`, `properties`
 `psi`, `spalloc`, `strmatch`, `urlread`, `ver`
+
+> `inputParser`: upstream added its own thin `inputParser` (`addParameter` + `parse` only) after
+> 0-6-0, in the same file path. When `main` was merged, the clean-room implementation was kept as the
+> registered default, because it also provides `addRequired` (COBRA uses `inputParser` in 94 source files) and
+> it passes upstream's `inputParser` VM tests (`crates/runmat-vm/tests/functions.rs`). The upstream
+> version remains in git history (`fe9dfb15c`).
 
 > `eps` was initially treated as new but 0-6-0 provides it as a primitive **constant**; the clean-room
 > **function** form (`eps(x)`) is therefore kept as a parallel implementation instead of registered.

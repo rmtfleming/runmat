@@ -53,9 +53,11 @@ fn cell2mat_element_type(element_type: &Type) -> Type {
         Type::String => Type::cell_of(Type::String),
         Type::Cell { .. }
         | Type::Struct { .. }
+        | Type::Object { .. }
         | Type::Function { .. }
         | Type::Void
         | Type::Symbolic
+        | Type::SymbolicArray { .. }
         | Type::Unknown
         | Type::OutputList(_) => Type::Unknown,
     }

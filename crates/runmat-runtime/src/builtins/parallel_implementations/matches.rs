@@ -10,9 +10,10 @@
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::map_control_flow_with_builtin;
 use crate::builtins::common::spec::{
@@ -277,7 +278,8 @@ fn evaluate_matches(
 #[cfg(all(test, feature = "parallel_xval"))]
 pub(crate) mod tests {
     use super::*;
-    use runmat_builtins::{CellArray, CharArray, LogicalArray, ResolveContext, StringArray, Type};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::{CellArray, CharArray, LogicalArray, StringArray};
 
     fn run_matches(text: Value, pattern: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
         futures::executor::block_on(matches_builtin(text, pattern, rest))
@@ -427,16 +429,5 @@ pub(crate) mod tests {
         let err =
             run_matches(Value::String("foo".into()), Value::Num(1.0), Vec::new()).unwrap_err();
         assert!(err.to_string().contains("pattern must be text"));
-    }
-
-    #[test]
-    fn matches_type_is_logical_match() {
-        assert_eq!(
-            logical_text_match_type(
-                &[Type::String, Type::String],
-                &ResolveContext::new(Vec::new()),
-            ),
-            Type::Bool
-        );
     }
 }

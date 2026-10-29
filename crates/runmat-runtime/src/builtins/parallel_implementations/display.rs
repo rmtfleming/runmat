@@ -18,9 +18,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -167,17 +167,20 @@ pub(crate) fn format_display_text(value: &Value) -> Option<String> {
         // take the scalar path; 2-D tensors take the grid path (observed
         // case `vector-text` for 1x3). Empty and N-D tensors delegate.
         Value::Tensor(tensor) => {
-            if tensor.data.len() == 1 {
-                return Some(scalar_text(&format!("{}", Value::Num(tensor.data[0]))));
+            if tensor.len() == 1 {
+                return Some(scalar_text(&format!(
+                    "{}",
+                    Value::Num(tensor.materialize_f64()[0])
+                )));
             }
             let dims = canonical_dims(&tensor.shape);
-            if tensor.data.is_empty() || dims.len() > 2 || dims.contains(&0) {
+            if tensor.is_empty() || dims.len() > 2 || dims.contains(&0) {
                 return None;
             }
             let rows = dims[0];
             let cols = dims.get(1).copied().unwrap_or(1);
             Some(grid_text(rows, cols, |r, c| {
-                format!("{}", Value::Num(tensor.data[r + c * rows]))
+                format!("{}", Value::Num(tensor.materialize_f64()[r + c * rows]))
             }))
         }
         // Observed case `char-text`: display('hi') -> "hi\n" — no quotes,
@@ -258,7 +261,7 @@ fn empty_return_value() -> Value {
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
-    use runmat_builtins::{IntValue, StructValue, Tensor};
+    use runmat_value::{IntValue, StructValue, Tensor};
 
     fn captured_display(value: Value) -> String {
         crate::console::reset_thread_buffer();
@@ -386,7 +389,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![1.0, 2.0], vec![1, 2]).expect("tensor");
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");

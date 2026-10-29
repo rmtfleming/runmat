@@ -2,7 +2,7 @@
 
 use std::convert::TryFrom;
 
-use runmat_builtins::{CellArray, CharArray, LogicalArray, StringArray, Value};
+use runmat_value::{CellArray, CharArray, LogicalArray, StringArray, Value};
 
 use crate::builtins::common::tensor;
 use crate::builtins::strings::common::{char_row_to_string, is_missing_string};
@@ -225,16 +225,16 @@ fn parse_logical_value(fn_name: &str, value: &Value) -> BuiltinResult<bool> {
             Ok(array.data[0] != 0)
         }
         Value::Tensor(tensor) => {
-            if tensor.data.len() != 1 {
+            if tensor.len() != 1 {
                 return Err(text_error(
                     fn_name,
                     format!(
                         "{fn_name}: option values must be scalar numeric values (received {} elements)",
-                        tensor.data.len()
+                        tensor.len()
                     ),
                 ));
             }
-            let value = tensor.data[0];
+            let value = tensor.materialize_f64()[0];
             if !value.is_finite() {
                 return Err(text_error(
                     fn_name,

@@ -14,9 +14,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Tensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{Tensor, Value};
 
 use crate::builtins::array::type_resolvers::column_vector_type;
 use crate::builtins::common::gpu_helpers::gather_value_async;
@@ -200,7 +201,7 @@ fn accumarray_error(
 /// optional argument, matching MATLAB's placeholder convention.
 fn is_empty_placeholder(value: &Value) -> bool {
     match value {
-        Value::Tensor(t) => t.data.is_empty(),
+        Value::Tensor(t) => t.is_empty(),
         Value::LogicalArray(a) => a.data.is_empty(),
         _ => false,
     }
@@ -254,7 +255,7 @@ async fn accumarray_builtin(subs: Value, vals: Value, rest: Vec<Value>) -> Built
     // --- subscripts ---------------------------------------------------------
     let subs_tensor = value_to_host_tensor("accumarray", subs).await?;
     let rows = subs_tensor.shape.first().copied().unwrap_or(0);
-    let total = subs_tensor.data.len();
+    let total = subs_tensor.len();
     let cols = if rows == 0 { 0 } else { total / rows };
     if cols > 1 {
         // A row vector [1 N] or an N-by-K matrix is the multi-column (N-D)
@@ -267,7 +268,7 @@ async fn accumarray_builtin(subs: Value, vals: Value, rest: Vec<Value>) -> Built
     let n = total;
     let mut indices: Vec<usize> = Vec::with_capacity(n);
     let mut max_index = 0usize;
-    for &raw in &subs_tensor.data {
+    for &raw in &subs_tensor.materialize_f64() {
         match coerce_subscript(raw) {
             Some(idx) => {
                 max_index = max_index.max(idx);
@@ -284,7 +285,7 @@ async fn accumarray_builtin(subs: Value, vals: Value, rest: Vec<Value>) -> Built
 
     // --- values -------------------------------------------------------------
     let vals_tensor = value_to_host_tensor("accumarray", vals).await?;
-    let vals_len = vals_tensor.data.len();
+    let vals_len = vals_tensor.len();
     let scalar_vals = vals_len == 1;
     if !scalar_vals && vals_len != n {
         return Err(accumarray_error(
@@ -316,13 +317,13 @@ async fn accumarray_builtin(subs: Value, vals: Value, rest: Vec<Value>) -> Built
     let fillval = match rest.get(2) {
         Some(fv) if !is_empty_placeholder(fv) => {
             let fv_tensor = value_to_host_tensor("accumarray", fv.clone()).await?;
-            if fv_tensor.data.len() != 1 {
+            if fv_tensor.len() != 1 {
                 return Err(accumarray_error(
                     &ACCUMARRAY_ERROR_INVALID_INPUT,
                     "accumarray: fillval must be a real scalar",
                 ));
             }
-            fv_tensor.data[0]
+            fv_tensor.materialize_f64()[0]
         }
         _ => 0.0,
     };
@@ -332,9 +333,9 @@ async fn accumarray_builtin(subs: Value, vals: Value, rest: Vec<Value>) -> Built
     let mut touched = vec![false; out_len];
     for (i, &idx1) in indices.iter().enumerate() {
         let contribution = if scalar_vals {
-            vals_tensor.data[0]
+            vals_tensor.materialize_f64()[0]
         } else {
-            vals_tensor.data[i]
+            vals_tensor.materialize_f64()[i]
         };
         let idx0 = idx1 - 1; // idx1 <= max_index <= out_len, so idx0 is in range
         acc[idx0] += contribution;
@@ -348,18 +349,18 @@ async fn accumarray_builtin(subs: Value, vals: Value, rest: Vec<Value>) -> Built
 }
 
 fn resolve_output_length(sz_tensor: &Tensor, max_index: usize) -> BuiltinResult<usize> {
-    if sz_tensor.data.is_empty() {
+    if sz_tensor.is_empty() {
         return Ok(max_index);
     }
     // For the single-subscript column form, sz describes an [m 1] column; the
     // first element is the length and every trailing element must be 1.
-    let m = coerce_length(sz_tensor.data[0]).ok_or_else(|| {
+    let m = coerce_length(sz_tensor.materialize_f64()[0]).ok_or_else(|| {
         accumarray_error(
             &ACCUMARRAY_ERROR_SIZE_ARGUMENT,
             ACCUMARRAY_ERROR_SIZE_ARGUMENT.message,
         )
     })?;
-    for &extra in &sz_tensor.data[1..] {
+    for &extra in &sz_tensor.materialize_f64()[1..] {
         if extra != 1.0 {
             return Err(accumarray_error(
                 &ACCUMARRAY_ERROR_SIZE_ARGUMENT,
@@ -394,7 +395,7 @@ fn build_output(data: Vec<f64>, out_len: usize) -> BuiltinResult<Value> {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{LogicalArray, Value};
+    use runmat_value::{LogicalArray, Value};
 
     fn tensor(data: Vec<f64>, shape: Vec<usize>) -> Value {
         Value::Tensor(Tensor::new(data, shape).unwrap())
@@ -417,7 +418,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![2, 1]);
-                assert_eq!(t.data, vec![40.0, 20.0]);
+                assert_eq!(t.materialize_f64(), vec![40.0, 20.0]);
             }
             other => panic!("expected 2x1 tensor, got {other:?}"),
         }
@@ -437,7 +438,7 @@ pub(crate) mod tests {
             // index 1 untouched -> 0, index 2 -> 2, index 3 -> 5.
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![3, 1]);
-                assert_eq!(t.data, vec![0.0, 2.0, 5.0]);
+                assert_eq!(t.materialize_f64(), vec![0.0, 2.0, 5.0]);
             }
             other => panic!("expected 3x1 tensor, got {other:?}"),
         }
@@ -456,7 +457,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![2, 1]);
-                assert_eq!(t.data, vec![10.0, 5.0]);
+                assert_eq!(t.materialize_f64(), vec![10.0, 5.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
@@ -475,7 +476,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![4, 1]);
-                assert_eq!(t.data, vec![40.0, 20.0, 0.0, 0.0]);
+                assert_eq!(t.materialize_f64(), vec![40.0, 20.0, 0.0, 0.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
@@ -498,7 +499,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![4, 1]);
-                assert_eq!(t.data, vec![5.0, -1.0, 7.0, -1.0]);
+                assert_eq!(t.materialize_f64(), vec![5.0, -1.0, 7.0, -1.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }
@@ -622,7 +623,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![2, 1]);
-                assert_eq!(t.data, vec![2.0, 0.0]);
+                assert_eq!(t.materialize_f64(), vec![2.0, 0.0]);
             }
             other => panic!("expected tensor, got {other:?}"),
         }

@@ -18,9 +18,10 @@ use std::path::{Path, PathBuf};
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -397,7 +398,7 @@ mod tests {
         use crate::builtins::plotting::figure::figure_builtin;
         use crate::builtins::plotting::plot::plot_builtin;
         use futures::executor::block_on;
-        use runmat_builtins::{NumericDType, Tensor};
+        use runmat_value::{NumericDType, Tensor};
 
         fn tensor(data: &[f64]) -> Tensor {
             Tensor {

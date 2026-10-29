@@ -1996,10 +1996,10 @@ fn electromagnetic_contract_snapshot_matches_expected_shape() {
     )
     .expect("electromagnetic results should succeed");
 
-    let snapshot_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let contract_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/data/electromagnetic_contract_snapshot.json");
     let expected: Value = serde_json::from_str(
-        &fs::read_to_string(&snapshot_path).expect("read electromagnetic contract snapshot"),
+        &fs::read_to_string(&contract_path).expect("read electromagnetic contract snapshot"),
     )
     .expect("parse electromagnetic contract snapshot");
 
@@ -2047,10 +2047,10 @@ fn nonlinear_contract_snapshot_matches_expected_shape() {
     )
     .expect("results should succeed");
 
-    let snapshot_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let contract_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/data/nonlinear_contract_snapshot.json");
     let expected: Value = serde_json::from_str(
-        &fs::read_to_string(&snapshot_path).expect("read nonlinear contract snapshot"),
+        &fs::read_to_string(&contract_path).expect("read nonlinear contract snapshot"),
     )
     .expect("parse nonlinear contract snapshot");
 
@@ -2198,6 +2198,10 @@ fn analysis_run_nonlinear_prep_reference_errors_are_typed() {
 
 #[test]
 fn analysis_run_nonlinear_stale_prep_reference_is_typed() {
+    // Study execution and this test share the process-wide prep artifact store.
+    // Hold the same lock used by study workflow tests so resetting the store
+    // cannot invalidate an in-flight study's freshly prepared artifact.
+    let _study_artifact_env_guard = study_artifact_env_guard();
     runmat_runtime::geometry::reset_prep_artifact_store_for_tests();
     let _prep_latest_guard = EnvVarRestoreGuard {
         key: "RUNMAT_GEOMETRY_PREP_REQUIRE_LATEST_REVISION",
@@ -3006,6 +3010,7 @@ fn analysis_run_gpu_with_provider_emits_device_ref_contract() {
                 shape: host.shape.to_vec(),
                 device_id: 11,
                 buffer_id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
+                descriptor: Default::default(),
             })
         }
 

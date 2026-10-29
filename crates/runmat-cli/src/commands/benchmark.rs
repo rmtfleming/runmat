@@ -11,8 +11,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::cli::Cli;
+use crate::commands::package::install_project_for_source;
 use crate::commands::session::create_session;
 use crate::diagnostics::format_frontend_error;
+use crate::presentation;
 use crate::telemetry::{capture_provider_snapshot, RuntimeExecutionCounters, TelemetryRunKind};
 use crate::AlreadyReportedCliError;
 
@@ -29,13 +31,8 @@ pub async fn execute_benchmark(
     let content = fs::read_to_string(&file)
         .with_context(|| format!("Failed to read script file: {file:?}"))?;
 
-    let mut engine = create_session(
-        jit,
-        false,
-        cli.snapshot.as_ref(),
-        config,
-        "Failed to create execution engine",
-    )?;
+    let mut engine = create_session(jit, false, config, "Failed to create execution engine")?;
+    let _project_lease = install_project_for_source(&mut engine, &file, cli).await?;
     let mut bench_run = engine.telemetry_run(TelemetryRunConfig {
         kind: TelemetryRunKind::Benchmark,
         jit_enabled: jit,
@@ -47,7 +44,7 @@ pub async fn execute_benchmark(
     let mut jit_executions: u64 = 0;
     let mut interpreter_executions: u64 = 0;
 
-    println!("Warming up...");
+    println!("{}", presentation::stdout().info("Warming up..."));
     for _ in 0..3 {
         let request = ExecutionRequest::for_source(
             SourceInput::Text {
@@ -80,7 +77,10 @@ pub async fn execute_benchmark(
                         provider: capture_provider_snapshot(),
                     });
                 }
-                eprintln!("Benchmark error: {error}");
+                eprintln!(
+                    "{}: {error}",
+                    presentation::stderr().error("Benchmark error")
+                );
                 return Err(AlreadyReportedCliError.into());
             }
             Err(err) => {
@@ -106,14 +106,14 @@ pub async fn execute_benchmark(
                 }) {
                     eprintln!("{diag}");
                 } else {
-                    eprintln!("Benchmark error: {err}");
+                    eprintln!("{}: {err}", presentation::stderr().error("Benchmark error"));
                 }
                 return Err(AlreadyReportedCliError.into());
             }
         }
     }
 
-    println!("Running benchmark...");
+    println!("{}", presentation::stdout().info("Running benchmark..."));
     for i in 1..=iterations {
         let request = ExecutionRequest::for_source(
             SourceInput::Text {
@@ -151,7 +151,7 @@ pub async fn execute_benchmark(
                 }) {
                     eprintln!("{diag}");
                 } else {
-                    eprintln!("Benchmark error: {err}");
+                    eprintln!("{}: {err}", presentation::stderr().error("Benchmark error"));
                 }
                 return Err(AlreadyReportedCliError.into());
             }
@@ -189,7 +189,10 @@ pub async fn execute_benchmark(
         }
 
         if i % 10 == 0 {
-            println!("  Completed {i} iterations");
+            println!(
+                "  {}",
+                presentation::stdout().muted(format!("Completed {i} iterations"))
+            );
         }
     }
 
@@ -202,7 +205,7 @@ pub async fn execute_benchmark(
     }
 
     let avg_time = total_time / iterations;
-    println!("\nBenchmark Results:");
+    println!("\n{}", presentation::stdout().heading("Benchmark Results:"));
     println!("  Total iterations: {iterations}");
     println!("  JIT executions: {jit_executions}");
     println!("  Interpreter executions: {interpreter_executions}");

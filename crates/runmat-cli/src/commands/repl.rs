@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use log::info;
-use owo_colors::OwoColorize;
 use runmat_config::runtime::{GcPreset, JitOptLevel, RunMatRuntimeConfig};
 use runmat_core::{
     abi::{ExecutionRequest, HostExecutionPolicy, RuntimeFlow, SourceInput},
@@ -8,15 +7,19 @@ use runmat_core::{
 };
 use runmat_gc::gc_collect_major;
 use runmat_time::Instant;
-use std::io::{self, Read};
-use supports_color::Stream;
+use std::io::{self, Read, Write};
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
 
+use crate::cli::Cli;
+use crate::commands::package::install_project_for_source;
 use crate::commands::session::create_session;
 use crate::commands::streams::emit_execution_streams;
-use crate::diagnostics::format_frontend_error;
+use crate::diagnostics::{format_compact_runtime_diagnostic, format_frontend_error};
+use crate::presentation::{self, StreamStyles};
 use crate::telemetry::{capture_provider_snapshot, RuntimeExecutionCounters, TelemetryRunKind};
 
-pub async fn execute_repl(config: &RunMatRuntimeConfig) -> Result<()> {
+pub async fn execute_repl(config: &RunMatRuntimeConfig, cli: &Cli) -> Result<()> {
     info!("Starting RunMat REPL");
     if config.runtime.verbose {
         info!("Verbose mode enabled");
@@ -32,10 +35,11 @@ pub async fn execute_repl(config: &RunMatRuntimeConfig) -> Result<()> {
     let mut engine = create_session(
         enable_jit,
         config.runtime.verbose,
-        config.runtime.snapshot_path.as_ref(),
         config,
         "Failed to create REPL engine",
     )?;
+    let cwd = std::env::current_dir().context("Failed to resolve current directory")?;
+    let _project_lease = install_project_for_source(&mut engine, &cwd, cli).await?;
     let repl_run = engine.telemetry_run(TelemetryRunConfig {
         kind: TelemetryRunKind::Repl,
         jit_enabled: config.jit.enabled,
@@ -55,38 +59,37 @@ pub async fn execute_repl(config: &RunMatRuntimeConfig) -> Result<()> {
         io::stdin()
             .read_to_string(&mut buffer)
             .context("Failed to read piped input")?;
-        for raw_line in buffer.lines() {
-            if !process_repl_line(raw_line, &mut engine, config).await? {
-                break;
-            }
+        if !process_repl_input(&buffer, &mut engine, config).await? {
+            finalize_repl_session(&engine, session_start, repl_run);
+            return Ok(());
         }
         finalize_repl_session(&engine, session_start, repl_run);
         return Ok(());
     }
 
-    print_repl_banner(config, &engine);
+    print_repl_banner(config);
 
     loop {
-        let readline = rl.readline("runmat> ");
+        let prompt = presentation::stdout().brand("runmat> ");
+        let readline = rl.readline(&prompt);
         match readline {
             Ok(line) => {
-                let line = line.trim();
-                let _ = rl.add_history_entry(line);
+                let _ = rl.add_history_entry(line.as_str());
 
-                if !process_repl_line(line, &mut engine, config).await? {
+                if !process_repl_input(&line, &mut engine, config).await? {
                     break;
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                println!("CTRL-C");
+                println!("{}", presentation::stdout().muted("CTRL-C"));
                 break;
             }
             Err(ReadlineError::Eof) => {
-                println!("CTRL-D");
+                println!("{}", presentation::stdout().muted("CTRL-D"));
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("{}: {:?}", presentation::stdout().error("Error"), err);
                 break;
             }
         }
@@ -96,83 +99,39 @@ pub async fn execute_repl(config: &RunMatRuntimeConfig) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-struct BannerCapabilities {
-    color: bool,
-    truecolor: bool,
-}
-
-#[derive(Clone, Copy)]
-enum BannerTone {
-    Label,
-    Brand,
-    Bright,
-    Muted,
-}
-
-fn print_repl_banner(config: &RunMatRuntimeConfig, engine: &RunMatSession) {
-    let caps = detect_banner_capabilities();
+fn print_repl_banner(config: &RunMatRuntimeConfig) {
+    let styles = presentation::stdout();
 
     println!(
         "{}",
-        style_text(
-            &format!("RunMat {}", env!("CARGO_PKG_VERSION")),
-            &caps,
-            BannerTone::Brand
-        )
+        styles.brand(format!("RunMat {}", env!("CARGO_PKG_VERSION")))
     );
     println!(
         "{}",
-        style_text(
-            "MATLAB-compatible runtime for CPU + GPU",
-            &caps,
-            BannerTone::Bright
-        )
+        styles.heading("MATLAB-compatible runtime for CPU + GPU")
     );
-    println!(
-        "{}",
-        style_text("https://runmat.com", &caps, BannerTone::Muted)
-    );
+    println!("{}", styles.muted("https://runmat.com"));
     println!();
-    println!("{}", format_gpu_line(config, &caps));
-    println!("{}", format_runtime_line(config, engine, &caps));
+    println!("{}", format_gpu_line(config, &styles));
+    println!("{}", format_runtime_line(config, &styles));
     println!();
-    println!("{}", format_help_line(&caps));
+    println!("{}", format_help_line(&styles));
     println!();
 }
 
-fn detect_banner_capabilities() -> BannerCapabilities {
-    let decorated = atty::is(atty::Stream::Stdout)
-        && std::env::var("TERM")
-            .map(|term| term != "dumb")
-            .unwrap_or(true);
-    let color_level = if decorated {
-        supports_color::on(Stream::Stdout)
-    } else {
-        None
-    };
-    BannerCapabilities {
-        color: color_level.is_some(),
-        truecolor: color_level.map(|level| level.has_16m).unwrap_or(false),
-    }
-}
-
-fn format_gpu_line(config: &RunMatRuntimeConfig, caps: &BannerCapabilities) -> String {
-    let label = style_text("GPU:", caps, BannerTone::Label);
+fn format_gpu_line(config: &RunMatRuntimeConfig, styles: &StreamStyles) -> String {
+    let label = styles.label("GPU:");
 
     if !config.accelerate.enabled {
-        return format!(
-            "{label} {}",
-            style_text("disabled by config", caps, BannerTone::Bright)
-        );
+        return format!("{label} {}", styles.value("disabled by config"));
     }
 
     if let Some(provider) = runmat_accelerate_api::provider() {
         let info = provider.device_info_struct();
         let auto_offload = if config.accelerate.auto_offload.enabled {
-            style_text("(auto-offload enabled)", caps, BannerTone::Muted)
+            styles.muted("(auto-offload enabled)")
         } else {
-            style_text("(auto-offload disabled)", caps, BannerTone::Muted)
+            styles.muted("(auto-offload disabled)")
         };
 
         if matches!(
@@ -183,7 +142,7 @@ fn format_gpu_line(config: &RunMatRuntimeConfig, caps: &BannerCapabilities) -> S
             return format!(
                 "{} {} {}",
                 label,
-                style_text("CPU fallback", caps, BannerTone::Bright),
+                styles.value("CPU fallback"),
                 auto_offload
             );
         }
@@ -197,11 +156,7 @@ fn format_gpu_line(config: &RunMatRuntimeConfig, caps: &BannerCapabilities) -> S
         return format!(
             "{} {} {}",
             label,
-            style_text(
-                &format!("{} ({backend})", info.name),
-                caps,
-                BannerTone::Bright
-            ),
+            styles.value(format!("{} ({backend})", info.name)),
             auto_offload
         );
     }
@@ -212,56 +167,41 @@ fn format_gpu_line(config: &RunMatRuntimeConfig, caps: &BannerCapabilities) -> S
         "unavailable in this build"
     };
 
-    format!(
-        "{label} {}",
-        style_text(unavailable, caps, BannerTone::Bright)
-    )
+    format!("{label} {}", styles.value(unavailable))
 }
 
-fn format_runtime_line(
-    config: &RunMatRuntimeConfig,
-    engine: &RunMatSession,
-    caps: &BannerCapabilities,
-) -> String {
+fn format_runtime_line(config: &RunMatRuntimeConfig, styles: &StreamStyles) -> String {
     let jit_value = if config.jit.enabled {
-        style_text(
-            jit_opt_level_label(config.jit.optimization_level),
-            caps,
-            BannerTone::Bright,
-        )
+        styles.value(jit_opt_level_label(config.jit.optimization_level))
     } else {
-        style_text("off", caps, BannerTone::Bright)
+        styles.value("off")
     };
-    let gc_value = style_text(gc_preset_label(config.gc.preset), caps, BannerTone::Bright);
-    let snapshot_value = if engine.snapshot_info().is_some() {
-        style_text("loaded", caps, BannerTone::Bright)
-    } else {
-        style_text("none", caps, BannerTone::Bright)
-    };
-
+    let gc_value = styles.value(gc_preset_label(config.gc.preset));
     format!(
-        "{} {}\n{} {}\n{} {}",
-        style_text("JIT:", caps, BannerTone::Label),
+        "{} {}\n{} {}",
+        styles.label("JIT:"),
         jit_value,
-        style_text("GC:", caps, BannerTone::Label),
-        gc_value,
-        style_text("Snapshot:", caps, BannerTone::Label),
-        snapshot_value
+        styles.label("GC:"),
+        gc_value
     )
 }
 
-fn format_help_line(caps: &BannerCapabilities) -> String {
-    let help = style_text("help", caps, BannerTone::Bright);
-    let info = style_text(".info", caps, BannerTone::Bright);
-    let exit = style_text("exit", caps, BannerTone::Bright);
+fn format_help_line(styles: &StreamStyles) -> String {
+    let help = styles.help("help");
+    let info = styles.help(".info");
+    let shell = styles.help("!cmd");
+    let exit = styles.help("exit");
     [
-        style_text("Enter code to execute, or", caps, BannerTone::Muted),
+        styles.muted("Enter code to execute, or"),
         format!(" `{help}`"),
-        style_text(",", caps, BannerTone::Muted),
+        styles.muted(","),
         format!(" `{exit}`"),
-        style_text(" or", caps, BannerTone::Muted),
+        styles.muted(" or"),
         format!(" `{info}`"),
-        style_text(".", caps, BannerTone::Muted),
+        styles.muted("; use"),
+        format!(" `{shell}`"),
+        styles.muted(" for shell"),
+        styles.muted("."),
     ]
     .concat()
 }
@@ -303,29 +243,22 @@ fn gc_preset_label(preset: Option<GcPreset>) -> &'static str {
     }
 }
 
-fn style_text(text: &str, caps: &BannerCapabilities, tone: BannerTone) -> String {
-    if !caps.color {
-        return text.to_string();
+async fn process_repl_input(
+    input: &str,
+    engine: &mut RunMatSession,
+    config: &RunMatRuntimeConfig,
+) -> Result<bool> {
+    if input.is_empty() {
+        return process_repl_line("", engine, config).await;
     }
 
-    match tone {
-        BannerTone::Label => {
-            if caps.truecolor {
-                format!("{}", text.truecolor(79, 140, 255).bold())
-            } else {
-                format!("{}", text.bright_blue().bold())
-            }
+    for raw_line in input.lines() {
+        if !process_repl_line(raw_line.trim(), engine, config).await? {
+            return Ok(false);
         }
-        BannerTone::Brand => {
-            if caps.truecolor {
-                format!("{}", text.truecolor(194, 108, 255).bold())
-            } else {
-                format!("{}", text.bright_magenta().bold())
-            }
-        }
-        BannerTone::Bright => format!("{}", text.bold().bright_white()),
-        BannerTone::Muted => format!("{}", text.dimmed()),
     }
+
+    Ok(true)
 }
 
 async fn process_repl_line(
@@ -346,7 +279,10 @@ async fn process_repl_line(
     }
     if line == ".stats" {
         let stats = engine.stats();
-        println!("Execution Statistics:");
+        println!(
+            "{}",
+            presentation::stdout().heading("Execution Statistics:")
+        );
         println!(
             "  Total: {}, JIT: {}, Interpreter: {}",
             stats.total_executions, stats.jit_compiled, stats.interpreter_fallback
@@ -356,7 +292,10 @@ async fn process_repl_line(
     }
     if line == ".gc-info" {
         let gc_stats = engine.gc_stats();
-        println!("Garbage Collector Statistics:");
+        println!(
+            "{}",
+            presentation::stdout().heading("Garbage Collector Statistics:")
+        );
         println!("{}", gc_stats.summary_report());
         return Ok(true);
     }
@@ -367,17 +306,27 @@ async fn process_repl_line(
     }
     if line == ".gc-collect" {
         match gc_collect_major() {
-            Ok(collected) => println!("Collected {collected} objects"),
-            Err(e) => println!("GC collection failed: {e}"),
+            Ok(collected) => println!(
+                "{}",
+                presentation::stdout().success(format!("Collected {collected} objects"))
+            ),
+            Err(e) => println!(
+                "{}: {e}",
+                presentation::stdout().error("GC collection failed")
+            ),
         }
         return Ok(true);
     }
     if line == ".reset-stats" {
         engine.reset_stats();
-        println!("Statistics reset");
+        println!("{}", presentation::stdout().success("Statistics reset"));
         return Ok(true);
     }
-    if line.is_empty() {
+    if line.trim().is_empty() {
+        return Ok(true);
+    }
+    if let Some(command) = line.trim_start().strip_prefix('!') {
+        run_shell_escape(command);
         return Ok(true);
     }
 
@@ -395,7 +344,7 @@ async fn process_repl_line(
         Ok(outcome) => {
             emit_execution_streams(&outcome.streams);
             for diagnostic in &outcome.diagnostics {
-                eprintln!("{}: {}", diagnostic.code, diagnostic.message);
+                eprintln!("{}", format_compact_runtime_diagnostic(diagnostic));
             }
             if !matches!(outcome.flow, RuntimeFlow::NoValue)
                 && config.runtime.verbose
@@ -405,7 +354,10 @@ async fn process_repl_line(
                     .is_some_and(|profiling| profiling.total_ms > 10)
             {
                 if let Some(profiling) = outcome.profiling {
-                    println!("  ({}ms)", profiling.total_ms);
+                    println!(
+                        "  {}",
+                        presentation::stdout().muted(format!("({}ms)", profiling.total_ms))
+                    );
                 }
             }
         }
@@ -415,12 +367,148 @@ async fn process_repl_line(
             }) {
                 eprintln!("{diag}");
             } else {
-                eprintln!("Execution error: {e}");
+                eprintln!("{}: {e}", presentation::stderr().error("Execution error"));
             }
         }
     }
 
     Ok(true)
+}
+
+fn run_shell_escape(command: &str) {
+    let command = command.trim_start();
+    if command.is_empty() {
+        eprintln!(
+            "{}",
+            presentation::stderr().warning("Shell command is empty")
+        );
+        return;
+    }
+
+    let mut shell = if cfg!(windows) {
+        let mut command_process = Command::new("cmd");
+        command_process.args(["/C", command]);
+        command_process
+    } else {
+        let mut command_process = Command::new("sh");
+        command_process.args(["-c", command]);
+        command_process
+    };
+
+    match shell.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+        Ok(mut child) => {
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
+            let (sender, receiver) = mpsc::channel();
+
+            let stdout_thread = stdout.map(|mut stdout| {
+                let sender = sender.clone();
+                std::thread::spawn(move || -> io::Result<()> {
+                    let mut buffer = [0; 8192];
+                    loop {
+                        let bytes_read = stdout.read(&mut buffer)?;
+                        if bytes_read == 0 {
+                            break;
+                        }
+                        if sender.send((true, buffer[..bytes_read].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(())
+                })
+            });
+            let stderr_thread = stderr.map(|mut stderr| {
+                let sender = sender.clone();
+                std::thread::spawn(move || -> io::Result<()> {
+                    let mut buffer = [0; 8192];
+                    loop {
+                        let bytes_read = stderr.read(&mut buffer)?;
+                        if bytes_read == 0 {
+                            break;
+                        }
+                        if sender.send((false, buffer[..bytes_read].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(())
+                })
+            });
+            drop(sender);
+
+            {
+                let mut stdout = io::stdout().lock();
+                let mut stderr = io::stderr().lock();
+                for (is_stdout, chunk) in receiver {
+                    if is_stdout {
+                        let _ = stdout.write_all(&chunk);
+                        let _ = stdout.flush();
+                    } else {
+                        let _ = stderr.write_all(&chunk);
+                        let _ = stderr.flush();
+                    }
+                }
+            }
+
+            if let Some(stdout_thread) = stdout_thread {
+                match stdout_thread.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => eprintln!(
+                        "{}: {err}",
+                        presentation::stderr().error("Failed to read shell stdout")
+                    ),
+                    Err(_) => eprintln!(
+                        "{}",
+                        presentation::stderr().error("Failed to read shell stdout")
+                    ),
+                }
+            }
+            if let Some(stderr_thread) = stderr_thread {
+                match stderr_thread.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => eprintln!(
+                        "{}: {err}",
+                        presentation::stderr().error("Failed to read shell stderr")
+                    ),
+                    Err(_) => eprintln!(
+                        "{}",
+                        presentation::stderr().error("Failed to read shell stderr")
+                    ),
+                }
+            }
+
+            match child.wait() {
+                Ok(status) => {
+                    if !status.success() {
+                        if let Some(code) = status.code() {
+                            eprintln!(
+                                "{}",
+                                presentation::stderr()
+                                    .warning(format!("Shell command exited with status {code}"))
+                            );
+                        } else {
+                            eprintln!(
+                                "{}",
+                                presentation::stderr()
+                                    .warning("Shell command terminated without exit status")
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    eprintln!(
+                        "{}: {err}",
+                        presentation::stderr().error("Failed to wait for shell command")
+                    );
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!(
+                "{}: {err}",
+                presentation::stderr().error("Failed to execute shell command")
+            );
+        }
+    }
 }
 
 fn finalize_repl_session(
@@ -451,22 +539,49 @@ fn finalize_repl_session(
 }
 
 fn show_repl_help() {
-    println!("RunMat REPL");
+    let styles = presentation::stdout();
+    println!("{}", styles.brand("RunMat REPL"));
     println!();
-    println!("Commands");
-    println!("  help            Show this help");
-    println!("  exit, quit      Exit the REPL");
-    println!("  .info           Show runtime information");
-    println!("  .stats          Show execution statistics");
-    println!("  .gc             Show garbage collector summary");
-    println!("  .gc-info        Show garbage collector summary with header");
-    println!("  .gc-collect     Force garbage collection");
-    println!("  .reset-stats    Reset execution statistics");
+    println!("{}", styles.heading("Commands"));
+    println!("  {}Show this help", styles.help(format!("{:<16}", "help")));
+    println!(
+        "  {}Exit the REPL",
+        styles.help(format!("{:<16}", "exit, quit"))
+    );
+    println!(
+        "  {}Show runtime information",
+        styles.help(format!("{:<16}", ".info"))
+    );
+    println!(
+        "  {}Show execution statistics",
+        styles.help(format!("{:<16}", ".stats"))
+    );
+    println!(
+        "  {}Show garbage collector summary",
+        styles.help(format!("{:<16}", ".gc"))
+    );
+    println!(
+        "  {}Show garbage collector summary with header",
+        styles.help(format!("{:<16}", ".gc-info"))
+    );
+    println!(
+        "  {}Force garbage collection",
+        styles.help(format!("{:<16}", ".gc-collect"))
+    );
+    println!(
+        "  {}Reset execution statistics",
+        styles.help(format!("{:<16}", ".reset-stats"))
+    );
+    println!(
+        "  {}Run a shell command and print its output",
+        styles.help(format!("{:<16}", "!cmd"))
+    );
     println!();
-    println!("Examples");
-    println!("  x = 1 + 2");
-    println!("  y = [1, 2; 3, 4]");
-    println!("  for i = 1:5; disp(i); end");
+    println!("{}", styles.heading("Examples"));
+    println!("  {}", styles.muted("x = 1 + 2"));
+    println!("  {}", styles.muted("y = [1, 2; 3, 4]"));
+    println!("  {}", styles.muted("for i = 1:5; disp(i); end"));
+    println!("  {}", styles.muted("!pwd"));
     println!();
-    println!("Use `.info` for runtime details.");
+    println!("Use `{}` for runtime details.", styles.help(".info"));
 }

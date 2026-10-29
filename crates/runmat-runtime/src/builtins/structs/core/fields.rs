@@ -8,9 +8,10 @@
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -102,7 +103,7 @@ async fn fields_builtin(value: Value) -> BuiltinResult<Value> {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{CellArray, StructValue};
+    use runmat_value::{CellArray, StructValue};
 
     fn run_fields(value: Value) -> BuiltinResult<Value> {
         block_on(super::fields_builtin(value))
@@ -157,7 +158,7 @@ pub(crate) mod tests {
         let err = run_fields(Value::Num(5.0)).unwrap_err();
         assert!(
             err.to_string()
-                .contains("expected struct, struct array, or object"),
+                .contains("expected struct, struct array, or"),
             "unexpected error message: {err}"
         );
     }

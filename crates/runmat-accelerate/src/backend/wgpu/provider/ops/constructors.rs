@@ -329,6 +329,10 @@ impl WgpuProvider {
         );
         let total_u32 = total_len as u32;
         let strides = column_major_strides_checked(request.output_shape)?;
+        let expected_element_type = match self.precision {
+            NumericPrecision::F32 => runmat_accelerate_api::NumericElementType::F32,
+            NumericPrecision::F64 => runmat_accelerate_api::NumericElementType::F64,
+        };
         let entries = {
             let guard = self.buffers.lock().expect("buffer mutex poisoned");
             let mut entries = Vec::with_capacity(request.output_count);
@@ -344,6 +348,12 @@ impl WgpuProvider {
                 ensure!(
                     entry.storage != GpuTensorStorage::ComplexInterleaved,
                     "ndgrid: complex axes are not supported"
+                );
+                ensure!(
+                    entry.element_type == expected_element_type,
+                    "ndgrid: axis physical type {} does not match provider type {}",
+                    entry.element_type.class_name(),
+                    expected_element_type.class_name()
                 );
                 let expected = request.output_shape.get(dim).copied().unwrap_or(1);
                 ensure!(
@@ -1142,15 +1152,27 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
     )
 }
 
+fn column_major_strides_checked(shape: &[usize]) -> Result<Vec<usize>> {
+    let mut strides = Vec::with_capacity(shape.len());
+    let mut stride = 1usize;
+    for &extent in shape {
+        strides.push(stride);
+        stride = stride
+            .checked_mul(extent)
+            .ok_or_else(|| anyhow!("ndgrid: stride exceeds GPU limits"))?;
+    }
+    Ok(strides)
+}
+
 #[cfg(test)]
 mod tests {
     use runmat_accelerate_api::{
         AccelProvider, HostTensorView, ProviderNdgridAxis, ProviderNdgridRequest,
     };
 
-    fn register_wgpu_provider_for_test(
-    ) -> Option<&'static crate::backend::wgpu::provider::WgpuProvider> {
-        match crate::backend::wgpu::provider::register_wgpu_provider(
+    fn register_wgpu_provider_for_test() -> Option<crate::backend::wgpu::provider::WgpuTestSession>
+    {
+        match crate::backend::wgpu::provider::register_test_wgpu_provider(
             crate::backend::wgpu::provider::WgpuProviderOptions::default(),
         ) {
             Ok(provider) => Some(provider),
@@ -1178,7 +1200,7 @@ mod tests {
         assert_eq!(placed_host.shape, vec![5, 3]);
         assert_eq!(
             placed_host.data,
-            vec![0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 7.0, 0.0, 0.0]
+            vec![0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.0, 0.0]
         );
 
         let extracted = provider.diag_extract(&placed, -1).expect("diag extract");
@@ -1237,16 +1259,4 @@ mod tests {
         assert_eq!(gx.data, vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0]);
         assert_eq!(gy.data, vec![10.0, 10.0, 20.0, 20.0, 30.0, 30.0]);
     }
-}
-
-fn column_major_strides_checked(shape: &[usize]) -> Result<Vec<usize>> {
-    let mut strides = Vec::with_capacity(shape.len());
-    let mut stride = 1usize;
-    for &extent in shape {
-        strides.push(stride);
-        stride = stride
-            .checked_mul(extent)
-            .ok_or_else(|| anyhow!("ndgrid: stride exceeds GPU limits"))?;
-    }
-    Ok(strides)
 }

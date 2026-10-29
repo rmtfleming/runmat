@@ -7,9 +7,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, StringArray, Tensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{StringArray, Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -256,7 +257,7 @@ fn parse_exact_flag(rest: &[Value]) -> BuiltinResult<bool> {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{CellArray, CharArray};
+    use runmat_value::{CellArray, CharArray};
 
     fn run_strmatch(pattern: Value, array: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
         block_on(strmatch_builtin(pattern, array, rest))
@@ -271,7 +272,7 @@ pub(crate) mod tests {
     fn assert_double_column(value: &Value, expected: &[f64]) {
         match value {
             Value::Tensor(tensor) => {
-                assert_eq!(tensor.data, expected);
+                assert_eq!(tensor.materialize_f64(), expected);
                 assert_eq!(tensor.shape, vec![expected.len(), 1]);
             }
             other => panic!("expected double column vector, got {other:?}"),

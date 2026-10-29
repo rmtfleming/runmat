@@ -27,10 +27,10 @@ use std::path::{Path, PathBuf};
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, StructValue, Value,
 };
 use runmat_filesystem as vfs;
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, StructValue, Value};
 
 use crate::builtins::common::fs::{expand_user_path, path_to_string};
 use crate::builtins::common::spec::{
@@ -306,8 +306,8 @@ async fn what_builtin(args: Vec<Value>) -> crate::BuiltinResult<Value> {
 
 #[cfg(all(test, feature = "parallel_xval"))]
 pub(crate) mod tests {
-    use super::super::REPL_FS_TEST_LOCK;
     use super::*;
+    use crate::builtins::io::repl_fs::REPL_FS_TEST_LOCK;
     use runmat_filesystem::File;
     use tempfile::tempdir;
 

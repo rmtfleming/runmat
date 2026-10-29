@@ -10,9 +10,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -101,7 +102,7 @@ fn iscell_value(value: &Value) -> bool {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{CellArray, CharArray, StructValue, Tensor};
+    use runmat_value::{CellArray, CharArray, StructValue, Tensor};
 
     fn run_iscell(value: Value) -> Value {
         block_on(super::iscell_builtin(value)).expect("iscell")

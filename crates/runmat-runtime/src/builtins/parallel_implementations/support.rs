@@ -1,7 +1,7 @@
 //! Small helpers vendored from the original clean-room branch so the parallel
 //! implementations are self-contained (their original sibling modules were not
 //! relocated here). Behaviour identical to the source definitions.
-use runmat_builtins::Value;
+use runmat_value::Value;
 use std::path::Path;
 
 pub(crate) fn size_from_f64(raw: f64, name: &str) -> Result<usize, String> {
@@ -16,7 +16,7 @@ pub(crate) fn scalar_f64(value: &Value) -> Option<f64> {
         Value::Num(n) => Some(*n),
         Value::Int(i) => Some(i.to_f64()),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-        Value::Tensor(t) if t.data.len() == 1 => Some(t.data[0]),
+        Value::Tensor(t) if t.len() == 1 => Some(t.materialize_f64()[0]),
         _ => None,
     }
 }

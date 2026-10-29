@@ -16,11 +16,13 @@ use std::time::Duration;
 
 use crate::cli::{CaptureFiguresMode, Cli, FigureSize};
 use crate::commands::accel::dump_provider_telemetry_if_requested;
-use crate::commands::bytecode::{emit_bytecode, write_bytecode_output};
+use crate::commands::bytecode::{emit_bytecode_with_catalog, write_bytecode_output};
 use crate::commands::fea::execute_fea_path;
+use crate::commands::package::install_project_for_source;
 use crate::commands::session::create_session;
 use crate::commands::streams::emit_execution_streams;
 use crate::diagnostics::{format_frontend_error, format_runtime_diagnostic};
+use crate::presentation;
 use crate::telemetry::{capture_provider_snapshot, TelemetryRunKind};
 use crate::AlreadyReportedCliError;
 
@@ -57,7 +59,11 @@ pub async fn execute_script_with_args(
     if let Some(path) = &emit_bytecode_path {
         let content = fs::read_to_string(&script)
             .with_context(|| format!("Failed to read script file: {script:?}"))?;
-        let output = emit_bytecode(&content, config, Some(script.to_string_lossy().as_ref()))
+        let project = crate::commands::package::resolve_for_source(&script, cli).await?;
+        let catalog = project.as_ref().map(|project| {
+            runmat_package::source_symbols_from_frozen(&project.resolved.frozen, &script)
+        });
+        let output = emit_bytecode_with_catalog(&content, config, catalog.as_ref())
             .with_context(|| format!("Failed to emit bytecode for {script:?}"))?;
         write_bytecode_output(path, &output)?;
         return Ok(());
@@ -89,7 +95,11 @@ pub(crate) async fn execute_script_contents(
     info!("Executing script source: {script:?}");
 
     if let Some(path) = &emit_bytecode_path {
-        let output = emit_bytecode(&content, config, Some(script.to_string_lossy().as_ref()))
+        let project = crate::commands::package::resolve_for_source(&script, cli).await?;
+        let catalog = project.as_ref().map(|project| {
+            runmat_package::source_symbols_from_frozen(&project.resolved.frozen, &script)
+        });
+        let output = emit_bytecode_with_catalog(&content, config, catalog.as_ref())
             .with_context(|| format!("Failed to emit bytecode for {script:?}"))?;
         write_bytecode_output(path, &output)?;
         return Ok(());
@@ -127,10 +137,10 @@ async fn execute_script_request(
     let mut engine = create_session(
         enable_jit,
         config.runtime.verbose,
-        config.runtime.snapshot_path.as_ref(),
         config,
         "Failed to create execution engine",
     )?;
+    let _project_lease = install_project_for_source(&mut engine, &script, cli).await?;
     let mut script_run = engine.telemetry_run(TelemetryRunConfig {
         kind: TelemetryRunKind::Script,
         jit_enabled: config.jit.enabled,
@@ -166,7 +176,7 @@ async fn execute_script_request(
             }) {
                 eprintln!("{diag}");
             } else {
-                eprintln!("Execution error: {err}");
+                eprintln!("{}: {err}", presentation::stderr().error("Execution error"));
             }
             return Err(AlreadyReportedCliError.into());
         }
@@ -192,7 +202,10 @@ async fn execute_script_request(
         .await
         {
             warn!("Failed to write run artifacts: {err}");
-            eprintln!("Warning: failed to write run artifacts: {err}");
+            eprintln!(
+                "{}: failed to write run artifacts: {err}",
+                presentation::stderr().warning("Warning")
+            );
         }
     }
 

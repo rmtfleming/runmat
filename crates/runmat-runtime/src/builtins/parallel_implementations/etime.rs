@@ -21,9 +21,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -137,7 +138,7 @@ fn invalid_input(message: impl Into<String>) -> RuntimeError {
 /// error (documented independent choice).
 fn date_vector_seconds(value: &Value) -> BuiltinResult<f64> {
     let data: Vec<f64> = match value {
-        Value::Tensor(t) => t.data.clone(),
+        Value::Tensor(t) => t.materialize_f64(),
         Value::Num(n) => vec![*n],
         Value::Int(i) => vec![i.to_f64()],
         _ => return Err(invalid_input(ETIME_ERROR_INVALID_INPUT.message)),
@@ -175,7 +176,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::Tensor;
+    use runmat_value::Tensor;
 
     fn date_vector(components: [f64; 6]) -> Value {
         Value::Tensor(Tensor::new(components.to_vec(), vec![1, 6]).unwrap())

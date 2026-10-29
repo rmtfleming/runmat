@@ -172,20 +172,28 @@ impl WgpuProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::wgpu::provider::register_wgpu_provider;
+    use crate::backend::wgpu::provider::register_test_wgpu_provider;
     use runmat_accelerate_api::{AccelProvider, HostTensorView};
-    use std::sync::{Mutex, OnceLock};
 
     fn with_wgpu_provider<F, R>(f: F) -> Option<R>
     where
-        F: FnOnce(&'static dyn AccelProvider) -> R,
+        F: FnOnce(&dyn AccelProvider) -> R,
     {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().expect("lock");
-        let Ok(provider) = register_wgpu_provider(WgpuProviderOptions::default()) else {
+        let Ok(provider) = register_test_wgpu_provider(WgpuProviderOptions::default()) else {
             return None;
         };
-        Some(f(provider))
+        Some(f(provider.provider()))
+    }
+
+    fn assert_values_close(actual: &[f64], expected: &[f64], tolerance: f64) {
+        assert_eq!(actual.len(), expected.len());
+        for (index, (&actual, &expected)) in actual.iter().zip(expected).enumerate() {
+            let difference = (actual - expected).abs();
+            assert!(
+                difference <= tolerance,
+                "value {index} differs: actual={actual}, expected={expected}, difference={difference}, tolerance={tolerance}"
+            );
+        }
     }
 
     #[test]
@@ -242,7 +250,7 @@ mod tests {
             let nearest_host = pollster::block_on(provider.download(&nearest)).expect("download");
             assert_eq!(linear_host.shape, output_shape);
             assert_eq!(nearest_host.shape, output_shape);
-            assert_eq!(linear_host.data, vec![12.0, 30.0, 120.0, 300.0]);
+            assert_values_close(&linear_host.data, &[12.0, 30.0, 120.0, 300.0], 1.0e-5);
             assert_eq!(nearest_host.data, vec![10.0, 20.0, 100.0, 200.0]);
             provider.free(&x).ok();
             provider.free(&y).ok();

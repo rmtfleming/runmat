@@ -22,9 +22,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, SparseTensor, Tensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{SparseTensor, Tensor, Value};
 
 use crate::builtins::common::gpu_helpers;
 use crate::builtins::common::spec::{
@@ -254,7 +255,7 @@ fn nonzero_entries(value: Value) -> BuiltinResult<MatrixEntries> {
             let mut entries = Vec::with_capacity(sparse.nnz());
             for col in 0..sparse.cols {
                 for idx in sparse.col_ptrs[col]..sparse.col_ptrs[col + 1] {
-                    let v = sparse.values[idx];
+                    let v = sparse.materialize_f64()[idx];
                     if is_stored(v) {
                         entries.push((sparse.row_indices[idx], col, v));
                     }
@@ -274,7 +275,7 @@ fn nonzero_entries(value: Value) -> BuiltinResult<MatrixEntries> {
             let mut entries = Vec::new();
             for col in 0..cols {
                 for row in 0..rows {
-                    let v = tensor.data[row + col * rows];
+                    let v = tensor.materialize_f64()[row + col * rows];
                     if is_stored(v) {
                         entries.push((row, col, v));
                     }
@@ -334,7 +335,7 @@ fn construct_form(args: Vec<Value>) -> BuiltinResult<SparseTensor> {
                 if row < 0 || row >= rows as i64 {
                     continue;
                 }
-                entries.insert((col, row as usize), b.data[col + k * min_dim]);
+                entries.insert((col, row as usize), b.materialize_f64()[col + k * min_dim]);
             }
         } else {
             for row in 0..rows {
@@ -342,7 +343,7 @@ fn construct_form(args: Vec<Value>) -> BuiltinResult<SparseTensor> {
                 if col < 0 || col >= cols as i64 {
                     continue;
                 }
-                entries.insert((col as usize, row), b.data[row + k * min_dim]);
+                entries.insert((col as usize, row), b.materialize_f64()[row + k * min_dim]);
             }
         }
     }
@@ -410,7 +411,7 @@ fn diag_vector(value: &Value) -> BuiltinResult<Vec<i64>> {
                     "spdiags: d must be a numeric vector".to_string(),
                 ));
             }
-            tensor.data.clone()
+            tensor.materialize_f64()
         }
         other => match scalar_f64(other) {
             Some(v) => vec![v],
@@ -506,7 +507,7 @@ pub(crate) mod tests {
         let b = expect_tensor(run_spdiags(a, vec![]));
         assert_eq!(b.shape, vec![3, 2]);
         // Column-major layout of [1 0;3 2;5 4].
-        assert_eq!(b.data, vec![1.0, 3.0, 5.0, 0.0, 2.0, 4.0]);
+        assert_eq!(b.materialize_f64(), vec![1.0, 3.0, 5.0, 0.0, 2.0, 4.0]);
     }
 
     // Normative [FR-009-08; spdiags.extract-vs-construct,
@@ -547,13 +548,13 @@ pub(crate) mod tests {
                     Value::Tensor(t) => t.clone(),
                     other => panic!("expected tensor, got {other:?}"),
                 };
-                assert_eq!(b.data, vec![1.0, 3.0, 5.0, 0.0, 2.0, 4.0]);
+                assert_eq!(b.materialize_f64(), vec![1.0, 3.0, 5.0, 0.0, 2.0, 4.0]);
                 let d = match &values[1] {
                     Value::Tensor(t) => t.clone(),
                     other => panic!("expected tensor, got {other:?}"),
                 };
                 assert_eq!(d.shape, vec![2, 1]);
-                assert_eq!(d.data, vec![0.0, 1.0]);
+                assert_eq!(d.materialize_f64(), vec![0.0, 1.0]);
             }
             other => panic!("expected output list, got {other:?}"),
         }
@@ -575,7 +576,7 @@ pub(crate) mod tests {
         .unwrap();
         let b = expect_tensor(run_spdiags(Value::SparseTensor(a), vec![]));
         assert_eq!(b.shape, vec![3, 2]);
-        assert_eq!(b.data, vec![1.0, 3.0, 5.0, 0.0, 2.0, 4.0]);
+        assert_eq!(b.materialize_f64(), vec![1.0, 3.0, 5.0, 0.0, 2.0, 4.0]);
     }
 
     // unresolved_choice [FR-009-10]: general diagonal numbering and padding
@@ -598,12 +599,12 @@ pub(crate) mod tests {
                     other => panic!("expected tensor, got {other:?}"),
                 };
                 assert_eq!(b.shape, vec![3, 1]);
-                assert_eq!(b.data, vec![7.0, 8.0, 0.0]);
+                assert_eq!(b.materialize_f64(), vec![7.0, 8.0, 0.0]);
                 let d = match &values[1] {
                     Value::Tensor(t) => t.clone(),
                     other => panic!("expected tensor, got {other:?}"),
                 };
-                assert_eq!(d.data, vec![-1.0]);
+                assert_eq!(d.materialize_f64(), vec![-1.0]);
             }
             other => panic!("expected output list, got {other:?}"),
         }
@@ -628,7 +629,7 @@ pub(crate) mod tests {
         // Extract reproduces the original diagonal data.
         let back = expect_tensor(run_spdiags(Value::SparseTensor(a), vec![]));
         assert_eq!(back.shape, vec![2, 1]);
-        assert_eq!(back.data, vec![9.0, 6.0]);
+        assert_eq!(back.materialize_f64(), vec![9.0, 6.0]);
     }
 
     // unresolved_choice [FR-009-10; spdiags.q-forms]: other call forms are

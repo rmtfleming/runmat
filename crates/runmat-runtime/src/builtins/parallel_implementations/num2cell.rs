@@ -12,9 +12,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, ComplexTensor, LogicalArray, StringArray, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, ComplexTensor, LogicalArray, StringArray, Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -263,7 +263,7 @@ impl Num2CellInput {
     fn extract(&self, start: &[usize], sizes: &[usize]) -> BuiltinResult<Value> {
         match &self.kind {
             Num2CellKind::Tensor(t) => {
-                let data = copy_block(&t.data, &self.base_shape, start, sizes)?;
+                let data = copy_block(&t.materialize_f64(), &self.base_shape, start, sizes)?;
                 let shape = trim_shape(sizes.to_vec());
                 let tensor = Tensor::new(data, shape).map_err(|e| {
                     num2cell_error_with_message(format!("num2cell: {e}"), &NUM2CELL_ERROR_INTERNAL)
@@ -271,7 +271,7 @@ impl Num2CellInput {
                 Ok(tensor::tensor_into_value(tensor))
             }
             Num2CellKind::Complex(t) => {
-                let data = copy_block(&t.data, &self.base_shape, start, sizes)?;
+                let data = copy_block(&t.materialize_f64(), &self.base_shape, start, sizes)?;
                 if data.len() == 1 {
                     let (re, im) = data[0];
                     Ok(Value::Complex(re, im))
@@ -432,7 +432,7 @@ fn extract_numeric_vector(value: &Value) -> Option<Vec<f64>> {
         Value::Int(i) => Some(vec![i.to_f64()]),
         Value::Tensor(t) => {
             if is_vector_shape(&t.shape) {
-                Some(t.data.clone())
+                Some(t.materialize_f64())
             } else {
                 None
             }
@@ -585,7 +585,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
-    use runmat_builtins::CellArray;
+    use runmat_value::CellArray;
 
     fn run_num2cell(value: Value, rest: Vec<Value>) -> BuiltinResult<Value> {
         block_on(super::num2cell_builtin(value, rest))
@@ -656,7 +656,7 @@ pub(crate) mod tests {
         for (value, expected) in cell.data.iter().zip(expected_columns.iter()) {
             let gathered = test_support::gather(value.clone()).expect("gather");
             assert_eq!(gathered.shape, vec![2, 1]);
-            assert_eq!(&gathered.data, expected);
+            assert_eq!(&gathered.materialize_f64(), expected);
         }
     }
 
@@ -693,7 +693,7 @@ pub(crate) mod tests {
         assert_eq!(cell.shape, vec![1, 1]);
         let gathered = test_support::gather(cell.data[0].clone()).expect("gather");
         assert_eq!(gathered.shape, vec![2, 2]);
-        assert_eq!(gathered.data, vec![1.0, 3.0, 2.0, 4.0]);
+        assert_eq!(gathered.materialize_f64(), vec![1.0, 3.0, 2.0, 4.0]);
     }
 
     // unresolved_choice [FR-005-06; num2cell.q-shape]: char inputs are
@@ -752,7 +752,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let tensor = Tensor::new(vec![10.0, 20.0, 30.0], vec![1, 3]).unwrap();
             let view = runmat_accelerate_api::HostTensorView {
-                data: &tensor.data,
+                data: &tensor.materialize_f64(),
                 shape: &tensor.shape,
             };
             let handle = provider.upload(&view).expect("upload");

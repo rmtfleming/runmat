@@ -21,15 +21,16 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
+use super::version::{option_text, RUNMAT_VERSION};
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
-use super::version::{option_text, RUNMAT_VERSION};
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "verLessThan";
@@ -196,7 +197,7 @@ async fn verlessthan_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::CharArray;
+    use runmat_value::CharArray;
 
     fn run_vlt(toolbox: &str, version: &str) -> BuiltinResult<Value> {
         block_on(super::verlessthan_builtin(vec![
@@ -232,17 +233,18 @@ pub(crate) mod tests {
         assert!(as_bool(run_vlt("matlab", "1.0").expect("verLessThan")));
     }
 
-    // CONTRACT [FR-033-05]: correct comparisons against RunMat's own 0.5.6.
+    // CONTRACT [FR-033-05]: correct comparisons against RunMat's own version
+    // (0.6.x at the time of writing).
     #[test]
     fn contract_comparisons_reflect_runmat_version() {
         // Equal → not less than.
         assert!(!as_bool(run_vlt("matlab", RUNMAT_VERSION).expect("eq")));
-        // 0.5.6 < 0.0.1 is false.
+        // 0.6.x < 0.0.1 is false.
         assert!(!as_bool(run_vlt("matlab", "0.0.1").expect("low")));
-        // 0.5.6 < 0.6 is true (0.5 < 0.6).
-        assert!(as_bool(run_vlt("matlab", "0.6").expect("minor")));
-        // 0.5.6 < 0.5 is false (0.5.6 > 0.5.0).
-        assert!(!as_bool(run_vlt("matlab", "0.5").expect("shorter")));
+        // 0.6.x < 99.0 is true.
+        assert!(as_bool(run_vlt("matlab", "99.0").expect("major")));
+        // 0.6.x < 0.6 is false (shorter version pads with zeros).
+        assert!(!as_bool(run_vlt("matlab", "0.6").expect("shorter")));
     }
 
     // documented_choice: the toolbox name is a documented mapping — every name

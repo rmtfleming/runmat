@@ -10,9 +10,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -116,7 +117,7 @@ fn internal_error(detail: String) -> RuntimeError {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{SparseTensor, Tensor};
+    use runmat_value::{SparseTensor, Tensor};
 
     fn run_full(value: Value) -> Value {
         block_on(super::full_builtin(value)).expect("full")
@@ -138,7 +139,7 @@ pub(crate) mod tests {
         let dense = expect_tensor(run_full(Value::SparseTensor(sparse)));
         assert_eq!(dense.shape, vec![2, 2]);
         // Column-major layout of [1 0;0 2].
-        assert_eq!(dense.data, vec![1.0, 0.0, 0.0, 2.0]);
+        assert_eq!(dense.materialize_f64(), vec![1.0, 0.0, 0.0, 2.0]);
     }
 
     // Normative — observed case `from-sparse-vector`: full(sparse([0 3 0]))
@@ -148,7 +149,7 @@ pub(crate) mod tests {
         let sparse = SparseTensor::new(1, 3, vec![0, 0, 1, 1], vec![0], vec![3.0]).unwrap();
         let dense = expect_tensor(run_full(Value::SparseTensor(sparse)));
         assert_eq!(dense.shape, vec![1, 3]);
-        assert_eq!(dense.data, vec![0.0, 3.0, 0.0]);
+        assert_eq!(dense.materialize_f64(), vec![0.0, 3.0, 0.0]);
     }
 
     // Normative — observed case `already-full`: full([1 2; 3 4]) =>
@@ -167,7 +168,7 @@ pub(crate) mod tests {
     fn observed_empty_sparse_to_empty_dense() {
         let dense = expect_tensor(run_full(Value::SparseTensor(SparseTensor::zeros(0, 0))));
         assert_eq!(dense.shape, vec![0, 0]);
-        assert!(dense.data.is_empty());
+        assert!(dense.is_empty());
     }
 
     // unresolved_choice [FR-009-03; full.q-class]: non-sparse kinds beyond the
@@ -181,13 +182,8 @@ pub(crate) mod tests {
 
     #[test]
     fn internal_error_on_dimension_overflow() {
-        let sparse = SparseTensor {
-            rows: usize::MAX,
-            cols: 2,
-            col_ptrs: vec![0, 0, 0],
-            row_indices: Vec::new(),
-            values: Vec::new(),
-        };
+        let sparse = SparseTensor::new(usize::MAX, 2, vec![0, 0, 0], Vec::new(), Vec::new())
+            .expect("sparse");
         let err = block_on(super::full_builtin(Value::SparseTensor(sparse))).expect_err("error");
         assert_eq!(err.identifier(), Some("RunMat:full:Internal"));
     }

@@ -30,5 +30,6 @@ pub mod stats;
 pub mod strings;
 pub mod structs;
 pub mod table;
+pub mod testing;
 pub mod timing;
 pub mod wasm_registry;

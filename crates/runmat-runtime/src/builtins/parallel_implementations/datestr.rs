@@ -19,9 +19,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -182,7 +182,7 @@ fn numeric_scalar(value: &Value) -> BuiltinResult<f64> {
     let serial = match value {
         Value::Num(n) => *n,
         Value::Int(i) => i.to_f64(),
-        Value::Tensor(t) if t.data.len() == 1 => t.data[0],
+        Value::Tensor(t) if t.len() == 1 => t.materialize_f64()[0],
         _ => return Err(invalid_input(DATESTR_ERROR_INVALID_INPUT.message)),
     };
     if !serial.is_finite() {
@@ -286,7 +286,7 @@ fn format_serial(serial: f64, format: &str) -> BuiltinResult<String> {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::Tensor;
+    use runmat_value::Tensor;
 
     fn run(args: Vec<Value>) -> Value {
         block_on(super::datestr_builtin(args)).expect("datestr")

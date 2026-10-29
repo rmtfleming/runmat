@@ -8,8 +8,11 @@ use uuid::Uuid;
 use crate::cli::parse::{parse_bool_env, parse_figure_size, parse_log_level_env};
 use crate::cli::remote::{FsCommand, OrgCommand, ProjectCommand, RemoteCommand};
 use crate::cli::value_types::{
-    CaptureFiguresMode, CompressionAlg, FigureSize, GcPreset, LogLevel, OptLevel,
+    AotOptLevel, AotPolicy, CaptureFiguresMode, FigureSize, GcPreset, LogLevel, OptLevel,
 };
+use crate::cli::ColorMode;
+use crate::cli::TestArgs;
+use crate::cli::{BatchCommand, ClusterCommand, JobCommand, PackageCommand};
 
 #[derive(Parser, Clone)]
 #[command(
@@ -26,7 +29,6 @@ Key features:
 • JIT compilation with Cranelift for optimal performance
 • Generational garbage collection with configurable policies
 • High-performance BLAS/LAPACK operations
-• Fast startup with snapshotting capabilities
 • World-class error messages and debugging
 • Compatible with MATLAB/Octave syntax and semantics
 
@@ -52,12 +54,33 @@ Environment Variables:
   RUNMAT_SERVER_URL=<url>     Remote server URL (remote commands)
   RUNMAT_ORG_ID=<uuid>        Remote org override (remote commands)
   RUNMAT_PROJECT_ID=<uuid>    Remote project override (remote commands)
+  RUNMAT_PACKAGE_CACHE_DIR=<path>  Shared package cache override
+  NO_COLOR=<non-empty>        Disable ANSI color by default
+  CLICOLOR=0                  Disable automatic ANSI color
+  CLICOLOR_FORCE=<non-zero>   Force ANSI color for human output
+  FORCE_COLOR=<1..3>          Force a specific color level
 
 For more information, visit: https://github.com/runmat-org/runmat
 "#
 )]
 #[command(propagate_version = true)]
 pub struct Cli {
+    /// Control ANSI styling for human-readable output
+    #[arg(long, value_enum, default_value = "auto", global = true)]
+    pub color: ColorMode,
+
+    /// Resolve only from locally available package content
+    #[arg(long, global = true)]
+    pub offline: bool,
+
+    /// Require an up-to-date lockfile
+    #[arg(long, global = true)]
+    pub locked: bool,
+
+    /// Require the lockfile and prohibit network access or lock mutation
+    #[arg(long, global = true)]
+    pub frozen: bool,
+
     /// Enable debug logging
     #[arg(short, long, value_parser = parse_bool_env)]
     pub debug: bool,
@@ -113,10 +136,6 @@ pub struct Cli {
     /// Verbose output for REPL and execution
     #[arg(short, long)]
     pub verbose: bool,
-
-    /// Snapshot file to preload standard library
-    #[arg(long)]
-    pub snapshot: Option<PathBuf>,
 
     /// Plotting mode
     #[arg(long, value_enum)]
@@ -220,6 +239,35 @@ pub enum Commands {
         #[arg(last = true)]
         args: Vec<String>,
     },
+    /// Compile a MATLAB program into a standalone native executable
+    Compile {
+        /// MATLAB script or function entrypoint
+        file: PathBuf,
+        /// Output executable path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Native optimization policy
+        #[arg(long, value_enum, default_value = "speed")]
+        optimization: AotOptLevel,
+        /// Native runtime composition policy
+        #[arg(long, value_enum, default_value = "native-specialized")]
+        policy: AotPolicy,
+        /// Explain why program symbols and runtime families are retained
+        #[arg(long)]
+        explain_link: bool,
+        /// Write the deterministic reachability and link plan as JSON
+        #[arg(long, value_name = "PATH")]
+        link_plan_json: Option<PathBuf>,
+        /// Explicit system linker driver
+        #[arg(long)]
+        linker: Option<PathBuf>,
+        /// Retain temporary object, archive, and response-file inputs
+        #[arg(long)]
+        keep_temps: bool,
+        /// Replace an existing output after preserving it until publication succeeds
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Check a MATLAB script or FEA document without running it
     Check {
         /// .m or .fea file to check
@@ -282,11 +330,6 @@ pub enum Commands {
         #[arg(long)]
         jit: bool,
     },
-    /// Snapshot management
-    Snapshot {
-        #[command(subcommand)]
-        snapshot_command: SnapshotCommand,
-    },
     /// Configuration management
     Config {
         #[command(subcommand)]
@@ -333,6 +376,28 @@ pub enum Commands {
         #[command(subcommand)]
         fs_command: FsCommand,
     },
+    /// Package resolution and shared-cache operations
+    Package {
+        #[command(subcommand)]
+        package_command: PackageCommand,
+    },
+    /// Discover and run MATLAB-compatible tests
+    Test(Box<TestArgs>),
+    /// Submit and manage durable local batch jobs
+    Batch {
+        #[command(subcommand)]
+        batch_command: BatchCommand,
+    },
+    /// Manage remote execution clusters and nodes
+    Cluster {
+        #[command(subcommand)]
+        cluster_command: ClusterCommand,
+    },
+    /// Submit and manage durable encrypted remote jobs
+    Job {
+        #[command(subcommand)]
+        job_command: JobCommand,
+    },
 }
 
 #[derive(Subcommand, Clone)]
@@ -350,34 +415,6 @@ pub enum GcCommand {
         /// Number of allocations
         #[arg(short, long, default_value = "10000")]
         allocations: usize,
-    },
-}
-
-#[derive(Subcommand, Clone)]
-pub enum SnapshotCommand {
-    /// Create a new snapshot
-    Create {
-        /// Output snapshot file
-        #[arg(short, long)]
-        output: PathBuf,
-        /// Optimization level
-        #[arg(short = 'O', long, value_enum, default_value = "speed")]
-        optimization: OptLevel,
-        /// Compression algorithm
-        #[arg(short, long, value_enum)]
-        compression: Option<CompressionAlg>,
-    },
-    /// Load and inspect a snapshot
-    Info {
-        /// Snapshot file to inspect
-        snapshot: PathBuf,
-    },
-    /// List available presets
-    Presets,
-    /// Validate a snapshot file
-    Validate {
-        /// Snapshot file to validate
-        snapshot: PathBuf,
     },
 }
 
@@ -405,6 +442,152 @@ pub enum ConfigCommand {
     },
     /// Show configuration file locations
     Paths,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Commands};
+    use crate::cli::{AotPolicy, BatchCommand, ClusterCommand, ClusterStateArg};
+    use clap::Parser;
+
+    #[test]
+    fn removed_startup_snapshot_flag_is_rejected() {
+        let error = match Cli::try_parse_from(["runmat", "--snapshot", "stdlib.snapshot", "main.m"])
+        {
+            Ok(_) => panic!("the removed startup snapshot flag must not parse"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("--snapshot"));
+    }
+
+    #[test]
+    fn snapshot_is_no_longer_a_cli_command() {
+        let cli = Cli::try_parse_from(["runmat", "snapshot"])
+            .expect("ordinary positional input must continue to parse as a script path");
+        assert!(cli.command.is_none());
+        assert_eq!(
+            cli.script.as_deref(),
+            Some(std::path::Path::new("snapshot"))
+        );
+    }
+
+    #[test]
+    fn compile_policy_defaults_to_the_supported_native_profile() {
+        let cli = Cli::try_parse_from(["runmat", "compile", "main.m"]).unwrap();
+        let Some(Commands::Compile { policy, .. }) = cli.command else {
+            panic!("expected compile command");
+        };
+        assert_eq!(policy, AotPolicy::NativeSpecialized);
+    }
+
+    #[test]
+    fn compile_policy_names_every_declared_composition_mode() {
+        for (name, expected) in [
+            ("native-specialized", AotPolicy::NativeSpecialized),
+            ("closed-world", AotPolicy::ClosedWorld),
+            ("dynamic-runtime", AotPolicy::DynamicRuntime),
+            ("portable", AotPolicy::Portable),
+        ] {
+            let cli =
+                Cli::try_parse_from(["runmat", "compile", "main.m", "--policy", name]).unwrap();
+            let Some(Commands::Compile { policy, .. }) = cli.command else {
+                panic!("expected compile command");
+            };
+            assert_eq!(policy, expected);
+        }
+    }
+
+    #[test]
+    fn compile_link_explanation_outputs_parse_together() {
+        let cli = Cli::try_parse_from([
+            "runmat",
+            "compile",
+            "main.m",
+            "--explain-link",
+            "--link-plan-json",
+            "build/main.link.json",
+        ])
+        .unwrap();
+        let Some(Commands::Compile {
+            explain_link,
+            link_plan_json,
+            ..
+        }) = cli.command
+        else {
+            panic!("expected compile command");
+        };
+        assert!(explain_link);
+        assert_eq!(
+            link_plan_json.as_deref(),
+            Some(std::path::Path::new("build/main.link.json"))
+        );
+    }
+
+    #[test]
+    fn durable_batch_commands_parse_without_entering_script_mode() {
+        let cli = Cli::try_parse_from([
+            "runmat",
+            "batch",
+            "submit",
+            "job.m",
+            "--idempotency-key",
+            "stable",
+            "--retention-hours",
+            "24",
+            "--json",
+            "--",
+            "input",
+        ])
+        .unwrap();
+        let Some(Commands::Batch {
+            batch_command:
+                BatchCommand::Submit {
+                    file,
+                    idempotency_key,
+                    retention_hours,
+                    json,
+                    args,
+                },
+        }) = cli.command
+        else {
+            panic!("expected durable batch submit");
+        };
+        assert_eq!(file, std::path::Path::new("job.m"));
+        assert_eq!(idempotency_key.as_deref(), Some("stable"));
+        assert_eq!(retention_hours, 24);
+        assert!(json);
+        assert_eq!(args, ["input"]);
+    }
+
+    #[test]
+    fn cluster_management_commands_parse_without_entering_script_mode() {
+        let cli = Cli::try_parse_from([
+            "runmat",
+            "cluster",
+            "state",
+            "--org",
+            "01234567-89ab-cdef-0123-456789abcdef",
+            "clu_0123456789abcdef0123456789abcdef",
+            "draining",
+            "--json",
+        ])
+        .unwrap();
+        let Some(Commands::Cluster {
+            cluster_command:
+                ClusterCommand::State {
+                    cluster,
+                    state,
+                    json,
+                    ..
+                },
+        }) = cli.command
+        else {
+            panic!("expected cluster state command");
+        };
+        assert_eq!(cluster, "clu_0123456789abcdef0123456789abcdef");
+        assert!(matches!(state, ClusterStateArg::Draining));
+        assert!(json);
+    }
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]

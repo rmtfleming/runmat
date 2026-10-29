@@ -20,12 +20,14 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 
+use crate::class_registry::{RuntimeClass, RuntimeMethod, RuntimeProperty};
 use runmat_builtins::{
-    Access, BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, ClassDef, HandleRef, MethodDef, ObjectInstance, PropertyDef, StructValue, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_types::MemberAccess;
+use runmat_value::{CharArray, HandleRef, ObjectInstance, StructValue, Value};
 
 use crate::{BuiltinResult, RuntimeError};
 
@@ -258,26 +260,22 @@ pub const INPUT_PARSER_PARSE_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
 // Class registration (containers.Map pattern: lazy, per-thread)
 // ---------------------------------------------------------------------------
 
-thread_local! {
-    static INPUT_PARSER_CLASS_REGISTERED: Cell<bool> = const { Cell::new(false) };
-}
+static INPUT_PARSER_CLASS_REGISTERED: crate::class_registry::ClassRegistration =
+    crate::class_registry::ClassRegistration::new(CLASS_NAME);
 
 fn ensure_input_parser_class_registered() {
-    INPUT_PARSER_CLASS_REGISTERED.with(|registered| {
-        if registered.get() {
-            return;
-        }
+    INPUT_PARSER_CLASS_REGISTERED.ensure(|| {
         let mut properties = HashMap::new();
         for name in [PROP_RESULTS, PROP_USING_DEFAULTS] {
             properties.insert(
                 name.to_string(),
-                PropertyDef {
+                RuntimeProperty {
                     name: name.to_string(),
                     is_static: false,
                     is_constant: false,
                     is_dependent: false,
-                    get_access: Access::Public,
-                    set_access: Access::Private,
+                    get_access: MemberAccess::Public,
+                    set_access: MemberAccess::Private,
                     default_value: None,
                 },
             );
@@ -292,24 +290,23 @@ fn ensure_input_parser_class_registered() {
         ] {
             methods.insert(
                 name.to_string(),
-                MethodDef {
+                RuntimeMethod {
                     name: name.to_string(),
                     is_static: false,
                     is_abstract: false,
                     is_sealed: false,
-                    access: Access::Public,
+                    access: MemberAccess::Public,
                     function_name: function_name.to_string(),
                     implicit_class_argument: None,
                 },
             );
         }
-        runmat_builtins::register_class(ClassDef {
+        crate::class_registry::register_class(RuntimeClass {
             name: CLASS_NAME.to_string(),
             parent: None,
             properties,
             methods,
         });
-        registered.set(true);
     });
 }
 
@@ -734,12 +731,15 @@ pub(crate) mod tests {
         input_parser_parse(parser.clone(), rest)
     }
 
+    // Read the property straight off the GC-backed object: `getfield` on
+    // objects is a compatibility-mode extension and not part of this contract.
     fn property(parser: &Value, name: &str) -> Value {
-        crate::call_builtin(
-            "getfield",
-            &[parser.clone(), Value::String(name.to_string())],
-        )
-        .unwrap_or_else(|e| panic!("getfield {name}: {e:?}"))
+        let handle = parser_handle(parser, "test").expect("inputParser handle");
+        let obj = parser_object(&handle, "test").expect("inputParser object");
+        obj.properties
+            .get(name)
+            .unwrap_or_else(|| panic!("inputParser has no property '{name}'"))
+            .clone()
     }
 
     fn results_field(parser: &Value, field: &str) -> Value {
@@ -865,7 +865,7 @@ pub(crate) mod tests {
     #[test]
     fn registration_discoverable_class_and_builtins() {
         let _p = construct();
-        let class_def = runmat_builtins::get_class(CLASS_NAME).expect("class registered");
+        let class_def = crate::class_registry::get_class(CLASS_NAME).expect("class registered");
         for method in ["addRequired", "addParameter", "parse"] {
             assert!(class_def.methods.contains_key(method), "missing {method}");
         }

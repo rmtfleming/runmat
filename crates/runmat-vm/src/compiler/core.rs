@@ -1,7 +1,7 @@
 use crate::bytecode::instr::PropertyDefaultLiteral;
 use crate::call::builtins::is_vm_intrinsic_builtin;
 use crate::compiler::CompileError;
-use crate::instr::{ArgSpec, EndExpr, Instr};
+use crate::instr::Instr;
 use crate::layout::VmAssemblyLayout;
 use runmat_builtins::{self, Type};
 use runmat_hir::{
@@ -14,6 +14,8 @@ use runmat_mir::{
     MirPlace, MirPlaceMutation, MirRvalue, MirShortCircuitOp, MirStmt, MirStmtKind,
     MirTerminatorKind,
 };
+use runmat_runtime::call::arguments::ArgumentSpec;
+use runmat_runtime::indexing::EndExpr;
 use std::collections::{HashMap, HashSet};
 
 type ClassRegistration = (
@@ -147,6 +149,9 @@ const IDENT_MIR_METHOD_FALLBACK_POLICY_UNSUPPORTED: &str =
     "RunMat:MirMethodFallbackPolicyUnsupported";
 const IDENT_MIR_METHOD_CALL_CALLEE_INVALID: &str = "RunMat:MirMethodCallCalleeInvalid";
 const IDENT_MIR_METHOD_CALL_RECEIVER_MISSING: &str = "RunMat:MirMethodCallReceiverMissing";
+const IDENT_MIR_PARALLEL_CAPABILITY_UNSUPPORTED: &str = "RunMat:MirParallelCapabilityUnsupported";
+const IDENT_MIR_DISTRIBUTED_CAPABILITY_UNSUPPORTED: &str =
+    "RunMat:MirDistributedCapabilityUnsupported";
 
 fn encode_cell_end_offset(offset: isize) -> f64 {
     if offset <= 0 {
@@ -179,7 +184,13 @@ fn mir_range_starts_at_one(iterable: &MirRvalue) -> bool {
 }
 
 fn mir_operand_is_one(operand: &MirOperand) -> bool {
-    matches!(operand, MirOperand::Constant(MirConstant::Number(value)) if value == "1" || value == "1.0")
+    match operand {
+        MirOperand::Constant(MirConstant::Number(value)) => value == "1" || value == "1.0",
+        MirOperand::Constant(MirConstant::IntegerLiteral(value)) => {
+            runmat_value::IntValue::from(value).try_to_u64() == Some(1)
+        }
+        _ => false,
+    }
 }
 
 fn call_name(call: &MirCall) -> Option<&str> {
@@ -341,32 +352,47 @@ fn hir_class_registrations(hir: &HirAssembly) -> Vec<ClassRegistration> {
         .iter()
         .map(|class| {
             let name = class
+                .declaration
                 .name
                 .0
                 .iter()
                 .map(|part| part.0.clone())
                 .collect::<Vec<_>>()
                 .join(".");
-            let mut super_class = class.builtin_super_class.clone().or_else(|| {
-                class.super_class.and_then(|class_id| {
-                    hir.classes
-                        .iter()
-                        .find(|candidate| candidate.id == class_id)
-                        .map(|super_class| {
-                            super_class
-                                .name
-                                .0
+            let mut super_class = class
+                .declaration
+                .inheritance
+                .builtin_super_class
+                .clone()
+                .or_else(|| class.declaration.inheritance.declared_super_class.clone())
+                .or_else(|| {
+                    class
+                        .declaration
+                        .inheritance
+                        .resolved_super_class
+                        .and_then(|class_id| {
+                            hir.classes
                                 .iter()
-                                .map(|part| part.0.clone())
-                                .collect::<Vec<_>>()
-                                .join(".")
+                                .find(|candidate| candidate.declaration.id == class_id)
+                                .map(|super_class| {
+                                    super_class
+                                        .declaration
+                                        .name
+                                        .0
+                                        .iter()
+                                        .map(|part| part.0.clone())
+                                        .collect::<Vec<_>>()
+                                        .join(".")
+                                })
                         })
-                })
-            });
-            if super_class.is_none() && matches!(class.kind, runmat_hir::ClassKind::Handle) {
+                });
+            if super_class.is_none()
+                && matches!(class.declaration.kind, runmat_hir::ClassKind::Handle)
+            {
                 super_class = Some("handle".to_string());
             }
             let properties = class
+                .declaration
                 .properties
                 .iter()
                 .map(|property| {
@@ -375,21 +401,21 @@ fn hir_class_registrations(hir: &HirAssembly) -> Vec<ClassRegistration> {
                     } else {
                         property.name.0.clone()
                     };
-                    let default = property
-                        .default
-                        .as_ref()
+                    let default = class
+                        .property_default(&property.name)
                         .and_then(hir_property_default_to_value);
                     (
                         name,
                         property.attributes.is_static,
                         property.attributes.is_constant,
                         default,
-                        member_access_name(property.attributes.get_access.clone()).to_string(),
-                        member_access_name(property.attributes.set_access.clone()).to_string(),
+                        member_access_name(property.attributes.get_access).to_string(),
+                        member_access_name(property.attributes.set_access).to_string(),
                     )
                 })
                 .collect();
             let methods = class
+                .declaration
                 .methods
                 .iter()
                 .map(|method| {
@@ -405,11 +431,12 @@ fn hir_class_registrations(hir: &HirAssembly) -> Vec<ClassRegistration> {
                         method.is_static,
                         method.attributes.is_abstract,
                         method.attributes.is_sealed,
-                        member_access_name(method.attributes.access.clone()).to_string(),
+                        member_access_name(method.attributes.access).to_string(),
                     )
                 })
                 .collect();
             let enumerations = class
+                .declaration
                 .enumerations
                 .iter()
                 .map(|enumeration| enumeration.name.0.clone())
@@ -417,8 +444,8 @@ fn hir_class_registrations(hir: &HirAssembly) -> Vec<ClassRegistration> {
             (
                 name,
                 super_class,
-                class.is_sealed,
-                class.is_abstract,
+                class.declaration.is_sealed,
+                class.declaration.is_abstract,
                 properties,
                 methods,
                 enumerations,
@@ -470,6 +497,9 @@ fn hir_property_default_to_value(expr: &runmat_hir::HirExpr) -> Option<PropertyD
         runmat_hir::HirExprKind::Number(text) => {
             text.parse::<f64>().ok().map(PropertyDefaultLiteral::Num)
         }
+        runmat_hir::HirExprKind::IntegerLiteral(value) => Some(PropertyDefaultLiteral::Int(
+            runmat_value::IntValue::from(value),
+        )),
         runmat_hir::HirExprKind::String(text) => {
             Some(PropertyDefaultLiteral::String(text.0.clone()))
         }
@@ -654,27 +684,22 @@ impl Compiler {
 
         let mut block_starts = HashMap::new();
         let mut pending_jumps: Vec<(usize, BasicBlockId, bool)> = Vec::new();
-        let mut pending_try_entries: Vec<(usize, BasicBlockId, Option<usize>)> = Vec::new();
-        let try_entry_blocks: HashSet<BasicBlockId> = blocks
-            .iter()
-            .filter_map(|block| match block.terminator.kind {
-                MirTerminatorKind::TryCatch { try_block, .. } => Some(try_block),
-                _ => None,
-            })
-            .collect();
+        let mut pending_try_entries: Vec<(usize, usize, BasicBlockId, Option<usize>)> = Vec::new();
+        let exception_scopes = crate::compiler::exceptions::ExceptionScopes::analyze(body);
 
         for (block_index, block) in blocks.iter().enumerate() {
             self.pending_place_mutation = None;
             block_starts.insert(block.id, self.instructions.len());
-            for stmt in &block.statements {
+            for scope in exception_scopes.leaving_at(block.id) {
+                self.emit(Instr::LeaveTry(*scope));
+            }
+            for (position, stmt) in block.statements.iter().enumerate() {
+                self.record_resume_point(block.id, position)?;
                 self.compile_mir_stmt(stmt)?;
             }
-            let exits_try_scope = try_entry_blocks.contains(&block.id);
+            self.record_resume_point(block.id, block.statements.len())?;
             match &block.terminator.kind {
                 MirTerminatorKind::Goto(target) => {
-                    if exits_try_scope {
-                        self.emit(Instr::PopTry);
-                    }
                     let pc = self.emit(Instr::Jump(usize::MAX));
                     pending_jumps.push((pc, *target, false));
                 }
@@ -683,9 +708,6 @@ impl Compiler {
                     then_block,
                     else_block,
                 } => {
-                    if exits_try_scope {
-                        self.emit(Instr::PopTry);
-                    }
                     self.compile_mir_operand(cond)?;
                     let false_pc = self.emit(Instr::JumpIfFalse(usize::MAX));
                     pending_jumps.push((false_pc, *else_block, true));
@@ -697,9 +719,6 @@ impl Compiler {
                     cases,
                     otherwise,
                 } => {
-                    if exits_try_scope {
-                        self.emit(Instr::PopTry);
-                    }
                     let discr_temp = self.alloc_temp();
                     self.compile_mir_operand(discr)?;
                     self.emit(Instr::StoreVar(discr_temp));
@@ -723,8 +742,13 @@ impl Compiler {
                     let catch_var = catch_binding
                         .map(|local| self.mir_local_slot(local))
                         .transpose()?;
-                    let enter_pc = self.emit(Instr::EnterTry(usize::MAX, catch_var));
-                    pending_try_entries.push((enter_pc, *catch_block, catch_var));
+                    let scope = block.id.0;
+                    let enter_pc = self.emit(Instr::EnterTry {
+                        scope,
+                        catch_pc: usize::MAX,
+                        catch_var,
+                    });
+                    pending_try_entries.push((enter_pc, scope, *catch_block, catch_var));
                     let try_pc = self.emit(Instr::Jump(usize::MAX));
                     pending_jumps.push((try_pc, *try_block, false));
                 }
@@ -751,9 +775,16 @@ impl Compiler {
                         &mut pending_jumps,
                     )?;
                 }
+                MirTerminatorKind::ParFor { .. } | MirTerminatorKind::Spmd { .. } => {
+                    return Err(CompileError::new(
+                        "parallel-region MIR requires the structured scheduler lowering capability",
+                    )
+                    .with_span(block.terminator.span)
+                    .with_identifier(IDENT_MIR_PARALLEL_CAPABILITY_UNSUPPORTED));
+                }
                 MirTerminatorKind::Return(values) => {
-                    if exits_try_scope {
-                        self.emit(Instr::PopTry);
+                    for scope in exception_scopes.active_at(block.id) {
+                        self.emit(Instr::LeaveTry(scope));
                     }
                     if values.is_empty() && block_index + 1 < blocks.len() {
                         self.emit(Instr::Return);
@@ -762,8 +793,8 @@ impl Compiler {
                     }
                 }
                 MirTerminatorKind::Unreachable => {
-                    if exits_try_scope {
-                        self.emit(Instr::PopTry);
+                    for scope in exception_scopes.active_at(block.id) {
+                        self.emit(Instr::LeaveTry(scope));
                     }
                     self.emit(Instr::Return);
                 }
@@ -772,9 +803,6 @@ impl Compiler {
                     result,
                     resume,
                 } => {
-                    if exits_try_scope {
-                        self.emit(Instr::PopTry);
-                    }
                     self.compile_mir_operand(future)?;
                     self.emit(Instr::Await);
                     if let Some(place) = result {
@@ -801,13 +829,58 @@ impl Compiler {
             }
         }
 
-        for (pc, target, catch_var) in pending_try_entries {
+        for (pc, scope, target, catch_var) in pending_try_entries {
             let target_pc = *block_starts
                 .get(&target)
                 .ok_or_else(|| CompileError::new(format!("missing MIR catch block {target:?}")))?;
-            self.patch(pc, Instr::EnterTry(target_pc, catch_var));
+            self.patch(
+                pc,
+                Instr::EnterTry {
+                    scope,
+                    catch_pc: target_pc,
+                    catch_var,
+                },
+            );
         }
 
+        Ok(())
+    }
+
+    fn record_resume_point(
+        &mut self,
+        block: BasicBlockId,
+        position: usize,
+    ) -> Result<(), CompileError> {
+        let function = self
+            .function
+            .ok_or_else(|| CompileError::new("compiler missing selected function"))?;
+        let function = u32::try_from(function.0)
+            .map(runmat_types::ProgramFunctionId)
+            .map_err(|_| CompileError::new("function identity exceeds resume schema"))?;
+        let position = u32::try_from(position)
+            .map_err(|_| CompileError::new("MIR position exceeds resume schema"))?;
+        let point = runmat_types::ProgramPointId {
+            function,
+            block: u32::try_from(block.0)
+                .map_err(|_| CompileError::new("MIR block exceeds resume schema"))?,
+            position,
+        };
+        let layout = self
+            .layout
+            .as_mut()
+            .and_then(|layout| {
+                layout
+                    .functions
+                    .get_mut(&runmat_hir::FunctionId(function.0 as usize))
+            })
+            .ok_or_else(|| CompileError::new("compiler missing function resume layout"))?;
+        if layout
+            .resume_points
+            .insert(point, self.instructions.len())
+            .is_some()
+        {
+            return Err(CompileError::new("duplicate MIR resume point"));
+        }
         Ok(())
     }
 
@@ -1950,7 +2023,7 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let context_ok = if allow_deletion_context {
             mir_indexing_context_matches(
-                indexing.result_context.clone(),
+                indexing.result_context,
                 IndexResultContext::AssignmentTarget,
             )
         } else {
@@ -1989,7 +2062,7 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let context_ok = if allow_deletion_context {
             mir_indexing_context_matches(
-                indexing.result_context.clone(),
+                indexing.result_context,
                 IndexResultContext::AssignmentTarget,
             )
         } else {
@@ -2303,6 +2376,11 @@ impl Compiler {
                 self.emit(Instr::Spawn);
                 Ok(())
             }
+            MirRvalue::Distributed(_) | MirRvalue::Collective(_) => Err(self
+                .compile_error(
+                    "distributed-value and collective MIR requires the distributed runtime capability",
+                )
+                .with_identifier(IDENT_MIR_DISTRIBUTED_CAPABILITY_UNSUPPORTED)),
         }
     }
 
@@ -3000,12 +3078,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn mir_call_arg_specs(&self, args: &[MirCallArg]) -> (Vec<ArgSpec>, bool) {
+    fn mir_call_arg_specs(&self, args: &[MirCallArg]) -> (Vec<ArgumentSpec>, bool) {
         let mut has_expansion = false;
         let specs = args
             .iter()
             .map(|arg| match arg {
-                MirCallArg::Single(_) => ArgSpec {
+                MirCallArg::Single(_) => ArgumentSpec {
                     is_expand: false,
                     num_indices: 0,
                     expand_all: false,
@@ -3016,7 +3094,7 @@ impl Compiler {
                     ..
                 } => {
                     has_expansion = true;
-                    ArgSpec {
+                    ArgumentSpec {
                         is_expand: true,
                         num_indices: indices.len(),
                         expand_all: *expand_all,
@@ -3058,8 +3136,8 @@ impl Compiler {
         if is_vm_intrinsic_builtin(&candidate) {
             return Ok(candidate);
         }
-        if let Some(builtin) = runmat_builtins::builtin_function_by_name(&candidate) {
-            return Ok(builtin.name.to_string());
+        if runmat_builtins::builtin_name_is_known(&candidate) {
+            return Ok(candidate);
         }
         Err(CompileError::new(format!("unknown builtin id {candidate}"))
             .with_identifier(IDENT_MIR_BUILTIN_UNKNOWN))
@@ -3212,8 +3290,8 @@ impl Compiler {
         match indexing.kind {
             IndexKind::Paren => self.compile_mir_slice_index(indexing)?,
             IndexKind::Brace => {
-                let (end_offsets, end_exprs) = self
-                    .compile_mir_cell_index_components(indexing, indexing.result_context.clone())?;
+                let (end_offsets, end_exprs) =
+                    self.compile_mir_cell_index_components(indexing, indexing.result_context)?;
                 self.emit(Instr::IndexCell {
                     num_indices: indexing.components.len(),
                     end_offsets,
@@ -3229,7 +3307,7 @@ impl Compiler {
         indexing: &MirIndexing,
         expected_context: IndexResultContext,
     ) -> Result<MirCellIndexCompileResult, CompileError> {
-        if !mir_indexing_context_matches(indexing.result_context.clone(), expected_context) {
+        if !mir_indexing_context_matches(indexing.result_context, expected_context) {
             return Err(self
                 .compile_error("MIR cell index lowering received mismatched index result context")
                 .with_identifier(IDENT_MIR_CELL_INDEX_CONTEXT_INVALID));
@@ -3611,8 +3689,7 @@ impl Compiler {
         let step_expr = step
             .as_ref()
             .and_then(|step| self.mir_operand_end_expr(step));
-        let end_expr = self.mir_operand_end_expr(&end);
-        let end_expr = end_expr.or_else(|| self.mir_operand_any_end_expr(&end))?;
+        let end_expr = self.mir_operand_range_bound_expr(&end)?;
         Some(MirRangeEndSpec {
             start_expr,
             step_expr,
@@ -3639,9 +3716,25 @@ impl Compiler {
                 .unwrap_or(false)
     }
 
-    fn mir_operand_any_end_expr(&self, operand: &MirOperand) -> Option<EndExpr> {
-        self.mir_operand_end_expr_internal(operand)
-            .map(|(expr, _)| expr)
+    fn mir_operand_range_bound_expr(&self, operand: &MirOperand) -> Option<EndExpr> {
+        match operand {
+            MirOperand::Constant(MirConstant::Number(value)) => {
+                value.parse::<f64>().ok().map(EndExpr::Const)
+            }
+            MirOperand::Local(local) => {
+                let slot = self.mir_local_slot(*local).ok()?;
+                let mut visited = HashSet::new();
+                match self
+                    .mir_local_single_assignment_rvalue(*local)
+                    .and_then(|value| {
+                        self.mir_rvalue_range_bound_end_expr_internal(&value, &mut visited)
+                    }) {
+                    Some((expr, true)) => Some(expr),
+                    Some((_, false)) | None => Some(EndExpr::Var(slot)),
+                }
+            }
+            MirOperand::Constant(_) | MirOperand::FunctionHandle(_) => None,
+        }
     }
 
     fn mir_operand_rvalue(&self, operand: &MirOperand) -> Option<MirRvalue> {
@@ -3663,6 +3756,130 @@ impl Compiler {
                 } if *candidate == local => Some(value.clone()),
                 _ => None,
             })
+    }
+
+    fn mir_local_single_assignment_rvalue(
+        &self,
+        local: runmat_mir::MirLocalId,
+    ) -> Option<MirRvalue> {
+        let body = self.body.as_ref()?;
+        let mut assignments = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .filter_map(|stmt| match &stmt.kind {
+                MirStmtKind::Assign {
+                    place: MirPlace::Local(candidate),
+                    value,
+                } if *candidate == local => Some(value),
+                _ => None,
+            });
+        let value = assignments.next()?.clone();
+        assignments.next().is_none().then_some(value)
+    }
+
+    fn mir_operand_range_bound_end_expr_internal(
+        &self,
+        operand: &MirOperand,
+        visited: &mut HashSet<runmat_mir::MirLocalId>,
+    ) -> Option<(EndExpr, bool)> {
+        match operand {
+            MirOperand::Local(local) => {
+                if !visited.insert(*local) {
+                    return None;
+                }
+                let result = self
+                    .mir_local_single_assignment_rvalue(*local)
+                    .and_then(|value| {
+                        self.mir_rvalue_range_bound_end_expr_internal(&value, visited)
+                    });
+                visited.remove(local);
+                result
+            }
+            MirOperand::Constant(MirConstant::Number(value)) => value
+                .parse::<f64>()
+                .ok()
+                .map(|value| (EndExpr::Const(value), false)),
+            MirOperand::Constant(_) | MirOperand::FunctionHandle(_) => None,
+        }
+    }
+
+    fn mir_rvalue_range_bound_end_expr_internal(
+        &self,
+        value: &MirRvalue,
+        visited: &mut HashSet<runmat_mir::MirLocalId>,
+    ) -> Option<(EndExpr, bool)> {
+        match value {
+            MirRvalue::End => Some((EndExpr::End, true)),
+            MirRvalue::Use(operand) => {
+                self.mir_operand_range_bound_end_expr_internal(operand, visited)
+            }
+            MirRvalue::Unary(op, operand) => {
+                let (expr, has_end) =
+                    self.mir_operand_range_bound_end_expr_internal(operand, visited)?;
+                match op {
+                    OperatorKind::UnaryPlus => Some((EndExpr::Pos(Box::new(expr)), has_end)),
+                    OperatorKind::UnaryMinus => Some((EndExpr::Neg(Box::new(expr)), has_end)),
+                    _ => None,
+                }
+            }
+            MirRvalue::Binary(left, op, right) => {
+                let (left, left_has_end) =
+                    self.mir_operand_range_bound_end_expr_internal(left, visited)?;
+                let (right, right_has_end) =
+                    self.mir_operand_range_bound_end_expr_internal(right, visited)?;
+                let has_end = left_has_end || right_has_end;
+                let expr = match op {
+                    OperatorKind::Add => EndExpr::Add(Box::new(left), Box::new(right)),
+                    OperatorKind::Subtract => EndExpr::Sub(Box::new(left), Box::new(right)),
+                    OperatorKind::MatrixMultiply | OperatorKind::ElementwiseMultiply => {
+                        EndExpr::Mul(Box::new(left), Box::new(right))
+                    }
+                    OperatorKind::Mrdivide | OperatorKind::ElementwiseDivide => {
+                        EndExpr::Div(Box::new(left), Box::new(right))
+                    }
+                    OperatorKind::Mldivide | OperatorKind::ElementwiseLeftDivide => {
+                        EndExpr::LeftDiv(Box::new(left), Box::new(right))
+                    }
+                    OperatorKind::MatrixPower | OperatorKind::ElementwisePower => {
+                        EndExpr::Pow(Box::new(left), Box::new(right))
+                    }
+                    _ => return None,
+                };
+                Some((expr, has_end))
+            }
+            MirRvalue::Call(call) => self.mir_call_range_bound_end_expr_internal(call, visited),
+            _ => None,
+        }
+    }
+
+    fn mir_call_range_bound_end_expr_internal(
+        &self,
+        call: &MirCall,
+        visited: &mut HashSet<runmat_mir::MirLocalId>,
+    ) -> Option<(EndExpr, bool)> {
+        let identity = match &call.callee {
+            MirCallee::Static(identity) => identity.clone(),
+            MirCallee::SuperConstructor { .. } | MirCallee::SuperMethod { .. } => return None,
+            MirCallee::Dynamic(_) => return None,
+        };
+        let mut args = Vec::with_capacity(call.args.len());
+        let mut has_end = false;
+        for arg in &call.args {
+            let MirCallArg::Single(operand) = arg else {
+                return None;
+            };
+            let (expr, arg_has_end) =
+                self.mir_operand_range_bound_end_expr_internal(operand, visited)?;
+            args.push(expr);
+            has_end |= arg_has_end;
+        }
+        let expr = EndExpr::ResolvedCall {
+            identity,
+            fallback_policy: call.fallback_policy,
+            args,
+        };
+        Some((expr, has_end))
     }
 
     fn mir_rvalue_end_expr_internal(&self, value: &MirRvalue) -> Option<(EndExpr, bool)> {
@@ -3744,6 +3961,10 @@ impl Compiler {
                 self.emit(Instr::LoadConst(value));
                 Ok(())
             }
+            MirOperand::Constant(MirConstant::IntegerLiteral(value)) => {
+                self.emit(Instr::LoadInt(runmat_value::IntValue::from(value)));
+                Ok(())
+            }
             MirOperand::Constant(MirConstant::String(value)) => {
                 emit_string_literal(self, &value.0);
                 Ok(())
@@ -3763,11 +3984,9 @@ impl Compiler {
                             .with_identifier(IDENT_MIR_CONSTANT_UNKNOWN)
                     })?;
                 match &constant.value {
-                    runmat_builtins::Value::Num(value) => self.emit(Instr::LoadConst(*value)),
-                    runmat_builtins::Value::Complex(re, im) => {
-                        self.emit(Instr::LoadComplex(*re, *im))
-                    }
-                    runmat_builtins::Value::Bool(value) => self.emit(Instr::LoadBool(*value)),
+                    runmat_value::Value::Num(value) => self.emit(Instr::LoadConst(*value)),
+                    runmat_value::Value::Complex(re, im) => self.emit(Instr::LoadComplex(*re, *im)),
+                    runmat_value::Value::Bool(value) => self.emit(Instr::LoadBool(*value)),
                     _ => {
                         return Err(self.compile_error(format!(
                             "constant {name} is not supported in primary MIR lowering yet"
@@ -4097,22 +4316,205 @@ fn callback_name_from_mir_operand(operand: &MirOperand) -> Option<String> {
 }
 
 fn string_literal_runtime_text(value: &str) -> String {
-    if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
-        let inner = &value[1..value.len() - 1];
-        inner.replace("\"\"", "\"")
-    } else if value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2 {
-        let inner = &value[1..value.len() - 1];
-        inner.replace("''", "'")
-    } else {
-        value.to_string()
-    }
+    runmat_hir::StringLiteral(value.to_string()).runtime_text()
 }
 
 fn emit_string_literal(compiler: &mut Compiler, value: &str) {
-    let text = string_literal_runtime_text(value);
-    if value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2 {
+    let literal = runmat_hir::StringLiteral(value.to_string());
+    let text = literal.runtime_text();
+    if literal.is_character_row() {
         compiler.emit(Instr::LoadCharRow(text));
     } else {
         compiler.emit(Instr::LoadString(text));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{
+        VmAssemblyLayout, VmFrameAbi, VmFunctionLayout, VmSlotId, VmStorageBinding,
+    };
+    use runmat_hir::{FunctionAbi, FunctionId};
+    use runmat_mir::{BasicBlock, BasicBlockId, MirLocal, MirLocalId, MirLocalKind, MirTerminator};
+
+    fn empty_function_abi() -> FunctionAbi {
+        FunctionAbi {
+            fixed_inputs: Vec::new(),
+            varargin: None,
+            fixed_outputs: Vec::new(),
+            varargout: None,
+            implicit_nargin: None,
+            implicit_nargout: None,
+        }
+    }
+
+    fn compiler_with_local_assignments(assignments: Vec<MirRvalue>) -> Compiler {
+        compiler_with_assignments(
+            assignments
+                .into_iter()
+                .map(|value| (MirLocalId(0), value))
+                .collect(),
+        )
+    }
+
+    fn compiler_with_assignments(assignments: Vec<(MirLocalId, MirRvalue)>) -> Compiler {
+        let function = FunctionId(0);
+        let target_local = MirLocalId(0);
+        let mut mir_local_slots = HashMap::new();
+        let mut locals = Vec::new();
+        for local in assignments
+            .iter()
+            .map(|(local, _)| *local)
+            .chain(std::iter::once(target_local))
+        {
+            if mir_local_slots.contains_key(&local) {
+                continue;
+            }
+            let slot = VmSlotId(7 + local.0);
+            mir_local_slots.insert(local, slot);
+            locals.push(MirLocal {
+                id: local,
+                binding: None,
+                kind: MirLocalKind::Temporary,
+                span: runmat_hir::Span::default(),
+            });
+        }
+        let local_count = mir_local_slots
+            .values()
+            .map(|slot| slot.0 + 1)
+            .max()
+            .unwrap_or(0);
+        let mut functions = HashMap::new();
+        functions.insert(
+            function,
+            VmFunctionLayout {
+                function,
+                display_name: "test".to_string(),
+                private_owner_scope: String::new(),
+                frame_abi: VmFrameAbi {
+                    fixed_inputs: Vec::new(),
+                    varargin: None,
+                    fixed_outputs: Vec::new(),
+                    varargout: None,
+                    implicit_nargin: None,
+                    implicit_nargout: None,
+                },
+                binding_slots: HashMap::new(),
+                mir_local_slots,
+                captures: Vec::new(),
+                local_count,
+                resume_points: std::collections::BTreeMap::new(),
+            },
+        );
+        let span = runmat_hir::Span::default();
+        let statements = assignments
+            .into_iter()
+            .map(|(local, value)| MirStmt {
+                kind: MirStmtKind::Assign {
+                    place: MirPlace::Local(local),
+                    value,
+                },
+                span,
+            })
+            .collect();
+        Compiler {
+            instructions: Vec::new(),
+            instr_spans: Vec::new(),
+            call_arg_spans: Vec::new(),
+            var_count: local_count,
+            imports: Vec::new(),
+            var_types: vec![Type::Unknown; local_count],
+            layout: Some(VmAssemblyLayout {
+                functions,
+                entrypoints: HashMap::new(),
+                storage_bindings: HashMap::<BindingId, VmStorageBinding>::new(),
+            }),
+            function: Some(function),
+            body: Some(MirBody {
+                function,
+                abi: empty_function_abi(),
+                locals,
+                blocks: vec![BasicBlock {
+                    id: BasicBlockId(0),
+                    statements,
+                    terminator: MirTerminator {
+                        kind: MirTerminatorKind::Return(Vec::new()),
+                        span,
+                    },
+                }],
+            }),
+            class_registrations: Vec::new(),
+            current_span: None,
+            pending_place_mutation: None,
+        }
+    }
+
+    #[test]
+    fn compiler_records_exact_empty_stack_mir_resume_boundaries() {
+        let mut compiler = compiler_with_local_assignments(vec![MirRvalue::Use(
+            MirOperand::Constant(MirConstant::Number("1".into())),
+        )]);
+        compiler.compile().unwrap();
+        let points = &compiler
+            .layout
+            .as_ref()
+            .unwrap()
+            .functions
+            .get(&FunctionId(0))
+            .unwrap()
+            .resume_points;
+        assert_eq!(
+            points.get(&runmat_types::ProgramPointId {
+                function: runmat_types::ProgramFunctionId(0),
+                block: 0,
+                position: 0,
+            }),
+            Some(&0)
+        );
+        let terminator = points
+            .get(&runmat_types::ProgramPointId {
+                function: runmat_types::ProgramFunctionId(0),
+                block: 0,
+                position: 1,
+            })
+            .copied()
+            .unwrap();
+        assert!(terminator > 0);
+        assert!(terminator <= compiler.instructions.len());
+    }
+
+    #[test]
+    fn range_bound_uses_derived_end_expr_for_single_assignment_local() {
+        let compiler = compiler_with_local_assignments(vec![MirRvalue::End]);
+        let expr = compiler.mir_operand_range_bound_expr(&MirOperand::Local(MirLocalId(0)));
+        assert!(matches!(expr, Some(EndExpr::End)));
+    }
+
+    #[test]
+    fn range_bound_uses_live_var_for_reassigned_local() {
+        let compiler = compiler_with_local_assignments(vec![
+            MirRvalue::End,
+            MirRvalue::Use(MirOperand::Constant(MirConstant::Number("3".to_string()))),
+        ]);
+        let expr = compiler.mir_operand_range_bound_expr(&MirOperand::Local(MirLocalId(0)));
+        assert!(matches!(expr, Some(EndExpr::Var(7))));
+    }
+
+    #[test]
+    fn range_bound_uses_live_var_for_nested_reassigned_local() {
+        let compiler = compiler_with_assignments(vec![
+            (
+                MirLocalId(0),
+                MirRvalue::Use(MirOperand::Local(MirLocalId(1))),
+            ),
+            (MirLocalId(1), MirRvalue::End),
+            (
+                MirLocalId(1),
+                MirRvalue::Use(MirOperand::Constant(MirConstant::Number("3".to_string()))),
+            ),
+        ]);
+        let expr = compiler.mir_operand_range_bound_expr(&MirOperand::Local(MirLocalId(0)));
+        assert!(matches!(expr, Some(EndExpr::Var(7))));
     }
 }

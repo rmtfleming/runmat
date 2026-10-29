@@ -10,9 +10,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, SparseTensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{SparseTensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -156,9 +157,11 @@ fn speye_type(_args: &[Type], _context: &ResolveContext) -> Type {
 /// only the two-element form was observed).
 fn dims_from_single(value: &Value) -> BuiltinResult<(usize, usize)> {
     if let Value::Tensor(t) = value {
-        if t.data.len() == 2 {
-            let rows = size_from_f64(t.data[0], "m").map_err(invalid_argument_detail)?;
-            let cols = size_from_f64(t.data[1], "n").map_err(invalid_argument_detail)?;
+        if t.len() == 2 {
+            let rows =
+                size_from_f64(t.materialize_f64()[0], "m").map_err(invalid_argument_detail)?;
+            let cols =
+                size_from_f64(t.materialize_f64()[1], "n").map_err(invalid_argument_detail)?;
             return Ok((rows, cols));
         }
     }
@@ -209,7 +212,7 @@ fn internal_error(detail: String) -> RuntimeError {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::Tensor;
+    use runmat_value::Tensor;
 
     fn run_speye(value: Value, rest: Vec<Value>) -> Value {
         block_on(super::speye_builtin(value, rest)).expect("speye")

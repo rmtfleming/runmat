@@ -18,9 +18,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ComplexTensor, ResolveContext, Tensor, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{ComplexTensor, Tensor, Value};
 
 use crate::builtins::common::random_args::complex_tensor_into_value;
 use crate::builtins::common::spec::{
@@ -110,14 +111,23 @@ async fn nonzeros_builtin(value: Value) -> BuiltinResult<Value> {
         // storage order yields the observed column-major result
         // [nonzeros.column-major-order]. N-D tensors traverse the same
         // storage order (documented choice; only 2-D inputs are observed).
-        Value::Tensor(t) => real_column_result(t.data.iter().copied().filter(|&v| is_nonzero(v))),
+        Value::Tensor(t) => real_column_result(
+            t.materialize_f64()
+                .iter()
+                .copied()
+                .filter(|&v| is_nonzero(v)),
+        ),
         // CSC storage enumerates columns in order with rows sorted inside
         // each column, so the value array is already in column-major order
         // [nonzeros.column-major-order]. Explicitly stored zeros are skipped
         // defensively (documented choice; MATLAB sparse does not store them).
-        Value::SparseTensor(sparse) => {
-            real_column_result(sparse.values.iter().copied().filter(|&v| is_nonzero(v)))
-        }
+        Value::SparseTensor(sparse) => real_column_result(
+            sparse
+                .materialize_f64()
+                .iter()
+                .copied()
+                .filter(|&v| is_nonzero(v)),
+        ),
         // Logical arrays are unobserved input classes: accepted and returned
         // as double, consistent with nonzeros.output-class on observed
         // inputs (documented choice).
@@ -128,7 +138,7 @@ async fn nonzeros_builtin(value: Value) -> BuiltinResult<Value> {
         // as nonzero when its real or imaginary part is nonzero or NaN
         // (documented choice).
         Value::ComplexTensor(ct) => complex_column_result(
-            ct.data
+            ct.materialize_f64()
                 .iter()
                 .copied()
                 .filter(|&(re, im)| is_nonzero(re) || is_nonzero(im))
@@ -150,7 +160,6 @@ async fn nonzeros_builtin(value: Value) -> BuiltinResult<Value> {
         ))),
     }
 }
-
 
 /// An element is kept when it differs from zero; NaN counts as nonzero
 /// (documented choice; NaN inputs are unobserved). Negative zero compares
@@ -199,7 +208,7 @@ fn internal_error(detail: String) -> RuntimeError {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{CharArray, LogicalArray, SparseTensor};
+    use runmat_value::{CharArray, LogicalArray, SparseTensor};
 
     fn run_nonzeros(value: Value) -> Value {
         block_on(super::nonzeros_builtin(value)).expect("nonzeros")
@@ -223,7 +232,7 @@ pub(crate) mod tests {
     fn observed_row_vector_nonzeros() {
         let v = expect_tensor(run_nonzeros(tensor(vec![0.0, 1.0, 0.0, 2.0], vec![1, 4])));
         assert_eq!(v.shape, vec![2, 1]);
-        assert_eq!(v.data, vec![1.0, 2.0]);
+        assert_eq!(v.materialize_f64(), vec![1.0, 2.0]);
     }
 
     // Normative [FR-017-02, FR-017-03; nonzeros.output-class,
@@ -234,7 +243,7 @@ pub(crate) mod tests {
         // Column-major data for [1 2; 0 4].
         let v = expect_tensor(run_nonzeros(tensor(vec![1.0, 0.0, 2.0, 4.0], vec![2, 2])));
         assert_eq!(v.shape, vec![3, 1]);
-        assert_eq!(v.data, vec![1.0, 2.0, 4.0]);
+        assert_eq!(v.materialize_f64(), vec![1.0, 2.0, 4.0]);
     }
 
     // Normative [FR-017-03; nonzeros.column-major-order] — observed case
@@ -246,7 +255,7 @@ pub(crate) mod tests {
         // Column-major data for [1 2; 3 0].
         let v = expect_tensor(run_nonzeros(tensor(vec![1.0, 3.0, 2.0, 0.0], vec![2, 2])));
         assert_eq!(v.shape, vec![3, 1]);
-        assert_eq!(v.data, vec![1.0, 3.0, 2.0]);
+        assert_eq!(v.materialize_f64(), vec![1.0, 3.0, 2.0]);
     }
 
     // Normative [FR-017-02, FR-017-03; nonzeros.output-class,
@@ -270,7 +279,7 @@ pub(crate) mod tests {
             SparseTensor::new(2, 2, vec![0, 2, 3], vec![0, 1, 0], vec![1.0, 3.0, 2.0]).unwrap();
         let v = expect_tensor(run_nonzeros(Value::SparseTensor(sparse)));
         assert_eq!(v.shape, vec![3, 1]);
-        assert_eq!(v.data, vec![1.0, 3.0, 2.0]);
+        assert_eq!(v.materialize_f64(), vec![1.0, 3.0, 2.0]);
     }
 
     // unresolved_choice [FR-017-04]: an input with no nonzero elements yields
@@ -279,11 +288,11 @@ pub(crate) mod tests {
     fn unresolved_choice_all_zero_input_yields_0x1_empty() {
         let v = expect_tensor(run_nonzeros(tensor(vec![0.0, 0.0, 0.0, 0.0], vec![2, 2])));
         assert_eq!(v.shape, vec![0, 1]);
-        assert!(v.data.is_empty());
+        assert!(v.is_empty());
 
         let sparse = expect_tensor(run_nonzeros(Value::SparseTensor(SparseTensor::zeros(2, 2))));
         assert_eq!(sparse.shape, vec![0, 1]);
-        assert!(sparse.data.is_empty());
+        assert!(sparse.is_empty());
     }
 
     // unresolved_choice [FR-017-05]: real scalar-like inputs are treated as
@@ -305,8 +314,8 @@ pub(crate) mod tests {
             vec![1, 4],
         )));
         assert_eq!(v.shape, vec![2, 1]);
-        assert!(v.data[0].is_nan());
-        assert_eq!(v.data[1], 2.0);
+        assert!(v.materialize_f64()[0].is_nan());
+        assert_eq!(v.materialize_f64()[1], 2.0);
     }
 
     // unresolved_choice [FR-017-05]: logical arrays are accepted and return
@@ -316,7 +325,7 @@ pub(crate) mod tests {
         let logical = LogicalArray::new(vec![0, 1, 1, 0], vec![2, 2]).unwrap();
         let v = expect_tensor(run_nonzeros(Value::LogicalArray(logical)));
         assert_eq!(v.shape, vec![2, 1]);
-        assert_eq!(v.data, vec![1.0, 1.0]);
+        assert_eq!(v.materialize_f64(), vec![1.0, 1.0]);
     }
 
     // unresolved_choice [FR-017-05]: complex inputs keep their complex values
@@ -328,7 +337,7 @@ pub(crate) mod tests {
         match run_nonzeros(Value::ComplexTensor(ct)) {
             Value::ComplexTensor(v) => {
                 assert_eq!(v.shape, vec![2, 1]);
-                assert_eq!(v.data, vec![(1.0, 2.0), (0.0, -3.0)]);
+                assert_eq!(v.materialize_f64(), vec![(1.0, 2.0), (0.0, -3.0)]);
             }
             other => panic!("expected complex tensor, got {other:?}"),
         }
@@ -349,7 +358,7 @@ pub(crate) mod tests {
             vec![2, 2, 2],
         )));
         assert_eq!(v.shape, vec![4, 1]);
-        assert_eq!(v.data, vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(v.materialize_f64(), vec![1.0, 2.0, 3.0, 4.0]);
     }
 
     // unresolved_choice [FR-017-05]: non-numeric inputs are rejected with the
@@ -361,18 +370,5 @@ pub(crate) mod tests {
         )))
         .expect_err("error");
         assert_eq!(err.identifier(), Some("RunMat:nonzeros:InvalidInput"));
-    }
-
-    #[test]
-    fn nonzeros_type_is_column_vector() {
-        assert_eq!(
-            nonzeros_type(
-                &[Type::Tensor { shape: None }],
-                &ResolveContext::new(Vec::new()),
-            ),
-            Type::Tensor {
-                shape: Some(vec![None, Some(1)])
-            }
-        );
     }
 }

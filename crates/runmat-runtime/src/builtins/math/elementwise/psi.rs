@@ -22,9 +22,9 @@ use runmat_accelerate_api::GpuTensorHandle;
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CharArray, Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -226,7 +226,11 @@ async fn psi_gpu(handle: GpuTensorHandle) -> BuiltinResult<Value> {
 }
 
 fn psi_tensor(t: Tensor) -> BuiltinResult<Tensor> {
-    let data = t.data.iter().map(|&v| digamma(v)).collect::<Vec<_>>();
+    let data = t
+        .materialize_f64()
+        .iter()
+        .map(|&v| digamma(v))
+        .collect::<Vec<_>>();
     Tensor::new(data, t.shape.clone()).map_err(|e| builtin_error(format!("psi: {e}")))
 }
 
@@ -288,15 +292,16 @@ pub(crate) mod tests {
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
     use runmat_accelerate_api::HostTensorView;
-    use runmat_builtins::{IntValue, ResolveContext, Type};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::IntValue;
 
     /// Observed values from the approved export
     /// (`observations/psi_observations.json`, cases `scalar` and `vector`,
     /// R2026a GLNXA64). Floating-point observations; reproduced to
     /// `OBSERVED_TOLERANCE`.
-    const OBSERVED_PSI_ONE: f64 = -0.577_215_664_901_532_31;
+    const OBSERVED_PSI_ONE: f64 = -0.577_215_664_901_532_3;
     const OBSERVED_PSI_TWO: f64 = 0.422_784_335_098_467_47;
-    const OBSERVED_PSI_THREE: f64 = 0.922_784_335_098_467_47;
+    const OBSERVED_PSI_THREE: f64 = 0.922_784_335_098_467_5;
     const OBSERVED_TOLERANCE: f64 = 1e-12;
 
     /// Euler-Mascheroni constant (public mathematics; used only for
@@ -371,9 +376,13 @@ pub(crate) mod tests {
         match psi_builtin(Value::Tensor(input), Vec::new()).expect("psi") {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 3]);
-                approx_eq(t.data[0], OBSERVED_PSI_ONE, OBSERVED_TOLERANCE);
-                approx_eq(t.data[1], OBSERVED_PSI_TWO, OBSERVED_TOLERANCE);
-                approx_eq(t.data[2], OBSERVED_PSI_THREE, OBSERVED_TOLERANCE);
+                approx_eq(t.materialize_f64()[0], OBSERVED_PSI_ONE, OBSERVED_TOLERANCE);
+                approx_eq(t.materialize_f64()[1], OBSERVED_PSI_TWO, OBSERVED_TOLERANCE);
+                approx_eq(
+                    t.materialize_f64()[2],
+                    OBSERVED_PSI_THREE,
+                    OBSERVED_TOLERANCE,
+                );
             }
             other => panic!("expected double tensor result, got {other:?}"),
         }
@@ -462,8 +471,8 @@ pub(crate) mod tests {
         match psi_builtin(Value::CharArray(chars), Vec::new()).expect("psi") {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 2]);
-                approx_eq(t.data[0], digamma(97.0), 1e-12);
-                approx_eq(t.data[1], digamma(98.0), 1e-12);
+                approx_eq(t.materialize_f64()[0], digamma(97.0), 1e-12);
+                approx_eq(t.materialize_f64()[1], digamma(98.0), 1e-12);
             }
             other => panic!("expected tensor result, got {other:?}"),
         }
@@ -516,16 +525,28 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let input = Tensor::new(vec![1.0, 2.0, 3.0], vec![1, 3]).unwrap();
             let view = HostTensorView {
-                data: &input.data,
+                data: &input.materialize_f64(),
                 shape: &input.shape,
             };
             let handle = provider.upload(&view).expect("upload");
             let result = psi_builtin(Value::GpuTensor(handle), Vec::new()).expect("psi");
             let gathered = test_support::gather(result).expect("gather");
             assert_eq!(gathered.shape, vec![1, 3]);
-            approx_eq(gathered.data[0], OBSERVED_PSI_ONE, OBSERVED_TOLERANCE);
-            approx_eq(gathered.data[1], OBSERVED_PSI_TWO, OBSERVED_TOLERANCE);
-            approx_eq(gathered.data[2], OBSERVED_PSI_THREE, OBSERVED_TOLERANCE);
+            approx_eq(
+                gathered.materialize_f64()[0],
+                OBSERVED_PSI_ONE,
+                OBSERVED_TOLERANCE,
+            );
+            approx_eq(
+                gathered.materialize_f64()[1],
+                OBSERVED_PSI_TWO,
+                OBSERVED_TOLERANCE,
+            );
+            approx_eq(
+                gathered.materialize_f64()[2],
+                OBSERVED_PSI_THREE,
+                OBSERVED_TOLERANCE,
+            );
         });
     }
 }

@@ -10,9 +10,10 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    ResolveContext, Type, Value,
+    ResolveContext, Type,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::shape::value_dimensions;
 use crate::builtins::common::spec::{
@@ -100,7 +101,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
-    use runmat_builtins::Tensor;
+    use runmat_value::Tensor;
 
     fn run_isrow(value: Value) -> Value {
         block_on(super::isrow_builtin(value)).expect("isrow")
@@ -162,11 +163,11 @@ pub(crate) mod tests {
             let row = Tensor::new(vec![1.0, 2.0, 3.0], vec![1, 3]).unwrap();
             let matrix = Tensor::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
             let row_view = runmat_accelerate_api::HostTensorView {
-                data: &row.data,
+                data: &row.materialize_f64(),
                 shape: &row.shape,
             };
             let matrix_view = runmat_accelerate_api::HostTensorView {
-                data: &matrix.data,
+                data: &matrix.materialize_f64(),
                 shape: &matrix.shape,
             };
             let row_handle = provider.upload(&row_view).expect("upload row");

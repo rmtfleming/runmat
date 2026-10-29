@@ -1,11 +1,12 @@
 //! MATLAB-compatible `cellstr` builtin implemented for the modern RunMat runtime.
 
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CellArray, CharArray, StringArray, Value,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor,
+    BuiltinIntegerAuditDescriptor, BuiltinIntegerAuditKind, BuiltinOutputMode, BuiltinParamArity,
+    BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{CellArray, CharArray, StringArray, Value};
 
 use crate::builtins::cells::type_resolvers::cellstr_type;
 use crate::builtins::common::spec::{
@@ -73,6 +74,13 @@ pub const CELLSTR_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     errors: &CELLSTR_ERRORS,
 };
 
+pub const CELLSTR_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor =
+    BuiltinIntegerAuditDescriptor {
+        kind: BuiltinIntegerAuditKind::NotApplicable,
+        canonical_builtin: None,
+        notes: "cellstr has no documented numeric or integer input form; all eight integer classes are rejected as non-text inputs before any resident-provider lookup.",
+    };
+
 const CELLSTR_INPUT_NOT_TEXT_TEXT: &str =
     "cellstr: input must be a character array, string array, or cell array of character vectors";
 const CELLSTR_CELL_CONTENT_NOT_TEXT_TEXT: &str =
@@ -91,7 +99,7 @@ pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     two_pass_threshold: None,
     workgroup_size: None,
     accepts_nan_mode: false,
-    notes: "Host-only text conversion. Inputs originating on the GPU are gathered before processing, and the output is always a host cell array.",
+    notes: "Host-only text conversion. Current resident tensors are numeric/logical rather than text containers and are rejected before provider lookup; the output is always a host cell array.",
 };
 
 #[runmat_macros::register_fusion_spec(builtin_path = "crate::builtins::cells::core::cellstr")]
@@ -125,15 +133,23 @@ fn cellstr_error_with_message(
     accel = "gather",
     type_resolver(cellstr_type),
     descriptor(crate::builtins::cells::core::cellstr::CELLSTR_DESCRIPTOR),
+    integer_audit(crate::builtins::cells::core::cellstr::CELLSTR_INTEGER_AUDIT),
     builtin_path = "crate::builtins::cells::core::cellstr"
 )]
 async fn cellstr_builtin(value: Value) -> crate::BuiltinResult<Value> {
+    if matches!(value, Value::GpuTensor(_)) {
+        return Err(cellstr_error_with_message(
+            CELLSTR_INPUT_NOT_TEXT_TEXT,
+            &CELLSTR_ERROR_INVALID_INPUT,
+        ));
+    }
     let host = gather_if_needed_async(&value).await?;
     match host {
         Value::CharArray(ca) => cellstr_from_char_array(ca),
         Value::StringArray(sa) => cellstr_from_string_array(sa),
         Value::String(text) => cellstr_from_string(text),
         Value::Symbolic(expr) => cellstr_from_string(expr.to_string()),
+        Value::SymbolicArray(array) => cellstr_from_symbolic_array(array),
         Value::Cell(cell) => cellstr_from_cell(cell).await,
         Value::LogicalArray(_)
         | Value::Bool(_)
@@ -144,6 +160,7 @@ async fn cellstr_builtin(value: Value) -> crate::BuiltinResult<Value> {
         | Value::Complex(_, _)
         | Value::ComplexTensor(_)
         | Value::Struct(_)
+        | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
         | Value::Listener(_)
@@ -154,6 +171,11 @@ async fn cellstr_builtin(value: Value) -> crate::BuiltinResult<Value> {
         | Value::Closure(_)
         | Value::ClassRef(_)
         | Value::MException(_)
+        | Value::Future(_)
+        | Value::Task(_)
+        | Value::Pool(_)
+        | Value::Job(_)
+        | Value::Foreign(_)
         | Value::OutputList(_) => Err(cellstr_error_with_message(
             CELLSTR_INPUT_NOT_TEXT_TEXT,
             &CELLSTR_ERROR_INVALID_INPUT,
@@ -220,6 +242,25 @@ fn cellstr_from_string_array(sa: StringArray) -> BuiltinResult<Value> {
         .map_err(|e| cellstr_error_with_message(format!("cellstr: {e}"), &CELLSTR_ERROR_INTERNAL))
 }
 
+fn cellstr_from_symbolic_array(array: runmat_value::SymbolicArray) -> BuiltinResult<Value> {
+    let shape = array.shape.clone();
+    let total = array.data.len();
+    if total == 0 {
+        return make_cell_with_shape(Vec::new(), shape).map_err(|e| {
+            cellstr_error_with_message(format!("cellstr: {e}"), &CELLSTR_ERROR_INTERNAL)
+        });
+    }
+    let mut values = Vec::with_capacity(total);
+    for row_major in 0..total {
+        let coords = linear_to_multi_row_major(row_major, &shape);
+        let column_major = multi_to_linear_column_major(&coords, &shape);
+        let text = array.data[column_major].to_string();
+        values.push(Value::CharArray(CharArray::new_row(&text)));
+    }
+    make_cell_with_shape(values, shape)
+        .map_err(|e| cellstr_error_with_message(format!("cellstr: {e}"), &CELLSTR_ERROR_INTERNAL))
+}
+
 async fn cellstr_from_cell(cell: CellArray) -> BuiltinResult<Value> {
     let mut values = Vec::with_capacity(cell.data.len());
     for ptr in &cell.data {
@@ -265,12 +306,14 @@ fn coerce_to_char_vector(value: Value) -> BuiltinResult<Value> {
             CELLSTR_CELL_CONTENT_NOT_TEXT_TEXT,
             &CELLSTR_ERROR_INVALID_CONTENTS,
         )),
-        Value::Cell(_) | Value::Struct(_) | Value::Object(_) | Value::HandleObject(_) => {
-            Err(cellstr_error_with_message(
-                CELLSTR_CELL_CONTENT_NOT_TEXT_TEXT,
-                &CELLSTR_ERROR_INVALID_CONTENTS,
-            ))
-        }
+        Value::Cell(_)
+        | Value::Struct(_)
+        | Value::ObjectArray(_)
+        | Value::Object(_)
+        | Value::HandleObject(_) => Err(cellstr_error_with_message(
+            CELLSTR_CELL_CONTENT_NOT_TEXT_TEXT,
+            &CELLSTR_ERROR_INVALID_CONTENTS,
+        )),
         other => Err(cellstr_error_with_message(
             format!("cellstr: unsupported cell element {other:?}"),
             &CELLSTR_ERROR_INVALID_CONTENTS,
@@ -320,6 +363,7 @@ fn multi_to_linear_column_major(coords: &[usize], shape: &[usize]) -> usize {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
+    use runmat_value::{SymbolicArray, SymbolicExpr};
 
     fn cellstr_builtin(value: Value) -> BuiltinResult<Value> {
         block_on(super::cellstr_builtin(value))
@@ -398,6 +442,64 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
+    fn converts_symbolic_array_with_shape() {
+        let array = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("a"),
+                SymbolicExpr::variable("c"),
+                SymbolicExpr::variable("b"),
+                SymbolicExpr::variable("d"),
+            ],
+            vec![2, 2],
+        )
+        .expect("symbolic array");
+
+        let result = cellstr_builtin(Value::SymbolicArray(array)).expect("cellstr");
+
+        match result {
+            Value::Cell(cell) => {
+                assert_eq!(cell.rows, 2);
+                assert_eq!(cell.cols, 2);
+                assert_eq!(
+                    cell_to_strings(&cell),
+                    vec![
+                        "a".to_string(),
+                        "b".to_string(),
+                        "c".to_string(),
+                        "d".to_string()
+                    ]
+                );
+            }
+            other => panic!("expected cell result, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
+    fn converts_one_dimensional_symbolic_array_as_row_shape() {
+        let array = SymbolicArray::new(
+            vec![
+                SymbolicExpr::variable("x"),
+                SymbolicExpr::variable("y"),
+                SymbolicExpr::variable("z"),
+            ],
+            vec![3],
+        )
+        .expect("symbolic array");
+
+        let result = cellstr_builtin(Value::SymbolicArray(array)).expect("cellstr");
+
+        match result {
+            Value::Cell(cell) => {
+                assert_eq!(cell.shape, vec![3]);
+                assert_eq!(cell_to_strings(&cell), vec!["x", "y", "z"]);
+            }
+            other => panic!("expected cell result, got {other:?}"),
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[test]
     fn converts_string_scalar() {
         let result = cellstr_builtin(Value::String("RunMat".to_string())).expect("cellstr");
         match result {
@@ -457,6 +559,28 @@ pub(crate) mod tests {
             .expect_err("expected error")
             .to_string();
         assert!(err.contains("input must be"));
+    }
+
+    #[test]
+    fn integer_surface_is_explicitly_not_applicable_and_all_classes_reject() {
+        assert_eq!(
+            CELLSTR_INTEGER_AUDIT.kind,
+            BuiltinIntegerAuditKind::NotApplicable
+        );
+        let values = [
+            runmat_value::IntValue::I8(1),
+            runmat_value::IntValue::I16(1),
+            runmat_value::IntValue::I32(1),
+            runmat_value::IntValue::I64(1),
+            runmat_value::IntValue::U8(1),
+            runmat_value::IntValue::U16(1),
+            runmat_value::IntValue::U32(1),
+            runmat_value::IntValue::U64(1),
+        ];
+        for value in values {
+            let err = cellstr_builtin(Value::Int(value)).expect_err("integer must reject");
+            assert_eq!(err.identifier(), Some("RunMat:cellstr:InvalidInput"));
+        }
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

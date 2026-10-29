@@ -11,9 +11,10 @@
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor, Value,
+    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::Value;
 
 use crate::builtins::common::broadcast::{broadcast_index, broadcast_shapes, compute_strides};
 use crate::builtins::common::map_control_flow_with_builtin;
@@ -256,10 +257,10 @@ fn parse_prefix_length(value: Value) -> BuiltinResult<usize> {
         Value::Num(n) => parse_prefix_length_from_float(n),
         Value::Bool(b) => Ok(if b { 1 } else { 0 }),
         Value::Tensor(tensor) => {
-            if tensor.data.len() != 1 {
+            if tensor.len() != 1 {
                 return Err(strncmpi_error(&STRNCMPI_ERROR_INVALID_PREFIX_LENGTH));
             }
-            parse_prefix_length_from_float(tensor.data[0])
+            parse_prefix_length_from_float(tensor.materialize_f64()[0])
         }
         Value::LogicalArray(array) => {
             if array.data.len() != 1 {
@@ -293,9 +294,8 @@ pub(crate) mod tests {
     use super::*;
     #[cfg(feature = "wgpu")]
     use runmat_accelerate_api::AccelProvider;
-    use runmat_builtins::{
-        CellArray, CharArray, IntValue, LogicalArray, ResolveContext, StringArray, Tensor, Type,
-    };
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::{CellArray, CharArray, IntValue, LogicalArray, StringArray, Tensor};
 
     fn strncmpi_builtin(a: Value, b: Value, n: Value) -> BuiltinResult<Value> {
         futures::executor::block_on(super::strncmpi_builtin(a, b, n))

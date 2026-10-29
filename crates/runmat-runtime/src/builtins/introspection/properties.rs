@@ -19,11 +19,12 @@ use std::collections::BTreeSet;
 use std::collections::HashSet;
 
 use runmat_builtins::{
-    Access, BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_types::MemberAccess;
+use runmat_value::{CharArray, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -154,11 +155,11 @@ pub(crate) fn public_property_names(class_name: &str) -> Vec<String> {
         if !visited.insert(name.clone()) {
             break;
         }
-        let Some(class_def) = runmat_builtins::get_class(&name) else {
+        let Some(class_def) = crate::class_registry::get_class(&name) else {
             break;
         };
         for (prop_name, prop) in &class_def.properties {
-            if prop.get_access == Access::Public {
+            if prop.get_access == MemberAccess::Public {
                 names.insert(prop_name.clone());
             }
         }
@@ -194,7 +195,7 @@ fn properties_builtin(value: Value) -> crate::BuiltinResult<Value> {
         value,
         Value::Object(_) | Value::HandleObject(_) | Value::ClassRef(_)
     );
-    if !is_instance && runmat_builtins::get_class(&class_name).is_none() {
+    if !is_instance && crate::class_registry::get_class(&class_name).is_none() {
         return Err(properties_error(&PROPERTIES_ERROR_UNKNOWN_CLASS));
     }
     names_to_column_cell(public_property_names(&class_name))
@@ -211,7 +212,9 @@ fn properties_builtin(value: Value) -> crate::BuiltinResult<Value> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use runmat_builtins::{Access, ClassDef, ObjectInstance, PropertyDef, Value};
+    use crate::class_registry::{RuntimeClass, RuntimeProperty};
+    use runmat_types::MemberAccess;
+    use runmat_value::{ObjectInstance, Value};
     use std::collections::HashMap;
 
     fn run(value: Value) -> BuiltinResult<Value> {
@@ -248,24 +251,24 @@ pub(crate) mod tests {
         }
     }
 
-    fn prop(name: &str, get_access: Access) -> PropertyDef {
-        PropertyDef {
+    fn prop(name: &str, get_access: MemberAccess) -> RuntimeProperty {
+        RuntimeProperty {
             name: name.to_string(),
             is_static: false,
             is_constant: false,
             is_dependent: false,
             get_access,
-            set_access: Access::Public,
+            set_access: MemberAccess::Public,
             default_value: None,
         }
     }
 
-    fn register_test_class(name: &str, props: Vec<PropertyDef>) {
+    fn register_test_class(name: &str, props: Vec<RuntimeProperty>) {
         let mut properties = HashMap::new();
         for p in props {
             properties.insert(p.name.clone(), p);
         }
-        runmat_builtins::register_class(ClassDef {
+        crate::class_registry::register_class(RuntimeClass {
             name: name.to_string(),
             parent: None,
             properties,
@@ -334,7 +337,10 @@ pub(crate) mod tests {
     fn unresolved_choice_class_name_text_form() {
         register_test_class(
             "runmat.unittest.PropsAB",
-            vec![prop("Beta", Access::Public), prop("Alpha", Access::Public)],
+            vec![
+                prop("Beta", MemberAccess::Public),
+                prop("Alpha", MemberAccess::Public),
+            ],
         );
         let result = run(Value::from("runmat.unittest.PropsAB")).expect("properties('...')");
         assert_is_cellstr_column(&result);
@@ -351,8 +357,8 @@ pub(crate) mod tests {
         register_test_class(
             "runmat.unittest.PropsMixed",
             vec![
-                prop("Visible", Access::Public),
-                prop("Hidden", Access::Private),
+                prop("Visible", MemberAccess::Public),
+                prop("Hidden", MemberAccess::Private),
             ],
         );
         let result = run(Value::ClassRef("runmat.unittest.PropsMixed".to_string()))

@@ -18,11 +18,12 @@ use std::collections::BTreeSet;
 use std::collections::HashSet;
 
 use runmat_builtins::{
-    Access, BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
+    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    CharArray, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_types::MemberAccess;
+use runmat_value::{CharArray, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -135,11 +136,11 @@ pub(crate) fn public_method_names(class_name: &str) -> Vec<String> {
         if !visited.insert(name.clone()) {
             break;
         }
-        let Some(class_def) = runmat_builtins::get_class(&name) else {
+        let Some(class_def) = crate::class_registry::get_class(&name) else {
             break;
         };
         for (method_name, method) in &class_def.methods {
-            if method.access == Access::Public {
+            if method.access == MemberAccess::Public {
                 names.insert(method_name.clone());
             }
         }
@@ -173,7 +174,7 @@ fn methods_builtin(value: Value) -> crate::BuiltinResult<Value> {
         value,
         Value::Object(_) | Value::HandleObject(_) | Value::ClassRef(_)
     );
-    if !is_instance && runmat_builtins::get_class(&class_name).is_none() {
+    if !is_instance && crate::class_registry::get_class(&class_name).is_none() {
         return Err(methods_error(&METHODS_ERROR_UNKNOWN_CLASS));
     }
     names_to_column_cell(public_method_names(&class_name))
@@ -190,7 +191,9 @@ fn methods_builtin(value: Value) -> crate::BuiltinResult<Value> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use runmat_builtins::{Access, ClassDef, MethodDef, Value};
+    use crate::class_registry::{RuntimeClass, RuntimeMethod};
+    use runmat_types::MemberAccess;
+    use runmat_value::Value;
     use std::collections::HashMap;
 
     fn run(value: Value) -> BuiltinResult<Value> {
@@ -225,8 +228,8 @@ pub(crate) mod tests {
         }
     }
 
-    fn method(name: &str, access: Access) -> MethodDef {
-        MethodDef {
+    fn method(name: &str, access: MemberAccess) -> RuntimeMethod {
+        RuntimeMethod {
             name: name.to_string(),
             is_static: false,
             is_abstract: false,
@@ -237,12 +240,12 @@ pub(crate) mod tests {
         }
     }
 
-    fn register_test_class(name: &str, methods: Vec<MethodDef>) {
+    fn register_test_class(name: &str, methods: Vec<RuntimeMethod>) {
         let mut method_map = HashMap::new();
         for m in methods {
             method_map.insert(m.name.clone(), m);
         }
-        runmat_builtins::register_class(ClassDef {
+        crate::class_registry::register_class(RuntimeClass {
             name: name.to_string(),
             parent: None,
             properties: HashMap::new(),
@@ -309,8 +312,8 @@ pub(crate) mod tests {
         register_test_class(
             "runmat.unittest.MethodsAB",
             vec![
-                method("run", Access::Public),
-                method("build", Access::Public),
+                method("run", MemberAccess::Public),
+                method("build", MemberAccess::Public),
             ],
         );
         let result = run(Value::from("runmat.unittest.MethodsAB")).expect("methods('...')");
@@ -328,8 +331,8 @@ pub(crate) mod tests {
         register_test_class(
             "runmat.unittest.MethodsMixed",
             vec![
-                method("open", Access::Public),
-                method("secret", Access::Private),
+                method("open", MemberAccess::Public),
+                method("secret", MemberAccess::Private),
             ],
         );
         let result = run(Value::ClassRef("runmat.unittest.MethodsMixed".to_string()))

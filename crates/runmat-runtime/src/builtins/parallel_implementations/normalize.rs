@@ -17,9 +17,9 @@
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{Tensor, Value};
 
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
@@ -412,7 +412,7 @@ fn value_scalar_f64(v: &Value) -> Option<f64> {
         Value::Num(n) => Some(*n),
         Value::Int(i) => Some(i.to_f64()),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-        Value::Tensor(t) if t.data.len() == 1 => Some(t.data[0]),
+        Value::Tensor(t) if t.len() == 1 => Some(t.materialize_f64()[0]),
         Value::LogicalArray(la) if la.data.len() == 1 => {
             Some(if la.data[0] != 0 { 1.0 } else { 0.0 })
         }
@@ -424,7 +424,7 @@ fn value_vec_f64(v: &Value) -> Option<Vec<f64>> {
     match v {
         Value::Num(n) => Some(vec![*n]),
         Value::Int(i) => Some(vec![i.to_f64()]),
-        Value::Tensor(t) => Some(t.data.clone()),
+        Value::Tensor(t) => Some(t.materialize_f64()),
         _ => None,
     }
 }
@@ -469,7 +469,7 @@ fn normalize_tensor(input: &Tensor, dim: usize, method: Method) -> BuiltinResult
         1
     };
 
-    let mut data = input.data.clone();
+    let mut data = input.materialize_f64();
     let mut line = vec![0.0f64; n];
 
     for after in 0..stride_after {
@@ -569,7 +569,7 @@ fn line_pnorm(line: &[f64], p: f64) -> f64 {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_builtins::{IntValue, Tensor};
+    use runmat_value::{IntValue, Tensor};
 
     fn tensor(data: Vec<f64>, shape: Vec<usize>) -> Value {
         Value::Tensor(Tensor::new(data, shape).unwrap())
@@ -597,7 +597,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 3]);
-                approx(&t.data, &[-1.0, 0.0, 1.0]);
+                approx(&t.materialize_f64(), &[-1.0, 0.0, 1.0]);
             }
             other => panic!("expected 1x3 tensor, got {other:?}"),
         }
@@ -614,7 +614,7 @@ pub(crate) mod tests {
         match out {
             Value::Tensor(t) => {
                 assert_eq!(t.shape, vec![1, 3]);
-                approx(&t.data, &[0.0, 0.5, 1.0]);
+                approx(&t.materialize_f64(), &[0.0, 0.5, 1.0]);
             }
             other => panic!("expected 1x3 tensor, got {other:?}"),
         }
@@ -641,7 +641,7 @@ pub(crate) mod tests {
                 assert_eq!(t.shape, vec![2, 2]);
                 // Each column is [x1,x2]; mean=(x1+x2)/2, std=|x1-x2|/sqrt(2).
                 let s = std::f64::consts::FRAC_1_SQRT_2; // 1/sqrt(2)
-                approx(&t.data, &[-s, s, -s, s]);
+                approx(&t.materialize_f64(), &[-s, s, -s, s]);
             }
             other => panic!("expected 2x2 tensor, got {other:?}"),
         }
@@ -660,7 +660,7 @@ pub(crate) mod tests {
                 assert_eq!(t.shape, vec![2, 2]);
                 // Rows are [1,2] and [3,4]; each -> [-1/sqrt2, 1/sqrt2].
                 let s = std::f64::consts::FRAC_1_SQRT_2;
-                approx(&t.data, &[-s, -s, s, s]);
+                approx(&t.materialize_f64(), &[-s, -s, s, s]);
             }
             other => panic!("expected 2x2 tensor, got {other:?}"),
         }
@@ -674,7 +674,7 @@ pub(crate) mod tests {
             vec![Value::from("zscore")],
         );
         match out {
-            Value::Tensor(t) => approx(&t.data, &[-1.0, 0.0, 1.0]),
+            Value::Tensor(t) => approx(&t.materialize_f64(), &[-1.0, 0.0, 1.0]),
             other => panic!("expected tensor, got {other:?}"),
         }
     }
@@ -688,7 +688,7 @@ pub(crate) mod tests {
             vec![Value::from("range"), mt],
         );
         match out {
-            Value::Tensor(t) => approx(&t.data, &[-1.0, 0.0, 1.0]),
+            Value::Tensor(t) => approx(&t.materialize_f64(), &[-1.0, 0.0, 1.0]),
             other => panic!("expected tensor, got {other:?}"),
         }
     }
@@ -701,7 +701,7 @@ pub(crate) mod tests {
             vec![Value::from("center")],
         );
         match out {
-            Value::Tensor(t) => approx(&t.data, &[-1.0, 0.0, 1.0]),
+            Value::Tensor(t) => approx(&t.materialize_f64(), &[-1.0, 0.0, 1.0]),
             other => panic!("expected tensor, got {other:?}"),
         }
     }
@@ -715,7 +715,7 @@ pub(crate) mod tests {
         );
         match out {
             // std = 1, so values are unchanged.
-            Value::Tensor(t) => approx(&t.data, &[1.0, 2.0, 3.0]),
+            Value::Tensor(t) => approx(&t.materialize_f64(), &[1.0, 2.0, 3.0]),
             other => panic!("expected tensor, got {other:?}"),
         }
     }
@@ -728,7 +728,7 @@ pub(crate) mod tests {
             vec![Value::from("norm")],
         );
         match out {
-            Value::Tensor(t) => approx(&t.data, &[0.6, 0.8]),
+            Value::Tensor(t) => approx(&t.materialize_f64(), &[0.6, 0.8]),
             other => panic!("expected tensor, got {other:?}"),
         }
     }
@@ -741,7 +741,7 @@ pub(crate) mod tests {
             vec![Value::from("norm"), Value::Num(1.0)],
         );
         match out {
-            Value::Tensor(t) => approx(&t.data, &[0.25, 0.75]),
+            Value::Tensor(t) => approx(&t.materialize_f64(), &[0.25, 0.75]),
             other => panic!("expected tensor, got {other:?}"),
         }
     }

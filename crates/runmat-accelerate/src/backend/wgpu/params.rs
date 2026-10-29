@@ -458,7 +458,12 @@ pub struct FilterParams {
     pub state_shape: [AlignedU32; FILTER_MAX_RANK],
 }
 
-pub const IMFILTER_MAX_RANK: usize = 512;
+/// Maximum tensor rank represented directly by the WGPU `imfilter` kernel.
+///
+/// This matches the rank contract used by the other general tensor-indexing kernels. Higher-rank
+/// inputs remain supported by `imfilter_exec`, which detects them before allocating GPU parameter
+/// state and executes the host implementation before uploading the result.
+pub const IMFILTER_MAX_RANK: usize = PERMUTE_MAX_RANK;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -640,6 +645,7 @@ pub struct MatmulParams {
 
 pub const MATMUL_FLAG_TRANSPOSE_A: u32 = 1 << 0;
 pub const MATMUL_FLAG_TRANSPOSE_B: u32 = 1 << 1;
+pub const MATMUL_FLAG_ACCUMULATE: u32 = 1 << 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -984,32 +990,6 @@ pub struct PeaksXYParams {
     pub total: u32,
     pub chunk: u32,
     pub offset: u32,
-    pub _pad: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct RandomIntParamsF64 {
-    pub lower: f64,
-    pub upper: f64,
-    pub span: f64,
-    pub span_minus_one: f64,
-    pub offset: u32,
-    pub chunk: u32,
-    pub seed: u32,
-    pub _pad: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct RandomIntParamsF32 {
-    pub lower: f32,
-    pub upper: f32,
-    pub span: f32,
-    pub span_minus_one: f32,
-    pub offset: u32,
-    pub chunk: u32,
-    pub seed: u32,
     pub _pad: u32,
 }
 

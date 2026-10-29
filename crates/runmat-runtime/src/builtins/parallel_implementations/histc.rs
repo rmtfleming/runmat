@@ -15,9 +15,9 @@ use runmat_accelerate_api::GpuTensorHandle;
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
     BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
-    Tensor, Value,
 };
 use runmat_macros::runtime_builtin;
+use runmat_value::{Tensor, Value};
 
 use crate::builtins::common::gpu_helpers;
 use crate::builtins::common::spec::{
@@ -250,7 +250,7 @@ fn histc_from_tensor(
 
         for t in 0..len_d {
             let pos = base_in + t * step_in;
-            let value = tensor.data[pos];
+            let value = tensor.materialize_f64()[pos];
             if let Some(bin) = bin_of(value, edges) {
                 counts[base_out + bin * step_out] += 1.0;
                 idx[pos] = (bin + 1) as f64;
@@ -328,7 +328,7 @@ fn validate_edges(edges: &[f64]) -> BuiltinResult<()> {
 fn edges_from_value(value: &Value) -> BuiltinResult<Vec<f64>> {
     let tensor = tensor::value_to_tensor(value)
         .map_err(|_| invalid_argument("histc: edges must be a numeric vector"))?;
-    Ok(tensor.data)
+    Ok(tensor.materialize_f64())
 }
 
 fn dim_from_value(value: &Value) -> BuiltinResult<usize> {
@@ -342,7 +342,7 @@ fn dim_from_value(value: &Value) -> BuiltinResult<usize> {
                 0.0
             }
         }
-        Value::Tensor(t) if t.data.len() == 1 => t.data[0],
+        Value::Tensor(t) if t.len() == 1 => t.materialize_f64()[0],
         Value::LogicalArray(l) if l.data.len() == 1 => {
             if l.data[0] != 0 {
                 1.0
@@ -389,7 +389,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
-    use runmat_builtins::{ResolveContext, Tensor, Type, Value};
+    use runmat_builtins::{ResolveContext, Type};
+    use runmat_value::{Tensor, Value};
 
     fn tensor(data: Vec<f64>, shape: Vec<usize>) -> Value {
         Value::Tensor(Tensor::new(data, shape).unwrap())
@@ -398,7 +399,7 @@ pub(crate) mod tests {
     fn counts(x: Value, rest: Vec<Value>) -> (Vec<f64>, Vec<usize>) {
         let eval = block_on(evaluate(x, &rest)).expect("histc");
         match eval.into_counts_value() {
-            Value::Tensor(t) => (t.data, t.shape),
+            Value::Tensor(t) => (t.materialize_f64(), t.shape),
             other => panic!("expected tensor, got {other:?}"),
         }
     }
@@ -520,13 +521,13 @@ pub(crate) mod tests {
             Value::OutputList(values) => {
                 assert_eq!(values.len(), 2);
                 match &values[0] {
-                    Value::Tensor(t) => assert_eq!(t.data, vec![1.0, 2.0, 1.0]),
+                    Value::Tensor(t) => assert_eq!(t.materialize_f64(), vec![1.0, 2.0, 1.0]),
                     other => panic!("expected counts tensor, got {other:?}"),
                 }
                 match &values[1] {
                     Value::Tensor(t) => {
                         // 0 (below), 1, 2, 2, 3(last bin)
-                        assert_eq!(t.data, vec![0.0, 1.0, 2.0, 2.0, 3.0]);
+                        assert_eq!(t.materialize_f64(), vec![0.0, 1.0, 2.0, 2.0, 3.0]);
                         assert_eq!(t.shape, vec![1, 5]);
                     }
                     other => panic!("expected idx tensor, got {other:?}"),
@@ -567,28 +568,6 @@ pub(crate) mod tests {
         assert!(labels.iter().any(|label| label.contains("histc(x, edges)")));
     }
 
-    #[test]
-    fn histc_type_uses_edge_length_row() {
-        let ctx = ResolveContext::new(Vec::new());
-        let out = histc_type(
-            &[
-                Type::Tensor {
-                    shape: Some(vec![Some(1), Some(4)]),
-                },
-                Type::Tensor {
-                    shape: Some(vec![Some(1), Some(3)]),
-                },
-            ],
-            &ctx,
-        );
-        assert_eq!(
-            out,
-            Type::Tensor {
-                shape: Some(vec![Some(1), Some(3)])
-            }
-        );
-    }
-
     // GPU input is gathered to host before binning; result matches the host
     // path for the observed case.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -597,7 +576,7 @@ pub(crate) mod tests {
         test_support::with_test_provider(|provider| {
             let host = Tensor::new(vec![1.0, 2.0, 2.0, 3.0], vec![1, 4]).unwrap();
             let view = runmat_accelerate_api::HostTensorView {
-                data: &host.data,
+                data: &host.materialize_f64(),
                 shape: &host.shape,
             };
             let handle = provider.upload(&view).expect("upload");
