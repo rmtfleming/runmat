@@ -28,8 +28,44 @@ impl RunMatSession {
             ),
         );
         let placement = std::rc::Rc::new(runmat_accelerate::placement::PlacementSession::default());
+        let parallel_services = crate::parallel_runtime::CoreParallelServices::new();
         let runtime_services = runmat_runtime::context::RuntimeServicePorts::default()
-            .with_placement(placement.clone());
+            .with_call(std::rc::Rc::new(runmat_runtime::context::RuntimeCallRouter))
+            .with_placement(placement.clone())
+            .with_spmd(parallel_services.spmd)
+            .with_distributed(parallel_services.distributed);
+        #[cfg(not(target_arch = "wasm32"))]
+        let (
+            runtime_services,
+            foreign_runtime,
+            native_ffi_adapter,
+            java_adapter,
+            python_adapter,
+            mex_runtime,
+        ) = {
+            let foreign_runtime = std::rc::Rc::new(runmat_runtime::foreign::ForeignRuntime::new(
+                runmat_runtime::foreign::ForeignPlatform::Native,
+            ));
+            let adapter =
+                runmat_runtime::foreign::NativeFfiAdapter::new(foreign_runtime.handles().clone())?;
+            foreign_runtime.register_adapter(adapter.clone())?;
+            let java =
+                runmat_runtime::foreign::JavaAdapter::new(foreign_runtime.handles().clone())?;
+            foreign_runtime.register_adapter(java.clone())?;
+            let python =
+                runmat_runtime::foreign::PythonAdapter::new(foreign_runtime.handles().clone())?;
+            foreign_runtime.register_adapter(python.clone())?;
+            let mex = std::rc::Rc::new(runmat_runtime::foreign::MexRuntimeSession::new());
+            foreign_runtime.register_adapter(mex.clone())?;
+            (
+                runtime_services.with_foreign(foreign_runtime.clone()),
+                foreign_runtime,
+                adapter,
+                java,
+                python,
+                mex,
+            )
+        };
         let session = Self {
             verbose,
             stats: ExecutionStats::default(),
@@ -41,6 +77,16 @@ impl RunMatSession {
             function_registry: runmat_vm::FunctionRegistry::default(),
             next_semantic_function_id: 0,
             dynamic_function_cache: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(not(target_arch = "wasm32"))]
+            mex_runtime,
+            #[cfg(not(target_arch = "wasm32"))]
+            foreign_runtime,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_ffi_adapter,
+            #[cfg(not(target_arch = "wasm32"))]
+            java_adapter,
+            #[cfg(not(target_arch = "wasm32"))]
+            python_adapter,
             #[cfg(not(target_arch = "wasm32"))]
             generic_native_cache: crate::generic_native::GenericNativeCache::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -59,7 +105,7 @@ impl RunMatSession {
             async_input_handler: None,
             callstack_limit: runmat_runtime::context::DEFAULT_CALLSTACK_LIMIT,
             error_namespace: runmat_runtime::context::DEFAULT_ERROR_NAMESPACE.to_string(),
-            active_source_name: "<repl>".to_string(),
+            active_source_name: "<repl>".into(),
             active_source_fullpath_name: None,
             telemetry_consent: true,
             telemetry_client_id: None,

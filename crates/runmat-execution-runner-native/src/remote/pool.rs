@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use runmat_execution::state::PoolState;
@@ -17,27 +18,29 @@ use super::pool_progress::RemoteTaskCompletion;
 use super::{RemoteAttempt, RemoteWorkerChannel};
 use crate::{NativeExecutionError, NativeExecutionResult};
 
-type CompletionResult = Result<AttemptSuccess, String>;
+type CompletionResult = Result<AttemptSuccess, crate::NativeProgramFailure>;
 
 mod completion;
 
 /// Portable scheduler composition over allocation-scoped remote worker routes.
 pub struct RemotePoolDriver {
-    scope_id: ExecutionScopeId,
-    pool_id: PoolId,
+    pub(super) scope_id: ExecutionScopeId,
+    pub(super) pool_id: PoolId,
     bundle_digest: Digest,
     bundle_identity: Digest,
     project_revision: ProjectRevisionRecord,
     bundle: Arc<[u8]>,
-    driver: Mutex<Driver>,
+    pub(super) driver: Mutex<Driver>,
     channels: RwLock<HashMap<runmat_execution::identity::WorkerId, Arc<dyn RemoteWorkerChannel>>>,
     installed_nodes: AsyncMutex<BTreeSet<String>>,
     value_scope: String,
     values: super::pool_values::RemoteValueCatalog,
     execution_objects: super::pool_objects::RemoteObjectCatalog,
-    programs: Mutex<HashMap<TaskId, ProgramExecutionRequest>>,
-    completions: Mutex<HashMap<TaskId, oneshot::Sender<CompletionResult>>>,
-    progress: Mutex<HashMap<TaskId, Arc<super::pool_progress::RemoteProgressBuffer>>>,
+    pub(super) programs: Mutex<HashMap<TaskId, ProgramExecutionRequest>>,
+    pub(super) completions: Mutex<HashMap<TaskId, oneshot::Sender<(u64, CompletionResult)>>>,
+    completion_sequence: AtomicU64,
+    pub(super) progress: Mutex<HashMap<TaskId, Arc<super::pool_progress::RemoteProgressBuffer>>>,
+    pub(super) collectives: Arc<crate::driver::collective::ProcessCollectiveBroker>,
 }
 
 impl RemotePoolDriver {
@@ -89,7 +92,9 @@ impl RemotePoolDriver {
             execution_objects: super::pool_objects::RemoteObjectCatalog::default(),
             programs: Mutex::new(HashMap::new()),
             completions: Mutex::new(HashMap::new()),
+            completion_sequence: AtomicU64::new(0),
             progress: Mutex::new(HashMap::new()),
+            collectives: Arc::new(crate::driver::collective::ProcessCollectiveBroker::default()),
         }))
     }
 
@@ -177,6 +182,14 @@ impl RemotePoolDriver {
         program.validate().map_err(|error| {
             NativeExecutionError::Protocol(format!("remote program request is invalid: {error}"))
         })?;
+        program
+            .recipe
+            .validate_resource_request(&submission.request.resources)
+            .map_err(|error| {
+                NativeExecutionError::Protocol(format!(
+                    "remote scheduler resources do not satisfy the program: {error}"
+                ))
+            })?;
         let task_id = submission.request.id;
         let (sender, receiver) = oneshot::channel();
         let progress = Arc::new(super::pool_progress::RemoteProgressBuffer::default());
@@ -280,7 +293,7 @@ impl RemotePoolDriver {
         Ok(())
     }
 
-    fn dispatch(self: &Arc<Self>, actions: Vec<DriverAction>) {
+    pub(super) fn dispatch(self: &Arc<Self>, actions: Vec<DriverAction>) {
         for action in actions {
             match action {
                 DriverAction::Launch(request) => self.launch(request),
@@ -317,7 +330,25 @@ impl RemotePoolDriver {
                 .cloned();
             let report = match (channel, program) {
                 (Some(channel), Some(mut program)) => {
+                    let collective_context = match &program.context {
+                        runmat_execution::ProgramInvocationContext::SpmdTask { task } => {
+                            Some(super::pool_progress::RemoteCollectiveAssignment::new(
+                                Arc::clone(&this.collectives),
+                                task.clone(),
+                            ))
+                        }
+                        _ => None,
+                    };
                     program.arguments = request.task.inputs.clone();
+                    program.assignment = Some(runmat_execution::ProgramExecutionAssignment {
+                        scope_id: request.scope_id,
+                        pool_id: request.task.pool_id,
+                        task_id: request.task_id,
+                        attempt_id: request.id,
+                        worker_id: request.worker_id,
+                        backend: runmat_execution::PoolBackend::Remote,
+                        resources: request.resource_assignment.clone(),
+                    });
                     let transfer = this
                         .execution_objects
                         .transfer_all(channel.as_ref(), request.worker_id)
@@ -347,6 +378,7 @@ impl RemotePoolDriver {
                                 program,
                             },
                             progress.as_deref(),
+                            collective_context,
                         )
                         .await
                         {
@@ -355,7 +387,7 @@ impl RemotePoolDriver {
                                     .execution_objects
                                     .receive_results(
                                         channel.as_ref(),
-                                        &result.result_objects,
+                                        result.result_objects(),
                                         &this.value_scope,
                                     )
                                     .await
@@ -397,7 +429,7 @@ impl RemotePoolDriver {
     }
 }
 
-fn now_millis() -> u64 {
+pub(super) fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|value| value.as_millis().try_into().unwrap_or(u64::MAX))

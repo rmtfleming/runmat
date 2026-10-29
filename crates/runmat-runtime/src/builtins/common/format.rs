@@ -1155,6 +1155,7 @@ async fn flatten_value(value: Value, output: &mut Vec<Value>, context: &str) -> 
         | Value::Object(_)
         | Value::SparseTensor(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
         | Value::MethodFunctionHandle(_)
@@ -1165,6 +1166,8 @@ async fn flatten_value(value: Value, output: &mut Vec<Value>, context: &str) -> 
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_) => {
             return Err(format_error(format!(
                 "{context}: unsupported argument type"

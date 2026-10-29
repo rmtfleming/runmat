@@ -1,0 +1,334 @@
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::rc::Rc;
+
+use runmat_types::InteropManifest;
+use runmat_value::ValueSequence;
+
+use super::{
+    admit_interop_manifest, foreign_error, ForeignAdapterDescriptor, ForeignErrorKind,
+    ForeignHandleRegistry, ForeignPlatform, ForeignTelemetryEvent, ForeignTelemetryOutcome,
+    ForeignTelemetrySink, InteropAdmissionPlan, NoopForeignTelemetry,
+};
+use crate::context::{ForeignCall, RuntimeContext, RuntimeForeignService};
+use crate::RuntimeError;
+
+pub type ForeignAdapterFuture =
+    Pin<Box<dyn Future<Output = Result<ValueSequence, RuntimeError>> + 'static>>;
+
+pub trait ForeignAdapter {
+    fn descriptor(&self) -> ForeignAdapterDescriptor;
+    fn invoke(&self, context: RuntimeContext, call: ForeignCall) -> ForeignAdapterFuture;
+    fn is_isolated(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Clone)]
+pub struct ForeignRuntime {
+    handles: ForeignHandleRegistry,
+    adapters: Rc<RefCell<BTreeMap<runmat_types::ForeignAdapterId, Rc<dyn ForeignAdapter>>>>,
+    platform: ForeignPlatform,
+    telemetry: Rc<dyn ForeignTelemetrySink>,
+}
+
+impl std::fmt::Debug for ForeignRuntime {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ForeignRuntime")
+            .field("handles", &self.handles)
+            .field("adapter_count", &self.adapters.borrow().len())
+            .field("platform", &self.platform)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ForeignRuntime {
+    pub fn new(platform: ForeignPlatform) -> Self {
+        Self::with_telemetry(platform, Rc::new(NoopForeignTelemetry))
+    }
+
+    pub fn with_telemetry(
+        platform: ForeignPlatform,
+        telemetry: Rc<dyn ForeignTelemetrySink>,
+    ) -> Self {
+        Self {
+            handles: ForeignHandleRegistry::default(),
+            adapters: Rc::new(RefCell::new(BTreeMap::new())),
+            platform,
+            telemetry,
+        }
+    }
+
+    pub fn handles(&self) -> &ForeignHandleRegistry {
+        &self.handles
+    }
+
+    pub fn execution_host_inventory(&self) -> Vec<runmat_execution::host::ForeignAdapterInventory> {
+        self.adapters
+            .borrow()
+            .values()
+            .map(|adapter| {
+                let descriptor = adapter.descriptor();
+                runmat_execution::host::ForeignAdapterInventory {
+                    adapter: descriptor.adapter,
+                    version: descriptor.version,
+                    capabilities: runmat_types::CapabilitySet(descriptor.capabilities),
+                    foreign_capabilities: descriptor.foreign_capabilities,
+                    execution_stack: descriptor.execution_stack,
+                    supports_wasm: descriptor.supports_wasm,
+                    supports_host_bridge: descriptor.supports_host_bridge,
+                }
+            })
+            .collect()
+    }
+
+    pub fn register_adapter(&self, adapter: Rc<dyn ForeignAdapter>) -> Result<(), RuntimeError> {
+        let descriptor = adapter.descriptor();
+        if descriptor.version == 0 {
+            return Err(foreign_error(
+                ForeignErrorKind::AdapterUnavailable,
+                "foreign adapter identity must be non-empty and its version must be non-zero",
+            ));
+        }
+        let mut adapters = self.adapters.borrow_mut();
+        if adapters.contains_key(&descriptor.adapter) {
+            return Err(foreign_error(
+                ForeignErrorKind::AdapterUnavailable,
+                format!(
+                    "foreign adapter {} is already registered",
+                    descriptor.adapter
+                ),
+            ));
+        }
+        adapters.insert(descriptor.adapter, adapter);
+        Ok(())
+    }
+
+    pub fn admit(&self, manifest: &InteropManifest) -> Result<InteropAdmissionPlan, RuntimeError> {
+        let adapters = self
+            .adapters
+            .borrow()
+            .values()
+            .map(|adapter| {
+                let descriptor = adapter.descriptor();
+                (descriptor.adapter.clone(), descriptor)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let plan = admit_interop_manifest(manifest, &adapters, self.platform)?;
+        for adapter in &plan.adapters {
+            let isolated = self
+                .adapters
+                .borrow()
+                .get(adapter)
+                .is_some_and(|adapter| adapter.is_isolated());
+            self.telemetry.record(ForeignTelemetryEvent {
+                adapter: adapter.to_string(),
+                operation: "manifest_admission".into(),
+                capability: None,
+                isolated,
+                outcome: ForeignTelemetryOutcome::Admitted,
+                error_identifier: None,
+            });
+        }
+        Ok(plan)
+    }
+}
+
+impl RuntimeForeignService for ForeignRuntime {
+    fn execution_stack_requirement(&self) -> runmat_types::ExecutionStackRequirement {
+        self.adapters
+            .borrow()
+            .values()
+            .map(|adapter| adapter.descriptor().execution_stack)
+            .max()
+            .unwrap_or(runmat_types::ExecutionStackRequirement::Any)
+    }
+
+    fn invoke(&self, context: RuntimeContext, call: ForeignCall) -> ForeignAdapterFuture {
+        let adapter = self.adapters.borrow().get(call.adapter.as_str()).cloned();
+        let telemetry = Rc::clone(&self.telemetry);
+        Box::pin(async move {
+            let adapter = adapter.ok_or_else(|| {
+                foreign_error(
+                    ForeignErrorKind::AdapterUnavailable,
+                    format!("foreign adapter {} is not registered", call.adapter),
+                )
+            })?;
+            if context
+                .cancellation()
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(foreign_error(
+                    ForeignErrorKind::CallbackFailed,
+                    format!("foreign call {} was cancelled", call.symbol),
+                ));
+            }
+            for argument in &call.arguments {
+                runmat_value::validate_no_transient_sequence(argument).map_err(|_| {
+                    crate::runtime_error::semantic_error(
+                        "TransientSequenceNotPortable",
+                        "transient output sequences cannot cross a foreign adapter boundary",
+                    )
+                })?;
+            }
+            let descriptor = adapter.descriptor();
+            if descriptor.execution_stack == runmat_types::ExecutionStackRequirement::Process
+                && context.execution_stack() != crate::context::RuntimeExecutionStack::Process
+            {
+                return Err(foreign_error(
+                    ForeignErrorKind::ExecutionStackViolation,
+                    format!(
+                        "foreign adapter {} requires the process thread stack",
+                        descriptor.adapter
+                    ),
+                ));
+            }
+            let isolated = adapter.is_isolated();
+            let operation = call.symbol.clone();
+            let result = context.scope(adapter.invoke(context.clone(), call)).await;
+            telemetry.record(ForeignTelemetryEvent {
+                adapter: descriptor.adapter.to_string(),
+                operation,
+                capability: Some(runmat_types::ForeignCapability::Invoke),
+                isolated,
+                outcome: if result.is_ok() {
+                    ForeignTelemetryOutcome::Succeeded
+                } else {
+                    ForeignTelemetryOutcome::Failed
+                },
+                error_identifier: result
+                    .as_ref()
+                    .err()
+                    .and_then(|error| error.identifier().map(str::to_owned)),
+            });
+            result
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::{RuntimeExecutionStack, RuntimeServicePorts};
+    use crate::execution::RuntimeExecutionService;
+    use runmat_types::{CapabilityRequirement, ExecutionStackRequirement, ForeignCapability};
+    use runmat_value::{CellArray, Value};
+    use std::cell::Cell;
+    use std::collections::BTreeSet;
+
+    struct ProcessStackAdapter;
+
+    impl ForeignAdapter for ProcessStackAdapter {
+        fn descriptor(&self) -> ForeignAdapterDescriptor {
+            ForeignAdapterDescriptor {
+                adapter: runmat_types::ForeignAdapterId::new("process-stack-test").unwrap(),
+                version: 1,
+                capabilities: BTreeSet::from([CapabilityRequirement::ForeignRuntime]),
+                foreign_capabilities: BTreeSet::from([ForeignCapability::Invoke]),
+                artifact_identities: BTreeSet::new(),
+                supports_wasm: false,
+                supports_host_bridge: false,
+                execution_stack: ExecutionStackRequirement::Process,
+            }
+        }
+
+        fn invoke(&self, _context: RuntimeContext, _call: ForeignCall) -> ForeignAdapterFuture {
+            Box::pin(async {
+                ValueSequence::single(runmat_value::Value::Num(1.0))
+                    .map_err(|error| RuntimeError::new(error.to_string()))
+            })
+        }
+    }
+
+    #[test]
+    fn process_stack_adapters_reject_segmented_stack_entry() {
+        let foreign = Rc::new(ForeignRuntime::new(ForeignPlatform::Native));
+        foreign
+            .register_adapter(Rc::new(ProcessStackAdapter))
+            .expect("register adapter");
+        let services = RuntimeServicePorts::default().with_foreign(foreign.clone());
+        let runtime = RuntimeContext::new(Rc::new(RuntimeExecutionService::new()))
+            .with_service_ports(services);
+        let _stack = runtime.enter_execution_stack(RuntimeExecutionStack::Segmented);
+        let error = futures::executor::block_on(foreign.invoke(
+            runtime.clone(),
+            ForeignCall {
+                adapter: "process-stack-test".into(),
+                symbol: "invoke".into(),
+                arguments: Vec::new(),
+                requested_outputs: 1,
+            },
+        ))
+        .expect_err("segmented stack must be rejected");
+
+        assert_eq!(
+            error.identifier(),
+            Some("RunMat:Foreign:ExecutionStackViolation")
+        );
+    }
+
+    struct RecordingAdapter {
+        invoked: Rc<Cell<bool>>,
+    }
+
+    impl ForeignAdapter for RecordingAdapter {
+        fn descriptor(&self) -> ForeignAdapterDescriptor {
+            ForeignAdapterDescriptor {
+                adapter: runmat_types::ForeignAdapterId::new("recording-test").unwrap(),
+                version: 1,
+                capabilities: BTreeSet::from([CapabilityRequirement::ForeignRuntime]),
+                foreign_capabilities: BTreeSet::from([ForeignCapability::Invoke]),
+                artifact_identities: BTreeSet::new(),
+                supports_wasm: false,
+                supports_host_bridge: false,
+                execution_stack: ExecutionStackRequirement::Any,
+            }
+        }
+
+        fn invoke(&self, _context: RuntimeContext, _call: ForeignCall) -> ForeignAdapterFuture {
+            self.invoked.set(true);
+            Box::pin(async { Ok(ValueSequence::empty()) })
+        }
+    }
+
+    #[test]
+    fn nested_transient_sequences_are_rejected_before_adapter_invocation() {
+        let invoked = Rc::new(Cell::new(false));
+        let foreign = Rc::new(ForeignRuntime::new(ForeignPlatform::Native));
+        foreign
+            .register_adapter(Rc::new(RecordingAdapter {
+                invoked: Rc::clone(&invoked),
+            }))
+            .expect("register adapter");
+        let services = RuntimeServicePorts::default().with_foreign(foreign.clone());
+        let runtime = RuntimeContext::new(Rc::new(RuntimeExecutionService::new()))
+            .with_service_ports(services);
+        let nested = Value::Cell(
+            CellArray::new(vec![Value::OutputList(vec![Value::Num(1.0)])], 1, 1)
+                .expect("valid cell fixture"),
+        );
+
+        let error = futures::executor::block_on(foreign.invoke(
+            runtime,
+            ForeignCall {
+                adapter: "recording-test".into(),
+                symbol: "invoke".into(),
+                arguments: vec![nested],
+                requested_outputs: 0,
+            },
+        ))
+        .expect_err("nested transient sequence must be rejected");
+
+        assert_eq!(
+            error.identifier(),
+            Some("RunMat:TransientSequenceNotPortable")
+        );
+        assert!(
+            !invoked.get(),
+            "adapter must not observe rejected arguments"
+        );
+    }
+}

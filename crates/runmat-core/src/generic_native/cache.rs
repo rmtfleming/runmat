@@ -678,8 +678,10 @@ fn function_revision(
     let runmat_vm::FunctionBytecode {
         function,
         display_name,
+        class_method_owner,
         private_owner_scope,
         source_id,
+        capabilities,
         instructions,
         instr_spans,
         call_arg_spans,
@@ -697,6 +699,10 @@ fn function_revision(
         argument_validations,
         resume_points,
         regions,
+        parfor_regions,
+        spmd_regions,
+        distributed_values,
+        collective_contracts,
     } = function;
     let var_names = var_names.iter().collect::<BTreeMap<_, _>>();
     let initially_unassigned_slots = initially_unassigned_slots.iter().collect::<BTreeSet<_>>();
@@ -712,8 +718,10 @@ fn function_revision(
     }
     append!(function);
     append!(display_name);
+    append!(class_method_owner);
     append!(private_owner_scope);
     append!(source_id);
+    append!(capabilities);
     append!(instructions);
     append!(instr_spans);
     append!(call_arg_spans);
@@ -731,6 +739,10 @@ fn function_revision(
     append!(argument_validations);
     append!(&resume_points);
     append!(regions);
+    append!(parfor_regions);
+    append!(spmd_regions);
+    append!(distributed_values);
+    append!(collective_contracts);
     Ok(runmat_execution::Digest::sha256(&payload).to_string())
 }
 
@@ -797,6 +809,20 @@ mod revision_tests {
         assert_ne!(
             session_catalog_revision(&first).unwrap(),
             session_catalog_revision(&reordered).unwrap()
+        );
+
+        let before_owner = session_catalog_revision(&first).unwrap();
+        let function = reordered.functions.get_mut(&FunctionId(7)).unwrap();
+        function.instructions[0] = runmat_vm::Instr::LoadConst(1.0);
+        function.class_method_owner = Some(runmat_types::ClassMethodOwner {
+            declaring_class: runmat_types::ClassIdentity::new("RevisionOwner").unwrap(),
+            method: runmat_types::MethodName::from("revisionTarget"),
+            is_static: false,
+        });
+        assert_ne!(
+            before_owner,
+            session_catalog_revision(&reordered).unwrap(),
+            "declaration owner identity participates in the executable function revision"
         );
     }
 }

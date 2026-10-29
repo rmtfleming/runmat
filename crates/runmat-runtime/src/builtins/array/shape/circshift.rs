@@ -324,6 +324,23 @@ async fn circshift_builtin(
         Value::GpuTensor(handle) => circshift_gpu(handle, dims, shifts)
             .await
             .map_err(Into::into),
+        Value::Struct(structure) => Ok(Value::Struct(structure)),
+        Value::StructArray(array) => {
+            let rank = array.shape().len().max(
+                dims.iter()
+                    .copied()
+                    .max()
+                    .map_or(0, |dimension| dimension + 1),
+            );
+            let mut axis_shifts = vec![0isize; rank];
+            for (&dimension, &shift) in dims.iter().zip(shifts) {
+                axis_shifts[dimension] = shift;
+            }
+            array
+                .circular_shift(&axis_shifts)
+                .map(Value::StructArray)
+                .map_err(circshift_internal)
+        }
         Value::Cell(_) => Err(circshift_unsupported_input(
             "circshift: cell arrays are not yet supported",
         )),
@@ -333,7 +350,6 @@ async fn circshift_builtin(
         | Value::BoundFunctionHandle { .. }
         | Value::Closure(_)
         | Value::SparseTensor(_)
-        | Value::Struct(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -344,6 +360,8 @@ async fn circshift_builtin(
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::Symbolic(_)
         | Value::SymbolicArray(_)
@@ -521,6 +539,7 @@ fn value_to_shift_vector(value: &Value) -> crate::BuiltinResult<Vec<isize>> {
         | Value::BoundFunctionHandle { .. }
         | Value::Closure(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -531,6 +550,8 @@ fn value_to_shift_vector(value: &Value) -> crate::BuiltinResult<Vec<isize>> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::Symbolic(_)
         | Value::SymbolicArray(_)
@@ -641,6 +662,7 @@ fn value_to_dims_vector(value: &Value) -> crate::BuiltinResult<Vec<usize>> {
         | Value::BoundFunctionHandle { .. }
         | Value::Closure(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -651,6 +673,8 @@ fn value_to_dims_vector(value: &Value) -> crate::BuiltinResult<Vec<usize>> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::Symbolic(_)
         | Value::SymbolicArray(_)
@@ -838,10 +862,10 @@ fn circshift_complex_tensor(
     } = plan;
     let rotated = match storage {
         ComplexStorage::F64(values) => {
-            ComplexStorage::F64(circshift_generic(&values, &ext_shape, &positive)?)
+            ComplexStorage::F64(circshift_generic(&values, &ext_shape, &positive)?.into())
         }
         ComplexStorage::F32(values) => {
-            ComplexStorage::F32(circshift_generic(&values, &ext_shape, &positive)?)
+            ComplexStorage::F32(circshift_generic(&values, &ext_shape, &positive)?.into())
         }
         ComplexStorage::Integer(storage) => ComplexStorage::Integer(
             storage
@@ -863,7 +887,7 @@ fn circshift_logical_array(
     let LogicalArray { data, shape } = array;
     let plan = build_shift_plan(&shape, dims, shifts)?;
     if data.is_empty() || plan.is_noop() {
-        return LogicalArray::new(data, shape)
+        return LogicalArray::from_host_buffer(data, shape)
             .map_err(|e| circshift_internal(format!("circshift: {e}")));
     }
     let ShiftPlan {

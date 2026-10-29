@@ -1,4 +1,4 @@
-//! MATLAB-compatible `sparse` construction for real double matrices.
+//! MATLAB-compatible sparse-matrix construction.
 
 use runmat_value::{CharArray, ComplexStorage};
 use std::collections::{BTreeMap, BTreeSet};
@@ -974,11 +974,11 @@ fn nonzeros_value(value: &Value) -> BuiltinResult<Value> {
             let indices = (0..tensor.len())
                 .filter(|&index| match tensor.complex_storage() {
                     ComplexStorage::F64(values) => {
-                        let (real, imag) = values[index];
+                        let (real, imag) = values[index].into();
                         is_stored_value(real) || is_stored_value(imag)
                     }
                     ComplexStorage::F32(values) => {
-                        let (real, imag) = values[index];
+                        let (real, imag) = values[index].into();
                         real.is_nan() || imag.is_nan() || real != 0.0 || imag != 0.0
                     }
                     ComplexStorage::Integer(storage) => storage
@@ -2530,6 +2530,22 @@ fn sparse_from_value(value: Value) -> BuiltinResult<SparseTensor> {
             }
             sparse_from_dense_tensor(&tensor)
         }
+        Value::Complex(real, imaginary) => sparse_from_complex_tensor(
+            &ComplexTensor::new(vec![(real, imaginary)], vec![1, 1])
+                .map_err(|err| sparse_error(&SPARSE_ERROR_INTERNAL, format!("sparse: {err}")))?,
+        ),
+        Value::ComplexTensor(tensor) => {
+            if tensor.shape.len() != 2 {
+                return Err(sparse_error(
+                    &SPARSE_ERROR_INVALID_INPUT,
+                    format!(
+                        "sparse: input must be a 2-D matrix, got {}-D complex tensor",
+                        tensor.shape.len()
+                    ),
+                ));
+            }
+            sparse_from_complex_tensor(&tensor)
+        }
         Value::LogicalArray(logical) => {
             if logical.shape.len() != 2 {
                 return Err(sparse_error(
@@ -2560,6 +2576,54 @@ fn sparse_from_value(value: Value) -> BuiltinResult<SparseTensor> {
             format!("sparse: unsupported conversion input {other:?}"),
         )),
     }
+}
+
+fn sparse_from_complex_tensor(tensor: &ComplexTensor) -> BuiltinResult<SparseTensor> {
+    let rows = tensor.rows;
+    let cols = tensor.cols;
+    let mut col_ptrs = Vec::with_capacity(cols.saturating_add(1));
+    let mut row_indices = Vec::new();
+    col_ptrs.push(0);
+
+    match tensor.complex_storage() {
+        ComplexStorage::F64(dense_values) => {
+            let mut values = Vec::new();
+            for col in 0..cols {
+                for row in 0..rows {
+                    let runmat_value::ComplexElement(real, imaginary) =
+                        dense_values[row + col * rows];
+                    if real != 0.0 || imaginary != 0.0 {
+                        row_indices.push(row);
+                        values.push((real, imaginary));
+                    }
+                }
+                col_ptrs.push(values.len());
+            }
+            SparseTensor::new_complex(rows, cols, col_ptrs, row_indices, values)
+        }
+        ComplexStorage::F32(dense_values) => {
+            let mut values = Vec::new();
+            for col in 0..cols {
+                for row in 0..rows {
+                    let runmat_value::ComplexElement(real, imaginary) =
+                        dense_values[row + col * rows];
+                    if real != 0.0 || imaginary != 0.0 {
+                        row_indices.push(row);
+                        values.push((real, imaginary));
+                    }
+                }
+                col_ptrs.push(values.len());
+            }
+            SparseTensor::new_complex_f32(rows, cols, col_ptrs, row_indices, values)
+        }
+        ComplexStorage::Integer(_) => {
+            return Err(sparse_error(
+                &SPARSE_ERROR_INVALID_INPUT,
+                "sparse: complex integer value storage is not supported",
+            ));
+        }
+    }
+    .map_err(|err| sparse_error(&SPARSE_ERROR_INTERNAL, format!("sparse: {err}")))
 }
 
 fn sparse_from_dense_tensor(tensor: &Tensor) -> BuiltinResult<SparseTensor> {
@@ -2834,10 +2898,10 @@ impl TripletValues {
 fn triplet_values(value: &Value) -> BuiltinResult<TripletValues> {
     match value {
         Value::Bool(value) => Ok(TripletValues::Logical(vec![u8::from(*value)])),
-        Value::LogicalArray(values) => Ok(TripletValues::Logical(values.data.clone())),
+        Value::LogicalArray(values) => Ok(TripletValues::Logical(values.data.to_vec())),
         Value::SparseTensor(sparse) if sparse.is_logical() => sparse
             .to_dense_logical()
-            .map(|dense| TripletValues::Logical(dense.data))
+            .map(|dense| TripletValues::Logical(dense.data.into_vec()))
             .map_err(|err| sparse_error(&SPARSE_ERROR_INTERNAL, format!("sparse: {err}"))),
         Value::Tensor(tensor) if tensor.integer_storage().is_some() => Ok(TripletValues::Integer(
             tensor
@@ -3725,14 +3789,14 @@ pub(crate) mod tests {
         );
 
         let single = ComplexTensor::from_complex_storage(
-            ComplexStorage::F32(vec![(0.0, 0.0), (1.5, 0.0), (0.0, -2.5)]),
+            ComplexStorage::F32(vec![(0.0, 0.0), (1.5, 0.0), (0.0, -2.5)].into()),
             vec![3, 1],
         )
         .expect("single complex tensor");
         let output =
             nonzeros_builtin(Value::ComplexTensor(single)).expect("single complex nonzeros");
         assert!(
-            matches!(output, Value::ComplexTensor(tensor) if tensor.complex_storage() == &ComplexStorage::F32(vec![(1.5, 0.0), (0.0, -2.5)]))
+            matches!(output, Value::ComplexTensor(tensor) if tensor.complex_storage() == &ComplexStorage::F32(vec![(1.5, 0.0), (0.0, -2.5)].into()))
         );
 
         let integer = runmat_value::IntegerComplexStorage::new(
@@ -4033,6 +4097,21 @@ pub(crate) mod tests {
             expect_sparse(sparse_builtin(vec![Value::Tensor(dense)]).expect("single sparse"));
         assert_eq!(from_dense.numeric_dtype(), Some(NumericDType::F32));
         assert_eq!(from_dense.as_f32_slice(), Some(&[4.25, 5.5][..]));
+
+        let complex_dense =
+            ComplexTensor::from_f32(vec![(0.0, 0.0), (1.5, -2.5)], vec![2, 1]).unwrap();
+        let complex_sparse = expect_sparse(
+            sparse_builtin(vec![Value::ComplexTensor(complex_dense)])
+                .expect("complex single sparse"),
+        );
+        assert_eq!(complex_sparse.numeric_dtype(), Some(NumericDType::F32));
+        assert!(complex_sparse.is_complex());
+        assert_eq!(complex_sparse.col_ptrs, vec![0, 1]);
+        assert_eq!(complex_sparse.row_indices, vec![1]);
+        assert_eq!(
+            complex_sparse.as_complex_f32_slice(),
+            Some(&[runmat_value::ComplexElement(1.5, -2.5)][..])
+        );
 
         let rows = Tensor::new(vec![1.0, 1.0, 2.0], vec![3, 1]).unwrap();
         let cols = Tensor::new(vec![1.0, 1.0, 2.0], vec![3, 1]).unwrap();

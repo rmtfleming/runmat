@@ -3,8 +3,11 @@ use crate::builtin::RuntimeBuiltinBinding;
 use crate::class_registry::RuntimeClass;
 use crate::warning_store::RuntimeWarning;
 use crate::RuntimeError;
-use runmat_types::{CallableIdentity, SourceId};
-use runmat_value::Value;
+use runmat_types::{
+    BuiltinId, CallableFallbackPolicy, CallableIdentity, DistributedValueContract,
+    DistributionScheme, LabRank, SourceId,
+};
+use runmat_value::{Value, ValueSequence};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -24,10 +27,55 @@ pub trait RuntimeCallService {
     fn invoke(
         &self,
         request: RuntimeCallRequest,
-    ) -> RuntimeServiceFuture<Result<Value, RuntimeError>>;
+    ) -> RuntimeServiceFuture<Result<ValueSequence, RuntimeError>>;
 
     fn source_functions(&self, _source_id: SourceId) -> Vec<(String, usize)> {
         Vec::new()
+    }
+}
+
+/// Canonical call router for callbacks that re-enter the active RunMat
+/// executor. The executor installs its semantic and external invokers in the
+/// invocation context; this service keeps foreign adapters independent of VM,
+/// JIT, and AOT implementation details.
+#[derive(Debug, Default)]
+pub struct RuntimeCallRouter;
+
+impl RuntimeCallService for RuntimeCallRouter {
+    fn resolve(&self, name: &str) -> Option<usize> {
+        crate::user_functions::resolve_semantic_function_by_name(name)
+    }
+
+    fn invoke(
+        &self,
+        request: RuntimeCallRequest,
+    ) -> RuntimeServiceFuture<Result<ValueSequence, RuntimeError>> {
+        let fallback_policy = match &request.identity {
+            CallableIdentity::DynamicName(_)
+            | CallableIdentity::Imported(_)
+            | CallableIdentity::Method(_) => CallableFallbackPolicy::RuntimeNameResolution,
+            CallableIdentity::ExternalName(_) => CallableFallbackPolicy::ExternalBoundary,
+            _ => CallableFallbackPolicy::None,
+        };
+        Box::pin(async move {
+            crate::call::descriptor::execute_callable_descriptor(
+                crate::call::descriptor::CallableDescriptor::resolved(
+                    request.identity,
+                    request.arguments,
+                    request.requested_outputs,
+                    fallback_policy,
+                    crate::call::descriptor::CallableCallKind::Direct,
+                ),
+            )
+            .await
+        })
+    }
+
+    fn source_functions(&self, source_id: SourceId) -> Vec<(String, usize)> {
+        crate::user_functions::source_functions_for(source_id)
+            .into_iter()
+            .map(|function| (function.name, function.function))
+            .collect()
     }
 }
 
@@ -118,7 +166,15 @@ pub struct ForeignCall {
 }
 
 pub trait RuntimeForeignService {
-    fn invoke(&self, call: ForeignCall) -> RuntimeServiceFuture<Result<Value, RuntimeError>>;
+    fn execution_stack_requirement(&self) -> runmat_types::ExecutionStackRequirement {
+        runmat_types::ExecutionStackRequirement::Any
+    }
+
+    fn invoke(
+        &self,
+        context: super::RuntimeContext,
+        call: ForeignCall,
+    ) -> RuntimeServiceFuture<Result<runmat_value::ValueSequence, RuntimeError>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +214,217 @@ pub trait RuntimeParallelService {
     }
 }
 
+#[derive(Clone)]
+pub struct RuntimeSpmdAdmission {
+    pub gang: runmat_execution::GangSnapshot,
+    pub labs: Vec<Rc<dyn RuntimeCollectiveService>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeSpmdOutput {
+    pub value: runmat_types::RegionValueId,
+    pub fact: runmat_types::ValueFact,
+    pub entries: Vec<Option<runmat_execution::SpmdOutputValue>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum RuntimeSpmdRetainedOutput {
+    Composite(runmat_execution::CompositeHandle),
+    Distributed(runmat_execution::DistributedValueHandle),
+}
+
+impl RuntimeSpmdAdmission {
+    pub fn validate(&self) -> Result<(), RuntimeError> {
+        self.gang.validate().map_err(|error| {
+            crate::runtime_error::semantic_error(
+                "RunMat:parallel:InvalidGangAdmission",
+                error.to_string(),
+            )
+        })?;
+        if self.labs.len() != self.gang.handle.labs.0 as usize
+            || self
+                .labs
+                .iter()
+                .zip(&self.gang.ranks)
+                .any(|(service, rank)| {
+                    service.context().gang != self.gang.handle || service.context().rank != *rank
+                })
+        {
+            return Err(crate::runtime_error::semantic_error(
+                "RunMat:parallel:InvalidGangAdmission",
+                "SPMD admission must provide one ordered collective context per stable lab rank",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Host-owned admission and lifecycle authority for one SPMD gang. Collective
+/// services are scoped per lab while the coordinator remains shared.
+pub trait RuntimeSpmdService {
+    fn admit(
+        &self,
+        request: runmat_execution::GangRequest,
+        available_labs: runmat_types::LabCount,
+        region: runmat_types::ParallelRegionId,
+    ) -> RuntimeServiceFuture<Result<RuntimeSpmdAdmission, RuntimeError>>;
+
+    fn retire(
+        &self,
+        gang: runmat_execution::GangHandle,
+    ) -> RuntimeServiceFuture<Result<(), RuntimeError>>;
+
+    /// Records that one admitted lab completed its region body. The gang
+    /// authority uses this typed lifecycle transition to distinguish a live
+    /// collective wait from a wait whose remaining peers have already exited.
+    fn rank_finished(
+        &self,
+        gang: &runmat_execution::GangHandle,
+        rank: runmat_types::LabRank,
+    ) -> Result<(), RuntimeError>;
+
+    /// Records that one admitted lab failed while executing its region body.
+    /// Implementations use this typed lifecycle event to release peers blocked
+    /// in collectives; the caller retains and reports the originating error.
+    fn rank_failed(
+        &self,
+        gang: &runmat_execution::GangHandle,
+        rank: runmat_types::LabRank,
+    ) -> Result<(), RuntimeError>;
+
+    fn retain_outputs(
+        &self,
+        gang: runmat_execution::GangHandle,
+        region: runmat_types::ParallelRegionId,
+        outputs: Vec<RuntimeSpmdOutput>,
+    ) -> RuntimeServiceFuture<Result<Vec<RuntimeSpmdRetainedOutput>, RuntimeError>>;
+}
+
+#[derive(Debug, Clone)]
+pub enum RuntimeDistributedInvocation {
+    Client,
+    Worker(runmat_execution::SpmdTaskContext),
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeDistributedCallRequest {
+    pub builtin: BuiltinId,
+    pub arguments: Vec<Value>,
+    pub literals: runmat_types::LiteralContext,
+    pub requested_outputs: usize,
+    pub outputs: Vec<runmat_types::ValueFact>,
+    pub invocation: RuntimeDistributedInvocation,
+}
+
+/// Live distributed metadata visible to language/runtime consumers. Payloads
+/// remain behind the execution-owned store; unlike a transport snapshot this
+/// record never invents object references for locally retained partitions.
+#[derive(Debug, Clone)]
+pub struct RuntimeDistributedSnapshot {
+    pub handle: runmat_execution::DistributedValueHandle,
+    pub partitions: Vec<runmat_execution::DistributedPartitionLayout>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RuntimeDistributedRetirement {
+    pub distributed: usize,
+    pub composites: usize,
+}
+
+/// Runtime operations over execution-service-owned distributed values.
+/// Implementations preserve partition ownership and decide locality; callers
+/// never obtain raw partition storage through this port.
+pub trait RuntimeDistributedService {
+    fn retire_pool(
+        &self,
+        pool: runmat_execution::PoolHandle,
+    ) -> Result<RuntimeDistributedRetirement, RuntimeError>;
+
+    fn create(
+        &self,
+        contract: DistributedValueContract,
+        input: Value,
+        scheme: DistributionScheme,
+        pool: runmat_execution::PoolSnapshot,
+    ) -> RuntimeServiceFuture<Result<runmat_execution::DistributedValueHandle, RuntimeError>>;
+
+    fn create_worker(
+        &self,
+        contract: DistributedValueContract,
+        input: Value,
+        scheme: DistributionScheme,
+        context: runmat_execution::SpmdTaskContext,
+    ) -> RuntimeServiceFuture<Result<runmat_execution::DistributedValueHandle, RuntimeError>>;
+
+    fn build_worker(
+        &self,
+        contract: DistributedValueContract,
+        local_part: Value,
+        global_shape: Vec<u64>,
+        scheme: DistributionScheme,
+        layouts: Vec<runmat_execution::DistributedPartitionLayout>,
+        context: runmat_execution::SpmdTaskContext,
+    ) -> RuntimeServiceFuture<Result<runmat_execution::DistributedValueHandle, RuntimeError>>;
+
+    fn inspect(
+        &self,
+        handle: runmat_execution::DistributedValueHandle,
+    ) -> RuntimeServiceFuture<Result<RuntimeDistributedSnapshot, RuntimeError>>;
+
+    fn export_local(
+        &self,
+        handle: runmat_execution::DistributedValueHandle,
+        rank: LabRank,
+    ) -> RuntimeServiceFuture<Result<runmat_execution::DistributedShardSnapshot, RuntimeError>>;
+
+    fn local_part(
+        &self,
+        handle: runmat_execution::DistributedValueHandle,
+        rank: LabRank,
+    ) -> RuntimeServiceFuture<Result<Value, RuntimeError>>;
+
+    fn materialize(
+        &self,
+        handle: runmat_execution::DistributedValueHandle,
+    ) -> RuntimeServiceFuture<Result<Value, RuntimeError>>;
+
+    fn redistribute(
+        &self,
+        handle: runmat_execution::DistributedValueHandle,
+        scheme: DistributionScheme,
+    ) -> RuntimeServiceFuture<Result<runmat_execution::DistributedValueHandle, RuntimeError>>;
+
+    fn invoke(
+        &self,
+        request: RuntimeDistributedCallRequest,
+    ) -> RuntimeServiceFuture<Result<runmat_value::ValueSequence, RuntimeError>>;
+
+    fn composite_entry(
+        &self,
+        handle: runmat_execution::CompositeHandle,
+        rank: LabRank,
+    ) -> RuntimeServiceFuture<Result<Option<Value>, RuntimeError>>;
+}
+
+/// SPMD worker communication. The installed service owns the current rank and
+/// transports typed collective payloads through the admitted gang.
+pub trait RuntimeCollectiveService {
+    fn context(&self) -> &runmat_execution::SpmdTaskContext;
+
+    /// Allocate the next invocation sequence for one compiler-owned call site.
+    /// Sequence state is scoped to the lab service, so repeated calls in loops
+    /// cannot collide while every rank retains the same deterministic order.
+    fn next_sequence(
+        &self,
+        id: runmat_types::CollectiveId,
+    ) -> Result<runmat_execution::CollectiveSequence, RuntimeError>;
+
+    fn execute(
+        &self,
+        request: runmat_execution::CollectiveRequest,
+    ) -> RuntimeServiceFuture<Result<runmat_execution::CollectiveResponse, RuntimeError>>;
+}
+
 /// Narrow, typed ports composed by the host. An absent port is meaningful and
 /// produces a stable capability error through the corresponding `require_*`
 /// accessor; there is no string-keyed service locator.
@@ -174,6 +441,9 @@ pub struct RuntimeServicePorts {
     native: Option<Rc<dyn RuntimeNativeService>>,
     foreign: Option<Rc<dyn RuntimeForeignService>>,
     parallel: Option<Rc<dyn RuntimeParallelService>>,
+    spmd: Option<Rc<dyn RuntimeSpmdService>>,
+    distributed: Option<Rc<dyn RuntimeDistributedService>>,
+    collective: Option<Rc<dyn RuntimeCollectiveService>>,
 }
 
 impl std::fmt::Debug for RuntimeServicePorts {
@@ -191,6 +461,9 @@ impl std::fmt::Debug for RuntimeServicePorts {
             .field("native", &self.native.is_some())
             .field("foreign", &self.foreign.is_some())
             .field("parallel", &self.parallel.is_some())
+            .field("spmd", &self.spmd.is_some())
+            .field("distributed", &self.distributed.is_some())
+            .field("collective", &self.collective.is_some())
             .finish()
     }
 }
@@ -306,6 +579,15 @@ impl RuntimeServicePorts {
         RuntimeForeignService,
         Foreign
     );
+
+    /// Remove the strong foreign-runtime edge while retaining every other
+    /// session authority. A long-lived foreign callback can retain this
+    /// context and restore the foreign port from a weak reference while it
+    /// executes without creating a host/session ownership cycle.
+    pub fn without_foreign(mut self) -> Self {
+        self.foreign = None;
+        self
+    }
     port_accessors!(
         with_parallel,
         parallel,
@@ -313,6 +595,30 @@ impl RuntimeServicePorts {
         parallel,
         RuntimeParallelService,
         Parallel
+    );
+    port_accessors!(
+        with_spmd,
+        spmd,
+        require_spmd,
+        spmd,
+        RuntimeSpmdService,
+        Spmd
+    );
+    port_accessors!(
+        with_distributed,
+        distributed,
+        require_distributed,
+        distributed,
+        RuntimeDistributedService,
+        Distributed
+    );
+    port_accessors!(
+        with_collective,
+        collective,
+        require_collective,
+        collective,
+        RuntimeCollectiveService,
+        Collective
     );
 }
 
@@ -341,6 +647,8 @@ mod tests {
             missing(ports.require_native("load library")),
             missing(ports.require_foreign("foreign call")),
             missing(ports.require_parallel("parfor")),
+            missing(ports.require_distributed("distributed array")),
+            missing(ports.require_collective("SPMD barrier")),
         ];
         assert_eq!(
             failures
@@ -359,6 +667,8 @@ mod tests {
                 RuntimeCapability::Native,
                 RuntimeCapability::Foreign,
                 RuntimeCapability::Parallel,
+                RuntimeCapability::Distributed,
+                RuntimeCapability::Collective,
             ]
         );
         assert!(failures.iter().all(|failure| {

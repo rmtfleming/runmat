@@ -3,13 +3,13 @@
 use crate::builtins::common::arg_tokens::{tokens_from_context, tokens_from_values, ArgToken};
 use crate::builtins::common::concatenation::char_array_from_f64_with_prefix;
 use crate::builtins::common::gpu_helpers;
+use crate::builtins::common::integer_conversion::{integer_values, IntegerClass, IntegerClassExt};
 use crate::builtins::common::random_args::complex_tensor_into_value;
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ProviderHook, ReductionNaN, ResidencyPolicy, ScalarType, ShapeRequirements,
 };
 use crate::builtins::common::tensor;
-use crate::builtins::math::elementwise::integer_cast::{integer_values, IntegerTarget};
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 use runmat_accelerate_api::AccelProvider;
 use runmat_builtins::{
@@ -647,6 +647,36 @@ async fn cat_builtin(dim: Value, rest: Vec<Value>) -> crate::BuiltinResult<Value
     }
     let dim_zero = dim_index - 1;
 
+    if inputs
+        .iter()
+        .any(|value| matches!(value, Value::Struct(_) | Value::StructArray(_)))
+    {
+        let has_nonempty_structure = inputs.iter().any(|value| {
+            matches!(value, Value::Struct(_))
+                || matches!(value, Value::StructArray(array) if !array.is_empty())
+        });
+        let inputs = if has_nonempty_structure {
+            inputs
+                .into_iter()
+                .filter(|value| !crate::builtins::common::validation::value_is_empty(value))
+                .collect()
+        } else {
+            inputs
+        };
+        let operands = inputs
+            .into_iter()
+            .map(|value| match value {
+                Value::Struct(structure) => Ok(runmat_value::StructArrayOperand::Scalar(structure)),
+                Value::StructArray(array) => Ok(runmat_value::StructArrayOperand::Array(array)),
+                _ => Err(cat_err(
+                    "cat: structure arrays can concatenate only with structures",
+                )),
+            })
+            .collect::<BuiltinResult<Vec<_>>>()?;
+        return runmat_value::StructArray::concatenate(dim_zero, operands)
+            .map_err(|error| cat_err(format!("cat: {error}")));
+    }
+
     if inputs.iter().any(|value| matches!(value, Value::Cell(_))) {
         let category = determine_category(&inputs, &like)?;
         debug_assert_eq!(category, CatCategory::Cell);
@@ -898,14 +928,14 @@ fn concat_floating_tensors(dim_zero: usize, tensors: Vec<Tensor>) -> BuiltinResu
 
 /// MATLAB concatenation adopts the class of the leftmost integer operand,
 /// converting every other numeric or logical input to that class.
-fn leftmost_integer_target(values: &[Value]) -> Option<IntegerTarget> {
+fn leftmost_integer_target(values: &[Value]) -> Option<IntegerClass> {
     let mut empty_integer_target = None;
     for value in values {
         match value {
-            Value::Int(value) => return Some(IntegerTarget::from_int_value(value)),
+            Value::Int(value) => return Some(IntegerClass::from_int_value(value)),
             Value::Tensor(tensor) => {
                 if let Some(storage) = tensor.integer_storage() {
-                    let target = IntegerTarget::from_storage(storage);
+                    let target = IntegerClass::from_storage(storage);
                     if !is_empty_concat_shape(&tensor.shape) {
                         return Some(target);
                     }
@@ -919,7 +949,7 @@ fn leftmost_integer_target(values: &[Value]) -> Option<IntegerTarget> {
 }
 
 fn cat_integer_tensors(
-    target: IntegerTarget,
+    target: IntegerClass,
     dim_zero: usize,
     values: Vec<Value>,
     like: &LikeSpec,
@@ -929,7 +959,7 @@ fn cat_integer_tensors(
 }
 
 fn build_integer_cat_tensor(
-    target: IntegerTarget,
+    target: IntegerClass,
     dim_zero: usize,
     values: Vec<Value>,
 ) -> BuiltinResult<Tensor> {
@@ -950,7 +980,7 @@ fn build_integer_cat_tensor(
 }
 
 fn integer_concat_input(
-    target: IntegerTarget,
+    target: IntegerClass,
     value: Value,
 ) -> BuiltinResult<(Vec<usize>, Vec<runmat_value::IntValue>)> {
     match value {
@@ -1062,7 +1092,7 @@ fn cat_complex_arrays(
     Ok(complex_tensor_into_value(tensor))
 }
 
-fn leftmost_complex_integer_target(values: &[Value]) -> Option<IntegerTarget> {
+fn leftmost_complex_integer_target(values: &[Value]) -> Option<IntegerClass> {
     let mut empty_target = None;
     for value in values {
         let Value::ComplexTensor(tensor) = value else {
@@ -1071,7 +1101,7 @@ fn leftmost_complex_integer_target(values: &[Value]) -> Option<IntegerTarget> {
         let Some(storage) = tensor.integer_storage() else {
             continue;
         };
-        let target = IntegerTarget::from_storage(&storage.real);
+        let target = IntegerClass::from_storage(&storage.real);
         if !is_empty_concat_shape(&tensor.shape) {
             return Some(target);
         }
@@ -1081,7 +1111,7 @@ fn leftmost_complex_integer_target(values: &[Value]) -> Option<IntegerTarget> {
 }
 
 fn cat_typed_complex_integer_arrays(
-    target: IntegerTarget,
+    target: IntegerClass,
     dim_zero: usize,
     values: Vec<Value>,
     like: &LikeSpec,
@@ -1117,7 +1147,7 @@ fn cat_typed_complex_integer_arrays(
 }
 
 fn typed_complex_integer_concat_input(
-    target: IntegerTarget,
+    target: IntegerClass,
     value: Value,
 ) -> BuiltinResult<(
     Vec<usize>,
@@ -1706,7 +1736,39 @@ pub(crate) mod tests {
     use runmat_accelerate_api::{
         HostIntegerDataView, HostIntegerTensorView, HostTensorView, IntegerElementType,
     };
-    use runmat_value::{IntValue, IntegerStorage, Tensor};
+    use runmat_value::{IntValue, IntegerStorage, StructArray, StructValue, Tensor};
+
+    fn test_structure(value: f64) -> StructValue {
+        let mut structure = StructValue::new();
+        structure.insert("payload", Value::Num(value));
+        structure
+    }
+
+    #[test]
+    fn struct_cat_omits_empty_operands_when_nonempty_structure_remains() {
+        let array = StructArray::new(vec![test_structure(1.0), test_structure(2.0)], vec![2, 1])
+            .expect("structure array");
+        let unrelated_empty =
+            StructArray::empty(vec!["other".into()], vec![0, 4]).expect("empty structure array");
+        let numeric_empty = Tensor::new(Vec::new(), vec![0, 0]).expect("numeric empty");
+        let result = cat_builtin(
+            Value::Num(1.0),
+            vec![
+                Value::StructArray(unrelated_empty),
+                Value::Tensor(numeric_empty),
+                Value::StructArray(array),
+            ],
+        )
+        .expect("empty operands are neutral");
+        let Value::StructArray(result) = result else {
+            panic!("expected structure array");
+        };
+        assert_eq!(result.shape(), [2, 1]);
+        assert_eq!(
+            result.field_names().cloned().collect::<Vec<_>>(),
+            ["payload"]
+        );
+    }
 
     #[test]
     fn cat_type_prefers_cell() {

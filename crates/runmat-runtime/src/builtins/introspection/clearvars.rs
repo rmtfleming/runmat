@@ -95,6 +95,7 @@ pub const CLEARVARS_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     keywords = "clearvars,workspace,variables,except",
     sink = true,
     suppress_auto_output = true,
+    execution_stack = "process",
     type_resolver(crate::builtins::introspection::type_resolvers::clearvars_type),
     descriptor(crate::builtins::introspection::clearvars::CLEARVARS_DESCRIPTOR),
     builtin_path = "crate::builtins::introspection::clearvars"
@@ -316,7 +317,7 @@ mod tests {
             );
             assert_eq!(requested_outputs, 0);
             let counter = Arc::clone(&counter);
-            Box::pin(async move {
+            crate::sequence::single_value_future(async move {
                 *counter.lock().unwrap() += 1;
                 Ok(Value::Tensor(runmat_value::Tensor::zeros(vec![0, 0])))
             })
@@ -401,7 +402,7 @@ mod tests {
         let removed = block_on(
             crate::builtins::introspection::on_cleanup::on_cleanup_builtin(
                 Value::BoundFunctionHandle {
-                    name: "cleanup".to_string(),
+                    name: "cleanup".into(),
                     function: 11,
                 },
             ),
@@ -410,7 +411,7 @@ mod tests {
         let kept = block_on(
             crate::builtins::introspection::on_cleanup::on_cleanup_builtin(
                 Value::BoundFunctionHandle {
-                    name: "cleanup".to_string(),
+                    name: "cleanup".into(),
                     function: 12,
                 },
             ),

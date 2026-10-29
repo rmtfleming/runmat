@@ -16,6 +16,67 @@ impl RunMatSession {
             .set_dynamic_eval_enabled(self.dynamic_eval_enabled);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_native_interface_artifact(
+        &self,
+        library_path: &std::path::Path,
+        manifest_path: &std::path::Path,
+    ) -> Result<String, RuntimeError> {
+        self.native_ffi_adapter
+            .install_prepared_artifact(library_path, manifest_path)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_java_project_artifacts(
+        &self,
+        artifacts: &[(runmat_java::JavaArtifactIdentity, std::path::PathBuf)],
+    ) -> Result<(), RuntimeError> {
+        self.java_adapter.install_project_artifacts(artifacts)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_python_artifact_bundle(
+        &self,
+        bundle: &runmat_python::PythonArtifactBundle,
+    ) -> Result<(), RuntimeError> {
+        self.python_adapter.install_artifact_bundle(bundle)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_portable_python_artifact_bundle(
+        &self,
+        bundle: &runmat_python::PythonArtifactBundle,
+    ) -> Result<(), RuntimeError> {
+        self.python_adapter.install_portable_artifact_bundle(bundle)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_mex_artifact(
+        &self,
+        module_path: &std::path::Path,
+    ) -> Result<String, RuntimeError> {
+        self.mex_runtime.install_artifact(module_path)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn admit_interop_manifest(
+        &self,
+        manifest: &runmat_types::InteropManifest,
+    ) -> Result<runmat_runtime::foreign::InteropAdmissionPlan, RuntimeError> {
+        self.foreign_runtime.admit(manifest)
+    }
+
+    pub fn execution_runtime_context(
+        &self,
+        revision: runmat_execution::ProgramRevision,
+    ) -> runmat_runtime::context::RuntimeContext {
+        self.configure_runtime_context();
+        self.configure_dynamic_function_services();
+        self.runtime_context
+            .clone()
+            .with_program_revision(Some(revision))
+    }
+
     /// Replace the root execution service used by this session and every
     /// nested invocation compiled from it.
     pub fn install_execution_services(
@@ -127,6 +188,58 @@ impl RunMatSession {
         self.compat_mode
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn execution_host_inventory(
+        &self,
+        trust_tier: runmat_execution::security::ExecutionTrustTier,
+    ) -> Result<runmat_execution::host::ExecutionHostInventory> {
+        let environment = crate::program_environment(self.compat_mode);
+        let mut adapters = self.foreign_runtime.execution_host_inventory();
+        adapters.sort_by(|left, right| left.adapter.cmp(&right.adapter));
+        let inventory = runmat_execution::host::ExecutionHostInventory {
+            schema_version: runmat_execution::host::EXECUTION_HOST_SCHEMA_VERSION,
+            semantic_schema: environment.semantic_schema,
+            compiler_schema: environment.compiler_schema,
+            runtime_fingerprint: environment.runtime_fingerprint,
+            catalog_fingerprint: environment.catalog_fingerprint,
+            compatibility_modes: [
+                runmat_execution::LanguageCompatibilityMode::RunMat,
+                runmat_execution::LanguageCompatibilityMode::Matlab,
+                runmat_execution::LanguageCompatibilityMode::Strict,
+            ]
+            .into_iter()
+            .collect(),
+            target: runmat_execution::host::ExecutionHostTarget::Native(
+                runmat_native_codegen::NativeTarget::current()
+                    .execution_identity()
+                    .map_err(|error| anyhow::anyhow!(error.to_string()))?,
+            ),
+            capabilities: runmat_types::CapabilitySet(
+                [
+                    runmat_types::CapabilityRequirement::HostRuntime,
+                    runmat_types::CapabilityRequirement::Filesystem,
+                    runmat_types::CapabilityRequirement::Network,
+                    runmat_types::CapabilityRequirement::UserInterface,
+                    runmat_types::CapabilityRequirement::Accelerator,
+                    runmat_types::CapabilityRequirement::NativeCode,
+                    runmat_types::CapabilityRequirement::ForeignRuntime,
+                    runmat_types::CapabilityRequirement::ParallelRuntime,
+                    runmat_types::CapabilityRequirement::DistributedRuntime,
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            adapters,
+            process_stack_available: true,
+            host_bridge_available: false,
+            trust_tier,
+        };
+        inventory
+            .validate()
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        Ok(inventory)
+    }
+
     /// Set the language compatibility mode (`runmat`, `matlab`, or `strict`).
     pub fn set_compat_mode(&mut self, mode: CompatMode) {
         self.compat_mode = mode;
@@ -151,6 +264,131 @@ impl RunMatSession {
         self.error_namespace = namespace.clone();
         self.runtime_context.set_error_namespace(namespace.clone());
         runmat_hir::set_error_namespace(&namespace);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_mex_config(&mut self, config: &runmat_config::runtime::MexConfig) {
+        let unmanifested = match config.unmanifested {
+            runmat_config::runtime::UnmanifestedMexPolicy::Isolate => {
+                runmat_runtime::foreign::UnmanifestedMexPolicy::Isolate
+            }
+            runmat_config::runtime::UnmanifestedMexPolicy::Deny => {
+                runmat_runtime::foreign::UnmanifestedMexPolicy::Deny
+            }
+        };
+        self.mex_runtime
+            .set_isolation_policy(runmat_runtime::foreign::MexIsolationPolicy {
+                unmanifested,
+                invocation_timeout: config
+                    .timeout_ms
+                    .map(|milliseconds| std::time::Duration::from_millis(milliseconds.get())),
+            });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_native_ffi_config(
+        &mut self,
+        config: &runmat_config::runtime::NativeFfiConfig,
+    ) -> Result<(), RuntimeError> {
+        let timeout = config
+            .timeout_ms
+            .map(|milliseconds| std::time::Duration::from_millis(milliseconds.get()));
+        let policy = match config.isolation {
+            runmat_config::runtime::NativeFfiIsolation::Process => {
+                runmat_runtime::foreign::NativeFfiIsolationPolicy::isolated(timeout)
+            }
+            runmat_config::runtime::NativeFfiIsolation::InProcess => {
+                runmat_runtime::foreign::NativeFfiIsolationPolicy::in_process()
+            }
+        };
+        self.set_native_ffi_isolation_policy(policy)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_native_ffi_isolation_policy(
+        &mut self,
+        policy: runmat_runtime::foreign::NativeFfiIsolationPolicy,
+    ) -> Result<(), RuntimeError> {
+        self.native_ffi_adapter.set_isolation_policy(policy)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_java_config(
+        &mut self,
+        config: &runmat_config::runtime::JavaConfig,
+    ) -> Result<(), RuntimeError> {
+        self.java_adapter
+            .configure(runmat_runtime::foreign::JavaRuntimeConfiguration {
+                home: config.home.clone(),
+                minimum_version: config.minimum_version.get(),
+                maximum_version: config.maximum_version.map(|value| value.get()),
+                classpath: config.classpath.clone(),
+                options: config.options.clone(),
+            })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn configure_python_runtime(
+        &mut self,
+        configuration: runmat_runtime::foreign::PythonRuntimeConfiguration,
+    ) -> Result<(), RuntimeError> {
+        self.python_adapter.configure(configuration)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_python_config(
+        &mut self,
+        config: &runmat_config::runtime::PythonConfig,
+    ) -> Result<(), RuntimeError> {
+        fn version(value: &str, label: &str) -> Result<(u16, u16), RuntimeError> {
+            let mut parts = value.split('.');
+            let major = parts.next().and_then(|value| value.parse().ok());
+            let minor = parts.next().and_then(|value| value.parse().ok());
+            if parts.next().is_some() || major.is_none() || minor.is_none() {
+                return Err(
+                    build_runtime_error(format!("{label} must use major.minor form"))
+                        .with_builtin("python")
+                        .with_identifier("RunMat:Python:InvalidVersion")
+                        .build(),
+                );
+            }
+            Ok((major.expect("checked"), minor.expect("checked")))
+        }
+        let minimum_version = version(&config.minimum_version, "Python minimum_version")?;
+        let maximum_version = config
+            .maximum_version
+            .as_deref()
+            .map(|value| version(value, "Python maximum_version"))
+            .transpose()?;
+        let required_version = config
+            .version
+            .as_deref()
+            .map(|value| version(value, "Python version"))
+            .transpose()?;
+        self.configure_python_runtime(runmat_runtime::foreign::PythonRuntimeConfiguration {
+            executable: config.executable.clone(),
+            version: required_version,
+            minimum_version,
+            maximum_version,
+            exact_version: None,
+            required_abi_tag: None,
+            required_platform_tag: None,
+            execution_mode: match config.execution_mode {
+                runmat_config::runtime::PythonExecutionModeConfig::InProcess => {
+                    runmat_python::PythonExecutionMode::InProcess
+                }
+                runmat_config::runtime::PythonExecutionModeConfig::OutOfProcess => {
+                    runmat_python::PythonExecutionMode::OutOfProcess
+                }
+            },
+            module_paths: Vec::new(),
+            artifact_identities: std::collections::BTreeSet::new(),
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_desktop_host_available(&mut self, available: bool) {
+        self.java_adapter.set_desktop_available(available);
     }
 
     /// Configure garbage collector
@@ -193,6 +431,22 @@ impl RunMatSession {
             workspace_vars = self.workspace_values.len(),
             "RunMat Session Status"
         );
+    }
+
+    /// Complete foreign-extension lifecycle while the originating runtime
+    /// context and callback services are still available.
+    pub async fn shutdown_foreign_runtime(&mut self) -> Result<(), RuntimeError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let native_result = self.native_ffi_adapter.shutdown().await;
+            let mex_result = self
+                .mex_runtime
+                .shutdown_gracefully(self.runtime_context.clone())
+                .await;
+            native_result?;
+            mex_result?;
+        }
+        Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]

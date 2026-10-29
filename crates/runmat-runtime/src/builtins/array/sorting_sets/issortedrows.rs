@@ -16,7 +16,11 @@ use runmat_value::{
     NumericStorage, Value,
 };
 
-use super::{float_order::SetFloat, integer_order, type_resolvers::bool_output_type};
+use super::{
+    float_order::{ComplexSequence, SetFloat},
+    integer_order,
+    type_resolvers::bool_output_type,
+};
 use crate::build_runtime_error;
 use crate::builtins::common::gpu_helpers;
 use crate::builtins::common::spec::{
@@ -601,7 +605,7 @@ fn check_numeric(storage: &NumericStorage, rows: usize, _cols: usize, args: &Arg
 }
 
 fn check_logical(array: &LogicalArray, rows: usize, cols: usize, args: &Args) -> bool {
-    let storage = NumericStorage::from_integer_storage(IntegerStorage::U8(array.data.clone()));
+    let storage = NumericStorage::from_integer_storage(IntegerStorage::U8(array.data.to_vec()));
     check_numeric(&storage, rows, cols, args)
 }
 
@@ -646,23 +650,23 @@ fn check_complex_integer(
     })
 }
 
-fn check_complex_values<T: SetFloat>(
-    values: &[(T, T)],
+fn check_complex_values<T: SetFloat, S: ComplexSequence<T> + ?Sized>(
+    values: &S,
     rows: usize,
     _cols: usize,
     args: &Args,
 ) -> bool {
     if args.strict()
         && args.columns.iter().any(|column| {
-            (0..rows).any(|row| complex_is_missing(values[row + column.index * rows]))
+            (0..rows).any(|row| complex_is_missing(values.pair_at(row + column.index * rows)))
         })
     {
         return false;
     }
     check_adjacent(rows, args, |row, column, direction| {
         compare_complex(
-            values[row + column * rows],
-            values[row + 1 + column * rows],
+            values.pair_at(row + column * rows),
+            values.pair_at(row + 1 + column * rows),
             direction,
             args,
         )

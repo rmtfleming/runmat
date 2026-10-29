@@ -13,6 +13,27 @@ pub(super) fn active_runtime_context() -> Option<RuntimeContext> {
     ACTIVE_CONTEXTS.with(|contexts| contexts.borrow().last().cloned())
 }
 
+pub(super) fn execution_provider_authorization(
+    provider: &dyn runmat_accelerate_api::AccelProvider,
+) -> runmat_accelerate_api::ExecutionProviderAuthorization {
+    let Some(context) = active_runtime_context() else {
+        return runmat_accelerate_api::ExecutionProviderAuthorization::Unrestricted;
+    };
+    let Some(assignment) = context.execution_assignment() else {
+        return runmat_accelerate_api::ExecutionProviderAuthorization::Unrestricted;
+    };
+    if assignment
+        .resources
+        .accelerator_leases
+        .iter()
+        .any(|lease| runmat_accelerate_api::provider_matches_execution_lease(provider, lease))
+    {
+        runmat_accelerate_api::ExecutionProviderAuthorization::Allowed
+    } else {
+        runmat_accelerate_api::ExecutionProviderAuthorization::Denied
+    }
+}
+
 #[must_use]
 pub struct RuntimeContextGuard {
     state_identity: *const super::RuntimeContextState,
@@ -84,6 +105,7 @@ impl<F> Unpin for ContextFuture<F> {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::RuntimeExecutionStack;
     use crate::execution::RuntimeExecutionService;
     use runmat_types::SourceId;
     use std::rc::Rc;
@@ -92,8 +114,117 @@ mod tests {
 
     struct NoopWake;
 
+    struct ExecutionProvider {
+        id: &'static str,
+        device_id: u32,
+    }
+
+    impl runmat_accelerate_api::AccelProvider for ExecutionProvider {
+        fn upload(
+            &self,
+            _host: &runmat_accelerate_api::HostTensorView,
+        ) -> anyhow::Result<runmat_accelerate_api::GpuTensorHandle> {
+            anyhow::bail!("not used")
+        }
+
+        fn download<'a>(
+            &'a self,
+            _handle: &'a runmat_accelerate_api::GpuTensorHandle,
+        ) -> runmat_accelerate_api::AccelDownloadFuture<'a> {
+            Box::pin(async { anyhow::bail!("not used") })
+        }
+
+        fn free(&self, _handle: &runmat_accelerate_api::GpuTensorHandle) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn device_info(&self) -> String {
+            self.id.into()
+        }
+
+        fn device_id(&self) -> u32 {
+            self.device_id
+        }
+
+        fn device_info_struct(&self) -> runmat_accelerate_api::ApiDeviceInfo {
+            runmat_accelerate_api::ApiDeviceInfo {
+                device_id: self.device_id,
+                name: self.id.into(),
+                vendor: "RunMat".into(),
+                memory_bytes: Some(4096),
+                backend: Some("test".into()),
+            }
+        }
+
+        fn execution_accelerator_device(
+            &self,
+            inventory_epoch: u64,
+        ) -> anyhow::Result<Option<runmat_execution::resource::AcceleratorDevice>> {
+            runmat_accelerate_api::execution_accelerator_device(
+                self,
+                self.id,
+                "1.0.0",
+                runmat_accelerate_api::ExecutionProviderContract::GenericComputeV1,
+                &format!("test-device-{}", self.device_id),
+                &format!("test-device-{}", self.device_id),
+                inventory_epoch,
+            )
+            .map(Some)
+        }
+    }
+
+    static LEASED_PROVIDER: ExecutionProvider = ExecutionProvider {
+        id: "runmat.test.leased",
+        device_id: 901,
+    };
+    static OTHER_PROVIDER: ExecutionProvider = ExecutionProvider {
+        id: "runmat.test.other",
+        device_id: 902,
+    };
+
     impl Wake for NoopWake {
         fn wake(self: Arc<Self>) {}
+    }
+
+    #[test]
+    fn scheduled_context_authorizes_only_its_exact_accelerator_lease() {
+        use runmat_accelerate_api::AccelProvider as _;
+        use runmat_execution::identity::{AttemptId, ExecutionScopeId, PoolId, TaskId, WorkerId};
+        use runmat_execution::resource::{AcceleratorDeviceLease, ResourceAssignment};
+
+        let runtime = RuntimeContext::new(Rc::new(RuntimeExecutionService::new()));
+        let attempt_id = AttemptId::derive(&[b"provider-authorization"]);
+        let device = LEASED_PROVIDER
+            .execution_accelerator_device(7)
+            .unwrap()
+            .unwrap();
+        let lease = AcceleratorDeviceLease::for_attempt(attempt_id, 11, &device).unwrap();
+        let assignment = runmat_execution::ProgramExecutionAssignment {
+            scope_id: ExecutionScopeId::derive(&[b"scope"]),
+            pool_id: PoolId::derive(&[b"pool"]),
+            task_id: TaskId::derive(&[b"task"]),
+            attempt_id,
+            worker_id: WorkerId::derive(&[b"worker"]),
+            backend: runmat_execution::PoolBackend::LocalProcesses,
+            resources: ResourceAssignment {
+                accelerator_leases: vec![lease],
+            },
+        };
+
+        let _context = runtime.enter();
+        assert_eq!(
+            execution_provider_authorization(&LEASED_PROVIDER),
+            runmat_accelerate_api::ExecutionProviderAuthorization::Unrestricted
+        );
+        let _assignment = runtime.enter_execution_assignment(Some(assignment));
+        assert_eq!(
+            execution_provider_authorization(&LEASED_PROVIDER),
+            runmat_accelerate_api::ExecutionProviderAuthorization::Allowed
+        );
+        assert_eq!(
+            execution_provider_authorization(&OTHER_PROVIDER),
+            runmat_accelerate_api::ExecutionProviderAuthorization::Denied
+        );
     }
 
     #[test]
@@ -121,6 +252,22 @@ mod tests {
             );
         }
         assert!(active_runtime_context().is_none());
+    }
+
+    #[test]
+    fn execution_stack_guard_restores_nested_stack_state() {
+        let runtime = RuntimeContext::new(Rc::new(RuntimeExecutionService::new()));
+        assert_eq!(runtime.execution_stack(), RuntimeExecutionStack::Process);
+        {
+            let _segmented = runtime.enter_execution_stack(RuntimeExecutionStack::Segmented);
+            assert_eq!(runtime.execution_stack(), RuntimeExecutionStack::Segmented);
+            {
+                let _process = runtime.enter_execution_stack(RuntimeExecutionStack::Process);
+                assert_eq!(runtime.execution_stack(), RuntimeExecutionStack::Process);
+            }
+            assert_eq!(runtime.execution_stack(), RuntimeExecutionStack::Segmented);
+        }
+        assert_eq!(runtime.execution_stack(), RuntimeExecutionStack::Process);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -339,12 +486,12 @@ mod tests {
     fn class_and_static_property_state_is_session_owned() {
         fn class(name: &str) -> crate::class_registry::RuntimeClass {
             crate::class_registry::RuntimeClass {
-                name: name.to_string(),
+                name: name.into(),
                 parent: None,
                 properties: std::collections::HashMap::from([(
-                    "answer".to_string(),
+                    "answer".into(),
                     crate::class_registry::RuntimeProperty {
-                        name: "answer".to_string(),
+                        name: "answer".into(),
                         is_static: true,
                         is_constant: false,
                         is_dependent: false,
@@ -359,27 +506,28 @@ mod tests {
 
         let first = RuntimeContext::new(Rc::new(RuntimeExecutionService::new()));
         let second = RuntimeContext::new(Rc::new(RuntimeExecutionService::new()));
+        let only_first = runmat_types::ClassIdentity::from("OnlyFirst");
         {
             let _scope = RuntimeContextGuard::enter(first.clone());
             crate::class_registry::register_class(class("OnlyFirst"));
             crate::class_registry::set_static_property_value(
-                "OnlyFirst",
+                &only_first,
                 "answer",
                 runmat_value::Value::Num(1.0),
             );
         }
         {
             let _scope = RuntimeContextGuard::enter(second);
-            assert!(crate::class_registry::get_class("OnlyFirst").is_none());
+            assert!(crate::class_registry::get_class(&only_first).is_none());
             assert!(
-                crate::class_registry::get_static_property_value("OnlyFirst", "answer").is_none()
+                crate::class_registry::get_static_property_value(&only_first, "answer").is_none()
             );
         }
         {
             let _scope = RuntimeContextGuard::enter(first);
-            assert!(crate::class_registry::get_class("OnlyFirst").is_some());
+            assert!(crate::class_registry::get_class(&only_first).is_some());
             assert_eq!(
-                crate::class_registry::get_static_property_value("OnlyFirst", "answer"),
+                crate::class_registry::get_static_property_value(&only_first, "answer"),
                 Some(runmat_value::Value::Num(1.0))
             );
         }
@@ -392,17 +540,29 @@ mod tests {
         {
             let _scope = RuntimeContextGuard::enter(first.clone());
             crate::testing::ensure_testing_classes();
-            assert!(crate::class_registry::get_class(crate::testing::TEST_CASE_CLASS).is_some());
+            assert!(
+                crate::class_registry::get_class(&crate::testing::TEST_CASE_CLASS.owned())
+                    .is_some()
+            );
         }
         {
             let _scope = RuntimeContextGuard::enter(second.clone());
-            assert!(crate::class_registry::get_class(crate::testing::TEST_CASE_CLASS).is_none());
+            assert!(
+                crate::class_registry::get_class(&crate::testing::TEST_CASE_CLASS.owned())
+                    .is_none()
+            );
             crate::testing::ensure_testing_classes();
-            assert!(crate::class_registry::get_class(crate::testing::TEST_CASE_CLASS).is_some());
+            assert!(
+                crate::class_registry::get_class(&crate::testing::TEST_CASE_CLASS.owned())
+                    .is_some()
+            );
         }
         {
             let _scope = RuntimeContextGuard::enter(first);
-            assert!(crate::class_registry::get_class(crate::testing::TEST_CASE_CLASS).is_some());
+            assert!(
+                crate::class_registry::get_class(&crate::testing::TEST_CASE_CLASS.owned())
+                    .is_some()
+            );
         }
     }
 

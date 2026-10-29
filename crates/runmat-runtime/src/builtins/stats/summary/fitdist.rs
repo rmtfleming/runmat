@@ -17,7 +17,7 @@ use crate::builtins::common::broadcast;
 use crate::builtins::common::random;
 use crate::builtins::common::random_args::{extract_dims, keyword_of};
 use crate::builtins::common::{gpu_helpers, tensor};
-use crate::builtins::math::elementwise::gammaln::gammaln_nonnegative_scalar;
+use crate::builtins::math::elementwise::gamma_functions::gammaln::gammaln_nonnegative_scalar;
 use crate::builtins::stats::summary::distribution_math;
 use crate::{build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError};
 
@@ -25,7 +25,8 @@ const FITDIST_NAME: &str = "fitdist";
 const PDF_NAME: &str = "pdf";
 const CDF_NAME: &str = "cdf";
 const RANDOM_NAME: &str = "random";
-const PROBABILITY_DISTRIBUTION_CLASS: &str = "ProbabilityDistribution";
+const PROBABILITY_DISTRIBUTION_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("ProbabilityDistribution");
 const MIN_POSITIVE: f64 = 1.0e-12;
 
 const OUTPUT_PD: BuiltinParamDescriptor = BuiltinParamDescriptor {
@@ -1334,7 +1335,7 @@ fn ensure_exact_fitdist_integer_boundary(tensor: &Tensor, role: &str) -> Builtin
         .expect("integer storage checked above")
         .exact_values()
     {
-        if !crate::builtins::math::trigonometry::cos::integer_is_exact_f64(&integer) {
+        if !crate::builtins::common::validation::integer_is_exact_f64(&integer) {
             return Err(invalid(format!(
                 "fitdist: integer {role} values must be exactly representable as double"
             )));

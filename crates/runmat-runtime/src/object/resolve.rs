@@ -9,12 +9,12 @@
 use crate::builtins::introspection::dynamicprops;
 use crate::call::identity::external_qualified_display_name;
 use crate::object::dispatch::{
-    call_object_member_subsasgn, call_object_member_subsref,
     call_object_property_getter_with_outputs, call_object_property_setter_with_outputs,
-    class_defines_member_subsasgn, class_defines_member_subsref,
 };
 use crate::object::indexing::ObjectIndexOp;
+use crate::sequence::ResolveValueSequence;
 use crate::RuntimeError;
+use runmat_types::ClassIdentity;
 use runmat_value::{Closure, StructValue, Tensor, Value};
 
 const IDENT_PROPERTY_PRIVATE_ACCESS: &str = "RunMat:PropertyPrivateAccess";
@@ -24,109 +24,29 @@ fn mex(identifier: &str, message: &str) -> RuntimeError {
     crate::runtime_error::semantic_error(identifier, message)
 }
 
-fn has_builtin_member_subsref_protocol(class_name: &str) -> bool {
-    let qualified = format!("{class_name}.{}", ObjectIndexOp::Subsref.protocol_name());
-    runmat_builtins::builtin_name_is_known(&qualified)
+fn require_single_sequence(sequence: runmat_value::ValueSequence) -> Result<Value, RuntimeError> {
+    let mut values = sequence.resolve(
+        runmat_types::SequenceUse::RequireSingle,
+        crate::sequence::SequenceResolutionContext::default(),
+    )?;
+    Ok(values.remove(0))
 }
 
-fn caller_has_internal_class_access(caller_function_name: Option<&str>, class_name: &str) -> bool {
-    if let Some(caller_name) = caller_function_name {
-        if let Some((caller_class, _)) = caller_name.rsplit_once('.') {
-            if !caller_class.is_empty()
-                && crate::class_registry::get_class(caller_class).is_some()
-                && (crate::class_registry::is_class_or_subclass(caller_class, class_name)
-                    || crate::class_registry::is_class_or_subclass(class_name, caller_class))
-            {
-                return true;
-            }
-        }
-    }
-    caller_class_for_function(caller_function_name).is_some_and(|caller_class| {
-        crate::class_registry::is_class_or_subclass(&caller_class, class_name)
-            || crate::class_registry::is_class_or_subclass(class_name, &caller_class)
-    })
-}
-
-fn caller_is_index_overload(
-    caller_function_name: Option<&str>,
-    class_name: &str,
-    op: ObjectIndexOp,
-) -> bool {
-    let Some(caller) = caller_function_name else {
-        return false;
-    };
-    let method_name = op.protocol_name();
-    if caller == method_name {
-        return true;
-    }
-    if let Some((method, owner)) = crate::class_registry::lookup_method(class_name, method_name) {
-        if caller == method.function_name {
-            return true;
-        }
-        if caller == format!("{owner}.{method_name}") {
-            return true;
-        }
-    }
-    if let Some((caller_class, caller_method)) = caller.rsplit_once('.') {
-        if caller_method == method_name
-            && crate::class_registry::is_class_or_subclass(class_name, caller_class)
-        {
-            return true;
-        }
-    }
-    if let Some(caller_class) = caller_class_for_function(Some(caller)) {
-        if let Some((method, _owner)) =
-            crate::class_registry::lookup_method(&caller_class, method_name)
-        {
-            if method.function_name == caller
-                && (crate::class_registry::is_class_or_subclass(class_name, &caller_class)
-                    || crate::class_registry::is_class_or_subclass(&caller_class, class_name))
-            {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn caller_class_for_function(caller_function_name: Option<&str>) -> Option<String> {
-    let caller_function_name = caller_function_name?;
-    if crate::class_registry::get_class(caller_function_name).is_some() {
-        return Some(caller_function_name.to_string());
-    }
-    if let Some(owner) = crate::class_registry::class_names()
-        .into_iter()
-        .find(|class_name| {
-            crate::class_registry::get_class(class_name).is_some_and(|class_def| {
-                class_def
-                    .methods
-                    .values()
-                    .any(|method| method.function_name == caller_function_name)
-            })
-        })
-    {
-        return Some(owner);
-    }
-    if let Some((class_name, method_name)) = caller_function_name.rsplit_once('.') {
-        if !class_name.is_empty()
-            && !method_name.is_empty()
-            && crate::class_registry::get_class(class_name).is_some()
-        {
-            return Some(class_name.to_string());
-        }
-    }
-    None
+fn caller_class_for_function(caller_function_name: Option<&str>) -> Option<ClassIdentity> {
+    caller_function_name
+        .and_then(crate::class_registry::caller_method_for_function)
+        .map(|(class, _)| class)
 }
 
 fn access_permitted(
-    owner: &str,
+    owner: &ClassIdentity,
     access: &runmat_types::MemberAccess,
     caller_function_name: Option<&str>,
 ) -> bool {
     match access {
         runmat_types::MemberAccess::Public => true,
         runmat_types::MemberAccess::Private => {
-            caller_class_for_function(caller_function_name).as_deref() == Some(owner)
+            caller_class_for_function(caller_function_name).as_ref() == Some(owner)
         }
         runmat_types::MemberAccess::Protected => caller_class_for_function(caller_function_name)
             .is_some_and(|caller_class| {
@@ -141,42 +61,109 @@ pub async fn load_member(
     allow_init: bool,
     caller_function_name: Option<&str>,
 ) -> Result<Value, RuntimeError> {
+    load_member_with_context(None, base, field, allow_init, caller_function_name).await
+}
+
+pub async fn load_member_with_context(
+    context: Option<&crate::context::RuntimeContext>,
+    base: Value,
+    field: String,
+    allow_init: bool,
+    caller_function_name: Option<&str>,
+) -> Result<Value, RuntimeError> {
+    let mut values =
+        read_member_sequence_with_context(context, base, field, allow_init, caller_function_name)
+            .await?
+            .resolve(
+                runmat_types::SequenceUse::RequireSingle,
+                crate::sequence::SequenceResolutionContext::default(),
+            )?;
+    values
+        .pop()
+        .ok_or_else(|| RuntimeError::from("member read did not produce one value"))
+}
+
+pub async fn read_member_sequence_with_context(
+    context: Option<&crate::context::RuntimeContext>,
+    base: Value,
+    field: String,
+    allow_init: bool,
+    caller_function_name: Option<&str>,
+) -> Result<crate::sequence::ValueSequence, RuntimeError> {
     match base {
+        Value::StructArray(array) => crate::aggregate::structure::gather_member(array, &field),
         Value::ObjectArray(array) => {
             let mut values = Vec::with_capacity(array.len());
-            for value in array.data() {
-                values.push(
-                    Box::pin(load_member(
-                        value.clone(),
-                        field.clone(),
-                        allow_init,
-                        caller_function_name,
-                    ))
-                    .await?,
-                );
+            for value in array.into_data() {
+                let mut selected = Box::pin(read_member_sequence_with_context(
+                    context,
+                    value,
+                    field.clone(),
+                    allow_init,
+                    caller_function_name,
+                ))
+                .await?
+                .resolve(
+                    runmat_types::SequenceUse::RequireSingle,
+                    crate::sequence::SequenceResolutionContext::default(),
+                )?;
+                values.push(selected.pop().expect("single sequence resolution"));
             }
-            if values.len() == 1 {
-                Ok(values.remove(0))
-            } else {
-                Ok(Value::OutputList(values))
-            }
+            crate::sequence::ValueSequence::comma_separated(values)
+                .map_err(crate::sequence::sequence_error_to_runtime)
         }
+        base => {
+            load_scalar_member_with_context(context, base, field, allow_init, caller_function_name)
+                .await
+                .and_then(|value| {
+                    crate::sequence::ValueSequence::single(value)
+                        .map_err(crate::sequence::sequence_error_to_runtime)
+                })
+        }
+    }
+}
+
+async fn load_scalar_member_with_context(
+    context: Option<&crate::context::RuntimeContext>,
+    base: Value,
+    field: String,
+    allow_init: bool,
+    caller_function_name: Option<&str>,
+) -> Result<Value, RuntimeError> {
+    if let Some(result) = context
+        .and_then(|context| crate::parallel::introspection::load_member(context, &base, &field))
+    {
+        return result;
+    }
+    match base {
         Value::Object(obj) => {
-            if let Some(cls) = crate::class_registry::get_class(&obj.class_name) {
-                if class_defines_member_subsref(&cls)
-                    && !caller_is_index_overload(
-                        caller_function_name,
-                        &obj.class_name,
-                        ObjectIndexOp::Subsref,
-                    )
-                    && !caller_has_internal_class_access(caller_function_name, &obj.class_name)
-                {
-                    return call_object_member_subsref(Value::Object(obj), field).await;
-                }
-            }
-            if let Some((p, owner)) =
-                crate::class_registry::lookup_property(&obj.class_name, &field)
+            let base = Value::Object(obj.clone());
+            let access = crate::object::protocol::ObjectAccessContext::from_legacy_function_name(
+                caller_function_name,
+            );
+            if let crate::object::protocol::ProtocolResolution::Method(method) =
+                crate::object::protocol::resolve_object_protocol(
+                    &base,
+                    crate::object::protocol::ObjectProtocol::Subsref,
+                    &access,
+                )?
             {
+                let path = crate::object::indexing::ObjectSubscriptPath::single(
+                    crate::object::indexing::ObjectSubscript::member(field),
+                );
+                return crate::object::protocol::invoke_resolved_object_protocol(
+                    &crate::object::protocol::ProtocolResolution::Method(method),
+                    base,
+                    path,
+                    1,
+                )
+                .await
+                .and_then(require_single_sequence);
+            }
+            if let Some((p, owner)) = crate::class_registry::lookup_property(
+                &obj.class_name,
+                &runmat_types::MemberName::from(field.as_str()),
+            ) {
                 if p.is_static {
                     return Err(mex(
                         "RunMat:PropertyStaticAccess",
@@ -193,14 +180,20 @@ pub async fn load_member(
                     ));
                 }
                 if p.is_dependent {
-                    if let Ok(v) = call_object_property_getter_with_outputs(
-                        Value::Object(obj.clone()),
-                        &field,
-                        1,
+                    let getter = crate::object_property_getter_name(&field);
+                    if crate::class_registry::lookup_method(
+                        &obj.class_name,
+                        &runmat_types::MethodName::from(getter.as_str()),
                     )
-                    .await
+                    .is_some()
                     {
-                        return Ok(v);
+                        return call_object_property_getter_with_outputs(
+                            Value::Object(obj.clone()),
+                            &field,
+                            1,
+                        )
+                        .await
+                        .and_then(require_single_sequence);
                     }
                 }
             }
@@ -208,9 +201,10 @@ pub async fn load_member(
                 Ok(v)
             } else if let Some(v) = obj.properties.get(&field) {
                 Ok(v.clone())
-            } else if let Some((p2, owner)) =
-                crate::class_registry::lookup_property(&obj.class_name, &field)
-            {
+            } else if let Some((p2, owner)) = crate::class_registry::lookup_property(
+                &obj.class_name,
+                &runmat_types::MemberName::from(field.as_str()),
+            ) {
                 if !access_permitted(&owner, &p2.get_access, caller_function_name) {
                     return Err(mex(
                         IDENT_PROPERTY_PRIVATE_ACCESS,
@@ -228,35 +222,39 @@ pub async fn load_member(
                     field, obj.class_name
                 )
                 .into())
-            } else if let Some(cls) = crate::class_registry::get_class(&obj.class_name) {
-                if class_defines_member_subsref(&cls) {
-                    call_object_member_subsref(Value::Object(obj), field).await
-                } else {
-                    Err(format!(
-                        "Undefined property '{}' for class {}",
-                        field, obj.class_name
-                    )
-                    .into())
-                }
+            } else if crate::class_registry::get_class(&obj.class_name).is_some() {
+                Err(format!(
+                    "Undefined property '{}' for class {}",
+                    field, obj.class_name
+                )
+                .into())
             } else {
                 Err(format!("Unknown class {}", obj.class_name).into())
             }
         }
         Value::HandleObject(handle) => {
-            if let Some(cls) = crate::class_registry::get_class(&handle.class_name) {
-                if class_defines_member_subsref(&cls)
-                    && !caller_is_index_overload(
-                        caller_function_name,
-                        &handle.class_name,
-                        ObjectIndexOp::Subsref,
-                    )
-                    && !caller_has_internal_class_access(caller_function_name, &handle.class_name)
-                {
-                    return call_object_member_subsref(Value::HandleObject(handle), field).await;
-                }
-            }
-            if has_builtin_member_subsref_protocol(&handle.class_name) {
-                return call_object_member_subsref(Value::HandleObject(handle), field).await;
+            let base = Value::HandleObject(handle.clone());
+            let access = crate::object::protocol::ObjectAccessContext::from_legacy_function_name(
+                caller_function_name,
+            );
+            if let crate::object::protocol::ProtocolResolution::Method(method) =
+                crate::object::protocol::resolve_object_protocol(
+                    &base,
+                    crate::object::protocol::ObjectProtocol::Subsref,
+                    &access,
+                )?
+            {
+                let path = crate::object::indexing::ObjectSubscriptPath::single(
+                    crate::object::indexing::ObjectSubscript::member(field),
+                );
+                return crate::object::protocol::invoke_resolved_object_protocol(
+                    &crate::object::protocol::ProtocolResolution::Method(method),
+                    base,
+                    path,
+                    1,
+                )
+                .await
+                .and_then(require_single_sequence);
             }
             crate::builtins::structs::core::getfield::get_member_value(
                 Value::HandleObject(handle),
@@ -271,6 +269,7 @@ pub async fn load_member(
             )
             .await
         }
+        Value::Foreign(reference) => crate::foreign::load_foreign_member(reference, field).await,
         Value::ClassRef(cls) => load_static_member(&cls, &field, caller_function_name),
         base @ (Value::Num(_) | Value::Int(_)) => {
             if !is_possible_graphics_handle_value(&base) {
@@ -293,7 +292,11 @@ pub async fn load_member(
                 Err(format!("Undefined field '{}'", field).into())
             }
         }
-        Value::Cell(ca) => crate::object::cell::gather_cell_member(&ca, &field),
+        Value::StructArray(_) | Value::ObjectArray(_) => Err(mex(
+            "MemberSequenceInvariant",
+            "aggregate member reads must pass through sequence resolution",
+        )),
+        Value::Cell(_) => Err(mex("LoadMember", "LoadMember on non-object")),
         Value::MException(mexn) => {
             let value = match field.as_str() {
                 "identifier" => Value::String(mexn.identifier.clone()),
@@ -326,12 +329,24 @@ pub async fn load_member_dynamic(
     load_member(base, name, allow_init, caller_function_name).await
 }
 
+pub async fn load_member_dynamic_with_context(
+    context: Option<&crate::context::RuntimeContext>,
+    base: Value,
+    name: String,
+    allow_init: bool,
+    caller_function_name: Option<&str>,
+) -> Result<Value, RuntimeError> {
+    load_member_with_context(context, base, name, allow_init, caller_function_name).await
+}
+
 pub fn load_static_member(
-    cls: &str,
+    cls: &ClassIdentity,
     field: &str,
     caller_function_name: Option<&str>,
 ) -> Result<Value, RuntimeError> {
-    if let Some((p, owner)) = crate::class_registry::lookup_property(cls, field) {
+    if let Some((p, owner)) =
+        crate::class_registry::lookup_property(cls, &runmat_types::MemberName::from(field))
+    {
         if !p.is_static {
             return Err(mex(
                 "RunMat:PropertyStaticAccess",
@@ -353,7 +368,9 @@ pub fn load_static_member(
                 Tensor::new(vec![], vec![0, 0]).expect("empty tensor"),
             ))
         }
-    } else if let Some((m, _owner)) = crate::class_registry::lookup_method(cls, field) {
+    } else if let Some((m, _owner)) =
+        crate::class_registry::lookup_method(cls, &runmat_types::MethodName::from(field))
+    {
         if !m.is_static {
             return Err(mex(
                 "RunMat:MethodStaticAccess",
@@ -366,14 +383,14 @@ pub fn load_static_member(
             captures: vec![],
         }))
     } else if crate::class_registry::class_has_enumeration_member(cls, field) {
-        let mut value = runmat_value::ObjectInstance::new(cls.to_string());
+        let mut value = runmat_value::ObjectInstance::new(cls.clone());
         value.properties.insert(
             "__enum_member__".to_string(),
             Value::String(field.to_string()),
         );
         Ok(Value::Object(value))
     } else {
-        let qualified = external_qualified_display_name(cls, field);
+        let qualified = external_qualified_display_name(cls.display_name(), field);
         if runmat_builtins::builtin_functions()
             .iter()
             .any(|b| b.name == qualified)
@@ -402,21 +419,32 @@ where
 {
     match base {
         Value::Object(mut obj) => {
-            if let Some(cls) = crate::class_registry::get_class(&obj.class_name) {
-                if class_defines_member_subsasgn(&cls)
-                    && !caller_is_index_overload(
-                        caller_function_name,
-                        &obj.class_name,
-                        ObjectIndexOp::Subsasgn,
-                    )
-                    && !caller_has_internal_class_access(caller_function_name, &obj.class_name)
-                {
-                    return call_object_member_subsasgn(Value::Object(obj), field, rhs).await;
-                }
-            }
-            if let Some((p, owner)) =
-                crate::class_registry::lookup_property(&obj.class_name, &field)
+            let base = Value::Object(obj.clone());
+            let access = crate::object::protocol::ObjectAccessContext::from_legacy_function_name(
+                caller_function_name,
+            );
+            if let crate::object::protocol::ProtocolResolution::Method(method) =
+                crate::object::protocol::resolve_object_protocol(
+                    &base,
+                    crate::object::protocol::ObjectProtocol::Subsasgn,
+                    &access,
+                )?
             {
+                let path = crate::object::indexing::ObjectSubscriptPath::single(
+                    crate::object::indexing::ObjectSubscript::member(field),
+                );
+                return crate::object::protocol::invoke_resolved_object_assignment(
+                    &method,
+                    base,
+                    path,
+                    vec![rhs],
+                )
+                .await;
+            }
+            if let Some((p, owner)) = crate::class_registry::lookup_property(
+                &obj.class_name,
+                &runmat_types::MemberName::from(field.as_str()),
+            ) {
                 if p.is_static {
                     return Err(mex(
                         "RunMat:PropertyStaticAccess",
@@ -439,15 +467,21 @@ where
                     ));
                 }
                 if p.is_dependent {
-                    if let Ok(v) = call_object_property_setter_with_outputs(
-                        Value::Object(obj.clone()),
-                        &field,
-                        rhs.clone(),
-                        1,
+                    let setter = crate::object_property_setter_name(&field);
+                    if crate::class_registry::lookup_method(
+                        &obj.class_name,
+                        &runmat_types::MethodName::from(setter.as_str()),
                     )
-                    .await
+                    .is_some()
                     {
-                        return Ok(v);
+                        return call_object_property_setter_with_outputs(
+                            Value::Object(obj.clone()),
+                            &field,
+                            rhs.clone(),
+                            1,
+                        )
+                        .await
+                        .and_then(require_single_sequence);
                     }
                 }
                 if let Some(oldv) = obj.properties.get(&field) {
@@ -461,18 +495,17 @@ where
                 }
                 dynamicprops::dynamic_property_assign(&mut obj, &field, rhs)?;
                 Ok(Value::Object(obj))
-            } else if let Some(cls) = crate::class_registry::get_class(&obj.class_name) {
-                if class_defines_member_subsasgn(&cls) {
-                    call_object_member_subsasgn(Value::Object(obj), field, rhs).await
-                } else {
-                    Err(format!("Undefined property '{}' for class {}", field, cls.name).into())
-                }
+            } else if crate::class_registry::get_class(&obj.class_name).is_some() {
+                Err(format!("Undefined property '{}' for class {}", field, obj.class_name).into())
             } else {
                 Err(format!("Unknown class {}", obj.class_name).into())
             }
         }
         Value::ClassRef(cls) => {
-            if let Some((p, owner)) = crate::class_registry::lookup_property(&cls, &field) {
+            if let Some((p, owner)) = crate::class_registry::lookup_property(
+                &cls,
+                &runmat_types::MemberName::from(field.as_str()),
+            ) {
                 if !p.is_static {
                     return Err(mex(
                         "RunMat:PropertyStaticAccess",
@@ -498,18 +531,27 @@ where
             }
         }
         Value::HandleObject(handle) => {
-            if let Some(cls) = crate::class_registry::get_class(&handle.class_name) {
-                if class_defines_member_subsasgn(&cls)
-                    && !caller_is_index_overload(
-                        caller_function_name,
-                        &handle.class_name,
-                        ObjectIndexOp::Subsasgn,
-                    )
-                    && !caller_has_internal_class_access(caller_function_name, &handle.class_name)
-                {
-                    return call_object_member_subsasgn(Value::HandleObject(handle), field, rhs)
-                        .await;
-                }
+            let base = Value::HandleObject(handle.clone());
+            let access = crate::object::protocol::ObjectAccessContext::from_legacy_function_name(
+                caller_function_name,
+            );
+            if let crate::object::protocol::ProtocolResolution::Method(method) =
+                crate::object::protocol::resolve_object_protocol(
+                    &base,
+                    crate::object::protocol::ObjectProtocol::Subsasgn,
+                    &access,
+                )?
+            {
+                let path = crate::object::indexing::ObjectSubscriptPath::single(
+                    crate::object::indexing::ObjectSubscript::member(field),
+                );
+                return crate::object::protocol::invoke_resolved_object_assignment(
+                    &method,
+                    base,
+                    path,
+                    vec![rhs],
+                )
+                .await;
             }
             crate::call_builtin_async_with_outputs(
                 "setfield",
@@ -525,6 +567,9 @@ where
                 1,
             )
             .await
+        }
+        Value::Foreign(reference) => {
+            crate::foreign::store_foreign_member(reference, field, rhs).await
         }
         Value::Num(0.0) if allow_init => {
             let mut st = StructValue::new();
@@ -552,7 +597,11 @@ where
             st.fields.insert(field, rhs);
             Ok(Value::Struct(st))
         }
-        Value::Cell(ca) => crate::object::cell::assign_cell_member(ca, field, rhs, on_write),
+        Value::StructArray(_) => Err(mex(
+            "RunMat:CommaSeparatedListAssignmentArity",
+            "simple member assignment cannot target multiple structure elements; use a comma-separated destination list",
+        )),
+        Value::Cell(_) => Err(mex("StoreMember", "StoreMember on non-object")),
         _ => Err(mex("StoreMember", "StoreMember on non-object")),
     }
 }
@@ -569,6 +618,86 @@ where
     OnWrite: FnMut(&Value, &Value),
 {
     store_member(base, name, rhs, allow_init, caller_function_name, on_write).await
+}
+
+pub fn member_sequence_cardinality(base: &Value) -> Result<usize, RuntimeError> {
+    match base {
+        Value::Struct(_) | Value::Object(_) | Value::HandleObject(_) => Ok(1),
+        Value::StructArray(array) => Ok(array.len()),
+        Value::ObjectArray(array) => Ok(array.len()),
+        _ => Err(mex(
+            "RunMat:CommaSeparatedListDestination",
+            "comma-separated member assignment requires a structure or object aggregate",
+        )),
+    }
+}
+
+pub async fn store_member_sequence_traced(
+    base: Value,
+    field: String,
+    values: Vec<Value>,
+    caller_function_name: Option<&str>,
+) -> Result<Value, RuntimeError> {
+    match base {
+        Value::StructArray(array) => crate::aggregate::structure::assign_member_values(
+            array,
+            field,
+            values,
+            runmat_gc::gc_record_write,
+        ),
+        Value::ObjectArray(array) => {
+            if values.len() != array.len() {
+                return Err(mex(
+                    "RunMat:CommaSeparatedListAssignmentArity",
+                    &format!(
+                        "member assignment requires exactly one value per destination element (expected {}, received {})",
+                        array.len(),
+                        values.len()
+                    ),
+                ));
+            }
+            let aggregate = Value::ObjectArray(array);
+            let resolution = crate::object::dispatch::resolve_object_index_protocol(
+                &aggregate,
+                ObjectIndexOp::Subsasgn,
+                caller_function_name,
+            )?;
+            if let crate::object::protocol::ProtocolResolution::Method(method) = resolution {
+                return crate::object::protocol::invoke_resolved_object_assignment(
+                    &method,
+                    aggregate,
+                    crate::object::indexing::ObjectSubscriptPath::single(
+                        crate::object::indexing::ObjectSubscript::member(field),
+                    ),
+                    values,
+                )
+                .await;
+            }
+            let Value::ObjectArray(array) = aggregate else {
+                unreachable!("aggregate was constructed as an object array")
+            };
+            let class_name = array.class_name().clone();
+            let shape = array.shape().to_vec();
+            let mut updated = Vec::with_capacity(values.len());
+            for (element, value) in array.into_data().into_iter().zip(values) {
+                updated.push(
+                    store_member_traced(element, field.clone(), value, false, caller_function_name)
+                        .await?,
+                );
+            }
+            runmat_value::ObjectArray::new(class_name, updated, shape)
+                .map(Value::ObjectArray)
+                .map_err(RuntimeError::from)
+        }
+        base if values.len() == 1 => {
+            let value = values.into_iter().next().expect("validated singleton");
+            store_member_traced(base, field, value, false, caller_function_name).await
+        }
+        _ => Err(mex(
+            "RunMat:CommaSeparatedListAssignmentArity",
+            "member assignment requires exactly one value per destination element",
+        )),
+    }
 }
 
 /// Store a member while applying the canonical GC write barrier.
@@ -644,8 +773,13 @@ fn is_possible_graphics_handle_value(value: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_possible_graphics_handle_value, load_member, load_static_member, store_member};
-    use runmat_types::MemberAccess;
+    use crate::sequence::ResolveValueSequence;
+
+    use super::{
+        is_possible_graphics_handle_value, load_member, load_static_member,
+        read_member_sequence_with_context, store_member,
+    };
+    use runmat_types::{ClassIdentity, MemberAccess};
     use runmat_value::{IntValue, ObjectArray, ObjectInstance, Value};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -662,9 +796,9 @@ mod tests {
         )));
     }
 
-    fn unique_class_name(prefix: &str) -> String {
+    fn unique_class_name(prefix: &str) -> ClassIdentity {
         let id = TEST_CLASS_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}", prefix, id)
+        ClassIdentity::from(format!("{}_{}", prefix, id))
     }
 
     #[test]
@@ -672,7 +806,7 @@ mod tests {
         let values = ["first", "second"]
             .into_iter()
             .map(|name| {
-                let mut object = ObjectInstance::new("matlab.unittest.TestResult".into());
+                let mut object = ObjectInstance::new("matlab.unittest.TestResult");
                 object
                     .properties
                     .insert("Name".into(), Value::String(name.into()));
@@ -681,14 +815,25 @@ mod tests {
             .collect();
         let array =
             Value::ObjectArray(ObjectArray::row("matlab.unittest.TestResult", values).unwrap());
-        let loaded =
-            futures::executor::block_on(load_member(array, "Name".into(), false, None)).unwrap();
+        let loaded = futures::executor::block_on(read_member_sequence_with_context(
+            None,
+            array,
+            "Name".into(),
+            false,
+            None,
+        ))
+        .unwrap()
+        .resolve(
+            runmat_types::SequenceUse::ExpandAll,
+            crate::sequence::SequenceResolutionContext::default(),
+        )
+        .unwrap();
         assert_eq!(
             loaded,
-            Value::OutputList(vec![
+            vec![
                 Value::String("first".into()),
                 Value::String("second".into())
-            ])
+            ]
         );
     }
 
@@ -699,9 +844,9 @@ mod tests {
 
         let mut parent_properties = HashMap::new();
         parent_properties.insert(
-            "version".to_string(),
+            "version".into(),
             crate::class_registry::RuntimeProperty {
-                name: "version".to_string(),
+                name: "version".into(),
                 is_static: true,
                 is_constant: false,
                 is_dependent: false,
@@ -736,9 +881,9 @@ mod tests {
 
         let mut parent_properties = HashMap::new();
         parent_properties.insert(
-            "version".to_string(),
+            "version".into(),
             crate::class_registry::RuntimeProperty {
-                name: "version".to_string(),
+                name: "version".into(),
                 is_static: true,
                 is_constant: false,
                 is_dependent: false,
@@ -783,14 +928,14 @@ mod tests {
 
         let mut parent_methods = HashMap::new();
         parent_methods.insert(
-            "build".to_string(),
+            "build".into(),
             crate::class_registry::RuntimeMethod {
-                name: "build".to_string(),
+                name: "build".into(),
                 is_static: true,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: "build_impl".to_string(),
+                function_name: "build_impl".into(),
                 implicit_class_argument: None,
             },
         );
@@ -822,14 +967,14 @@ mod tests {
 
         let mut parent_methods = HashMap::new();
         parent_methods.insert(
-            "subsref".to_string(),
+            "subsref".into(),
             crate::class_registry::RuntimeMethod {
-                name: "subsref".to_string(),
+                name: "subsref".into(),
                 is_static: false,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: "OverIdx.subsref".to_string(),
+                function_name: "OverIdx.subsref".into(),
                 implicit_class_argument: None,
             },
         );
@@ -860,14 +1005,14 @@ mod tests {
 
         let mut parent_methods = HashMap::new();
         parent_methods.insert(
-            "subsasgn".to_string(),
+            "subsasgn".into(),
             crate::class_registry::RuntimeMethod {
-                name: "subsasgn".to_string(),
+                name: "subsasgn".into(),
                 is_static: false,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: "OverIdx.subsasgn".to_string(),
+                function_name: "OverIdx.subsasgn".into(),
                 implicit_class_argument: None,
             },
         );

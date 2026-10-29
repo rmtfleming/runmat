@@ -5,8 +5,9 @@ pub use loader::ConfigLoader;
 pub use schema::{
     error_namespace_for_language_compat, AccelPowerPreference, AccelerateConfig,
     AccelerateProviderPreference, AutoOffloadConfig, AutoOffloadLogLevel, ExportConfig,
-    ExportFormat, FeaArtifactStoreMode, FeaConfig, GcConfig, GcPreset, GuiConfig, JitConfig,
-    JitOptLevel, LanguageCompatMode, LanguageConfig, LogLevel, LoggingConfig, PlotBackend,
-    PlotMode, PlottingConfig, RunMatRuntimeConfig, RuntimeConfig, TelemetryConfig,
-    TelemetryDrainMode,
+    ExportFormat, FeaArtifactStoreMode, FeaConfig, ForeignConfig, GcConfig, GcPreset, GuiConfig,
+    JavaConfig, JitConfig, JitOptLevel, LanguageCompatMode, LanguageConfig, LogLevel,
+    LoggingConfig, MexConfig, NativeFfiConfig, NativeFfiIsolation, PlotBackend, PlotMode,
+    PlottingConfig, PythonConfig, PythonExecutionModeConfig, RunMatRuntimeConfig, RuntimeConfig,
+    TelemetryConfig, TelemetryDrainMode, UnmanifestedMexPolicy,
 };

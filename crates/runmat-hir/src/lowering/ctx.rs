@@ -2,20 +2,20 @@ use crate::hir::FunctionArgumentValidation;
 use crate::{
     AssignmentCreationPolicy, AssignmentShapePolicy, BindingId, BindingName, BindingOwner,
     BindingResolution, BindingRole, BindingStorage, BuiltinId, CallKind, CallResolution,
-    CallSyntax, CapturedBinding, ClassArgumentBlock, ClassDeclaration, ClassId, ClassKind,
-    ClassPropertyDefault, ClassResolution, CommandArgument, DefPath, DefPathSegment, EntrypointId,
-    EntrypointName, EntrypointOrigin, EntrypointPolicy, EnumerationDeclaration, EventDeclaration,
-    ExprId, FunctionAbi, FunctionId, FunctionKind, FunctionModifiers, FunctionName,
-    FunctionOutputArity, FunctionResolution, HirAssembly, HirBinding, HirBlock, HirCall,
-    HirCallableRef, HirClass, HirCommandCall, HirEntrypoint, HirError, HirExpr, HirExprKind,
-    HirFunction, HirImport, HirIndex, HirModule, HirPlace, HirStmt as HirStmtNode, HirStmtKind,
-    ImportResolution, IndexComponent, IndexKind, IndexResultContext, IndexingSemantics,
-    InheritanceDeclaration, LoweringContext, LoweringResult, MemberAccess, MemberName,
-    MethodDeclaration, ModuleId, OperatorKind, PackageName, PlaceMutation, PlaceMutationKind,
-    PropertyDeclaration, QualifiedName, ReferenceKind, ReferenceResolution, RequestedOutputCount,
-    SourceId, SourceUnitKind, Span, StmtId, StringLiteral, SymbolName, WorkspaceExportPolicy,
-    WorkspaceVisibility, AWAIT_EXTENSION_NAME, NARGIN_BUILTIN_NAME, NARGOUT_BUILTIN_NAME,
-    SPAWN_EXTENSION_NAME,
+    CallSyntax, CapturedBinding, ClassArgumentBlock, ClassDeclaration, ClassId, ClassIdentity,
+    ClassKind, ClassPropertyDefault, ClassResolution, CommandArgument, DefPath, DefPathSegment,
+    EntrypointId, EntrypointName, EntrypointOrigin, EntrypointPolicy, EnumerationDeclaration,
+    EventDeclaration, ExprId, FunctionAbi, FunctionId, FunctionKind, FunctionModifiers,
+    FunctionName, FunctionOutputArity, FunctionResolution, HirAssembly, HirBinding, HirBlock,
+    HirCall, HirCallableRef, HirClass, HirCommandCall, HirEntrypoint, HirError, HirExpr,
+    HirExprKind, HirFunction, HirImport, HirIndex, HirModule, HirPlace, HirStmt as HirStmtNode,
+    HirStmtKind, ImportResolution, IndexComponent, IndexKind, IndexResultContext,
+    IndexingSemantics, InheritanceDeclaration, LoweringContext, LoweringResult, MemberAccess,
+    MemberName, MethodDeclaration, ModuleId, OperatorKind, PackageName, PlaceMutation,
+    PlaceMutationKind, PropertyDeclaration, QualifiedName, ReferenceKind, ReferenceResolution,
+    RequestedOutputCount, SourceId, SourceUnitKind, Span, StmtId, StringLiteral, SymbolName,
+    WorkspaceExportPolicy, WorkspaceVisibility, AWAIT_EXTENSION_NAME, NARGIN_BUILTIN_NAME,
+    NARGOUT_BUILTIN_NAME, SPAWN_EXTENSION_NAME,
 };
 use runmat_parser::{BinOp, Expr as AstExpr, Program as AstProgram, Stmt as AstStmt, UnOp};
 use runmat_types::{
@@ -23,6 +23,8 @@ use runmat_types::{
     FunctionArgValidationLiteral, FunctionArgValidator,
 };
 use std::collections::{HashMap, HashSet};
+
+mod subscript_chain;
 
 const IDENT_AWAIT_EXTENSION_DISABLED: &str = "RunMat:AwaitExtensionDisabled";
 const IDENT_AWAIT_CONTEXT_INVALID: &str = "RunMat:AwaitContextInvalid";
@@ -36,7 +38,6 @@ const IDENT_CLASS_ACCESS_VALUE_INVALID: &str = "RunMat:ClassAccessValueInvalid";
 const IDENT_CLASS_SELF_INHERITANCE_INVALID: &str = "RunMat:ClassSelfInheritanceInvalid";
 const IDENT_CLASS_MEMBER_DUPLICATE: &str = "RunMat:ClassMemberDuplicate";
 const IDENT_CLASS_MEMBER_NAME_CONFLICT: &str = "RunMat:ClassMemberNameConflict";
-const IDENT_AGGREGATE_SHAPE_MISMATCH: &str = "RunMat:AggregateShapeMismatch";
 const IDENT_IMPORT_AMBIGUOUS: &str = "RunMat:ImportAmbiguous";
 const IDENT_IMPORT_DUPLICATE: &str = "RunMat:ImportDuplicate";
 const IDENT_FUNCTION_ARGUMENT_VALIDATION_UNKNOWN: &str = "RunMat:FunctionArgumentValidationUnknown";
@@ -153,7 +154,11 @@ impl LoweringCtx {
             .iter()
             .find(|declaration| declaration.name.display_name().as_deref() == Some(name))
             .cloned()
-            .or_else(|| runmat_builtins::standard_class_declaration(name))
+            .or_else(|| {
+                runmat_types::ClassIdentity::new(name)
+                    .ok()
+                    .and_then(|identity| runmat_builtins::standard_class_declaration(&identity))
+            })
     }
 
     fn class_id_for_name(&self, name: &str) -> Option<ClassId> {
@@ -219,24 +224,6 @@ impl LoweringCtx {
         let mut segments = import_path.0.clone();
         segments.push(SymbolName(name.to_string()));
         QualifiedName(segments)
-    }
-
-    fn validate_rectangular_aggregate(
-        &self,
-        kind: &str,
-        rows: &[Vec<AstExpr>],
-    ) -> Result<(), HirError> {
-        let Some(expected_cols) = rows.first().map(Vec::len) else {
-            return Ok(());
-        };
-        if rows.iter().all(|row| row.len() == expected_cols) {
-            return Ok(());
-        }
-
-        Err(HirError::new(format!(
-            "{kind} literal rows must have consistent column counts",
-        ))
-        .with_identifier(IDENT_AGGREGATE_SHAPE_MISMATCH))
     }
 
     fn lower_program(
@@ -839,7 +826,7 @@ impl LoweringCtx {
             span,
         };
         let needs_dynamic_call_dispatch = force_dynamic_call_dispatch
-            || requested_outputs.fixed_count() != 1
+            || requested_outputs.known_count() != Some(1)
             || args.iter().any(|arg| {
                 matches!(
                     &arg.kind,
@@ -1082,7 +1069,7 @@ impl LoweringCtx {
                                     class_name = None;
                                     parser_validators.push(
                                         runmat_parser::FunctionArgValidatorDecl {
-                                            name: name.to_string(),
+                                            name: name.into(),
                                             args: Vec::new(),
                                         },
                                     );
@@ -2060,7 +2047,11 @@ impl LoweringCtx {
                     self.requested_outputs_for_expr_stmt(expr)
                 };
                 let stmt = HirStmtKind::ExprStmt(
-                    self.lower_expr_semantic_requested(expr, requested_outputs)?,
+                    self.lower_expr_semantic_requested_in_context(
+                        expr,
+                        requested_outputs,
+                        runmat_types::ObjectIndexingContext::Statement,
+                    )?,
                     *suppressed,
                 );
                 if loads_external_bindings {
@@ -2095,6 +2086,20 @@ impl LoweringCtx {
                         creation_policy,
                         AssignmentShapePolicy::MatlabCompatible,
                     );
+                    if let Some(target) = sequence_target_from_place(place.clone()) {
+                        return Ok(Some(HirStmtNode {
+                            id: self.alloc_stmt_id(),
+                            kind: HirStmtKind::SequenceAssign {
+                                target,
+                                value: self.lower_expr_semantic_requested(
+                                    expr,
+                                    RequestedOutputCount::DestinationSequenceCardinality,
+                                )?,
+                                suppressed: *suppressed,
+                            },
+                            span,
+                        }));
+                    }
                     let requested = requested_outputs_for_lvalue_assignment(lvalue, expr);
                     return Ok(Some(HirStmtNode {
                         id: self.alloc_stmt_id(),
@@ -2123,20 +2128,28 @@ impl LoweringCtx {
                                     creation_policy,
                                     AssignmentShapePolicy::MatlabCompatible,
                                 );
-                                Ok(crate::OutputTarget::Place(place))
+                                Ok(sequence_target_from_place(place.clone()).map_or(
+                                    crate::OutputTarget::Place(place),
+                                    crate::OutputTarget::Sequence,
+                                ))
                             }
                         }
                     })
                     .collect::<Result<Vec<_>, HirError>>()?;
+                let has_sequence_target = lowered_targets
+                    .iter()
+                    .any(|target| matches!(target, crate::OutputTarget::Sequence(_)));
+                let requested_outputs = if has_sequence_target {
+                    RequestedOutputCount::DestinationSequenceCardinality
+                } else {
+                    RequestedOutputCount::Exactly(lowered_targets.len())
+                };
                 HirStmtKind::MultiAssign(
                     crate::OutputTargetList {
-                        requested_outputs: RequestedOutputCount::Exactly(lowered_targets.len()),
+                        requested_outputs,
                         targets: lowered_targets,
                     },
-                    self.lower_expr_semantic_requested(
-                        expr,
-                        RequestedOutputCount::Exactly(targets.len()),
-                    )?,
+                    self.lower_expr_semantic_requested(expr, requested_outputs)?,
                     *suppressed,
                 )
             }
@@ -2399,18 +2412,20 @@ impl LoweringCtx {
             }
             AstExpr::Member(base, name, _) => Ok(HirExpr {
                 id: self.alloc_expr_id(),
-                kind: HirExprKind::Member(
-                    Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
-                    crate::MemberName(name.clone()),
-                ),
+                kind: HirExprKind::Member {
+                    base: Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
+                    member: crate::MemberName(name.clone()),
+                    sequence_use: runmat_types::SequenceUse::RequireSingle,
+                },
                 span: expr.span(),
             }),
             AstExpr::MemberDynamic(base, name, _) => Ok(HirExpr {
                 id: self.alloc_expr_id(),
-                kind: HirExprKind::MemberDynamic(
-                    Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
-                    Box::new(self.lower_expr_semantic(name)?),
-                ),
+                kind: HirExprKind::MemberDynamic {
+                    base: Box::new(self.lower_assignment_base_expr(base, span, index_context)?),
+                    member: Box::new(self.lower_expr_semantic(name)?),
+                    sequence_use: runmat_types::SequenceUse::RequireSingle,
+                },
                 span: expr.span(),
             }),
             AstExpr::Index(base, indices, _) => Ok(HirExpr {
@@ -2457,6 +2472,24 @@ impl LoweringCtx {
         expr: &AstExpr,
         requested_outputs: RequestedOutputCount,
     ) -> Result<HirExpr, HirError> {
+        self.lower_expr_semantic_requested_in_context(
+            expr,
+            requested_outputs,
+            runmat_types::ObjectIndexingContext::Expression,
+        )
+    }
+
+    fn lower_expr_semantic_requested_in_context(
+        &mut self,
+        expr: &AstExpr,
+        requested_outputs: RequestedOutputCount,
+        indexing_context: runmat_types::ObjectIndexingContext,
+    ) -> Result<HirExpr, HirError> {
+        if let Some(chain) =
+            self.lower_subscript_chain(expr, requested_outputs, indexing_context)?
+        {
+            return Ok(chain);
+        }
         let span = expr.span();
         let kind = match expr {
             AstExpr::Number(value, _) => HirExprKind::Number(value.clone()),
@@ -2488,8 +2521,12 @@ impl LoweringCtx {
                             property: MemberName(name.clone()),
                         }
                     } else {
-                        let class_ref = self.classref_expr(&class_name, span)?;
-                        HirExprKind::Member(Box::new(class_ref), MemberName(name.clone()))
+                        let class_ref = self.classref_expr(class_name.display_name(), span)?;
+                        HirExprKind::Member {
+                            base: Box::new(class_ref),
+                            member: MemberName(name.clone()),
+                            sequence_use: runmat_types::SequenceUse::RequireSingle,
+                        }
                     }
                 } else if is_builtin(name)
                     || self.resolve_scoped_function_name(name).is_some()
@@ -2728,30 +2765,24 @@ impl LoweringCtx {
                 binary_op(*op),
                 Box::new(self.lower_expr_semantic(right)?),
             ),
-            AstExpr::Tensor(rows, _) => {
-                self.validate_rectangular_aggregate("tensor", rows)?;
-                HirExprKind::Tensor(
-                    rows.iter()
-                        .map(|row| {
-                            row.iter()
-                                .map(|expr| self.lower_expr_semantic(expr))
-                                .collect()
-                        })
-                        .collect::<Result<_, _>>()?,
-                )
-            }
-            AstExpr::Cell(rows, _) => {
-                self.validate_rectangular_aggregate("cell", rows)?;
-                HirExprKind::Cell(
-                    rows.iter()
-                        .map(|row| {
-                            row.iter()
-                                .map(|expr| self.lower_expr_semantic(expr))
-                                .collect()
-                        })
-                        .collect::<Result<_, _>>()?,
-                )
-            }
+            AstExpr::Tensor(rows, _) => HirExprKind::Tensor(
+                rows.iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|expr| self.lower_aggregate_element(expr))
+                            .collect()
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
+            AstExpr::Cell(rows, _) => HirExprKind::Cell(
+                rows.iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|expr| self.lower_aggregate_element(expr))
+                            .collect()
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
             AstExpr::StructLiteral(fields, _) => HirExprKind::StructLiteral(
                 fields
                     .iter()
@@ -2827,12 +2858,19 @@ impl LoweringCtx {
                 } else {
                     self.lower_expr_semantic(base)?
                 };
-                HirExprKind::Member(Box::new(lowered_base), crate::MemberName(name.clone()))
+                HirExprKind::Member {
+                    base: Box::new(lowered_base),
+                    member: crate::MemberName(name.clone()),
+                    sequence_use: runmat_types::SequenceUse::from_requested_outputs(
+                        requested_outputs,
+                    ),
+                }
             }
-            AstExpr::MemberDynamic(base, name, _) => HirExprKind::MemberDynamic(
-                Box::new(self.lower_expr_semantic(base)?),
-                Box::new(self.lower_expr_semantic(name)?),
-            ),
+            AstExpr::MemberDynamic(base, name, _) => HirExprKind::MemberDynamic {
+                base: Box::new(self.lower_expr_semantic(base)?),
+                member: Box::new(self.lower_expr_semantic(name)?),
+                sequence_use: runmat_types::SequenceUse::from_requested_outputs(requested_outputs),
+            },
             AstExpr::DottedInvoke(base, name, args, _)
             | AstExpr::MethodCall(base, name, args, _) => {
                 if let AstExpr::MetaClass(class_name, _) = &**base {
@@ -3061,7 +3099,34 @@ impl LoweringCtx {
                 span: arg.span(),
             });
         }
-        self.lower_expr_semantic_requested(arg, requested_outputs)
+        let mut lowered = self.lower_expr_semantic_requested(arg, requested_outputs)?;
+        match &mut lowered.kind {
+            HirExprKind::Member { sequence_use, .. }
+            | HirExprKind::MemberDynamic { sequence_use, .. } => {
+                *sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            HirExprKind::SubscriptChain(chain) if chain.terminal_expands_sequence() => {
+                chain.sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            _ => {}
+        }
+        Ok(lowered)
+    }
+
+    fn lower_aggregate_element(&mut self, expression: &AstExpr) -> Result<HirExpr, HirError> {
+        let mut lowered =
+            self.lower_expr_semantic_requested(expression, RequestedOutputCount::One)?;
+        match &mut lowered.kind {
+            HirExprKind::Member { sequence_use, .. }
+            | HirExprKind::MemberDynamic { sequence_use, .. } => {
+                *sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            HirExprKind::SubscriptChain(chain) if chain.terminal_expands_sequence() => {
+                chain.sequence_use = runmat_types::SequenceUse::ExpandAll;
+            }
+            _ => {}
+        }
+        Ok(lowered)
     }
 
     fn lower_indexing_with_context(
@@ -3158,7 +3223,7 @@ impl LoweringCtx {
             (
                 HirCallableRef::ExternalFunction {
                     function: *function,
-                    display_name: name.to_string(),
+                    display_name: name.into(),
                 },
                 CallKind::DirectFunction(*function),
             )
@@ -3168,7 +3233,8 @@ impl LoweringCtx {
                 CallKind::Dynamic,
             )
         } else if is_builtin(name) {
-            let builtin = BuiltinId(name.to_string());
+            let builtin = runmat_builtins::builtin_id_by_name(name)
+                .unwrap_or_else(|| BuiltinId(name.to_string()));
             (
                 HirCallableRef::Builtin(builtin.clone()),
                 CallKind::Builtin(builtin),
@@ -3373,13 +3439,15 @@ impl LoweringCtx {
         &self,
         name: &str,
         span: Span,
-    ) -> Result<Option<String>, HirError> {
+    ) -> Result<Option<ClassIdentity>, HirError> {
         let imports = &self.assembly.modules[self.module.0].imports;
-        let specific_candidates: Vec<String> = imports
+        let specific_candidates: Vec<ClassIdentity> = imports
             .iter()
             .filter(|import| import.wildcard)
-            .map(|import| Self::qualified_name_string(&import.path))
-            .filter(|qualified_class| self.class_has_public_static_property(qualified_class, name))
+            .filter_map(|import| ClassIdentity::new(Self::qualified_name_string(&import.path)).ok())
+            .filter(|qualified_class| {
+                self.class_has_public_static_property(qualified_class.display_name(), name)
+            })
             .collect();
         if specific_candidates.len() == 1 {
             return Ok(specific_candidates.first().cloned());
@@ -3405,13 +3473,13 @@ impl LoweringCtx {
         if let Some(function) = self.external_function_names.get(name) {
             return Ok(crate::FunctionHandleTarget::ExternalFunction {
                 function: *function,
-                display_name: name.to_string(),
+                display_name: name.into(),
             });
         }
         if is_builtin(name) {
-            return Ok(crate::FunctionHandleTarget::Builtin(BuiltinId(
-                name.to_string(),
-            )));
+            let builtin = runmat_builtins::builtin_id_by_name(name)
+                .unwrap_or_else(|| BuiltinId(name.to_string()));
+            return Ok(crate::FunctionHandleTarget::Builtin(builtin));
         }
         if self.known_project_symbols.contains(name) {
             return Ok(crate::FunctionHandleTarget::DefPath(
@@ -3666,6 +3734,19 @@ fn requested_outputs_for_lvalue_assignment(
         .filter(|count| *count > 1)
         .map(RequestedOutputCount::Exactly)
         .unwrap_or(RequestedOutputCount::One)
+}
+
+fn sequence_target_from_place(place: HirPlace) -> Option<crate::HirSequenceTarget> {
+    match place {
+        HirPlace::Member(base, member) => Some(crate::HirSequenceTarget::Member { base, member }),
+        HirPlace::MemberDynamic(base, member) => {
+            Some(crate::HirSequenceTarget::DynamicMember { base, member })
+        }
+        HirPlace::IndexCell(base, indexing) => {
+            Some(crate::HirSequenceTarget::CellContents { base, indexing })
+        }
+        HirPlace::Binding(_) | HirPlace::Index(_, _) => None,
+    }
 }
 
 fn lvalue_requires_current_nargout(lvalue: &runmat_parser::LValue) -> bool {

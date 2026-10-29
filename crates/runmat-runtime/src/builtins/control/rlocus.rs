@@ -20,7 +20,10 @@ use crate::builtins::common::{
     },
     tensor,
 };
-use crate::builtins::control::tf_model::{poly_eval, polynomial_roots, scalar_f64, TfModel, EPS};
+use crate::builtins::control::plot_setup_error::is_nonfatal_plot_setup_error;
+use crate::builtins::control::tf_model::{
+    poly_eval, polynomial_roots, scalar_f64, TfModel, EPS, SS_CLASS, TF_CLASS,
+};
 use crate::builtins::control::type_resolvers::rlocus_type;
 use crate::{BuiltinResult, RuntimeError};
 
@@ -358,7 +361,7 @@ impl Drop for HoldOffGuard {
 }
 
 fn is_dynamic_model_object(value: &Value) -> bool {
-    matches!(value, Value::Object(object) if object.is_class("tf") || object.is_class("ss"))
+    matches!(value, Value::Object(object) if object.is_class(runmat_types::standard::TRANSFER_FUNCTION) || object.is_class(runmat_types::standard::STATE_SPACE))
 }
 
 fn is_plot_style_arg(value: &Value) -> bool {
@@ -488,12 +491,12 @@ impl DynamicModel {
                 &RLOCUS_ERROR_INVALID_MODEL,
             ));
         };
-        if object.is_class("tf") {
+        if object.is_class(TF_CLASS) {
             return Ok(Self {
                 tf: TfModel::from_value(Value::Object(object), BUILTIN_NAME)?,
             });
         }
-        if object.is_class("ss") {
+        if object.is_class(SS_CLASS) {
             return Ok(Self {
                 tf: ss_object_to_tf(&object)?,
             });
@@ -1192,7 +1195,7 @@ async fn render_root_locus_plot(eval: &RootLocus, style: Option<&Value>) -> Buil
         return Ok(());
     }
     if let Err(err) = crate::call_builtin_async("plot", &args).await {
-        if super::is_nonfatal_plot_setup_error(&err) {
+        if is_nonfatal_plot_setup_error(&err) {
             return Ok(());
         }
         return Err(rlocus_error(

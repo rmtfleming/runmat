@@ -8,7 +8,26 @@ use serde::Serialize;
 
 use crate::{BuiltinEffects, BuiltinSemantics};
 
-pub const BUILTIN_CATALOG_SCHEMA_VERSION: u32 = 1;
+pub const BUILTIN_CATALOG_SCHEMA_VERSION: u32 = 6;
+
+/// Physical ownership of a catalog declaration.
+///
+/// This is compiler-expanded source evidence for development tooling. It is
+/// deliberately separate from the builtin's semantic identity and contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BuiltinCatalogProvenance {
+    pub source_file: &'static str,
+    pub module_path: &'static str,
+}
+
+impl BuiltinCatalogProvenance {
+    pub const fn new(source_file: &'static str, module_path: &'static str) -> Self {
+        Self {
+            source_file,
+            module_path,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct BuiltinCatalogIdentity {
@@ -53,12 +72,19 @@ pub enum BuiltinBindingAvailability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct BuiltinBindingDeclaration {
-    pub identity: BuiltinBindingIdentity,
+    pub variant: &'static str,
     pub availability: BuiltinBindingAvailability,
 }
 
+pub const REQUIRED_DEFAULT_BINDING: [BuiltinBindingDeclaration; 1] = [BuiltinBindingDeclaration {
+    variant: "default",
+    availability: BuiltinBindingAvailability::Required,
+}];
+
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct BuiltinCatalogEntry {
+    #[serde(skip)]
+    pub provenance: BuiltinCatalogProvenance,
     pub identity: BuiltinCatalogIdentity,
     pub category: &'static str,
     pub documentation: BuiltinDocumentation,
@@ -74,6 +100,16 @@ pub struct BuiltinCatalogEntry {
 }
 
 impl BuiltinCatalogEntry {
+    pub const fn binding_identity(
+        &self,
+        binding: &BuiltinBindingDeclaration,
+    ) -> BuiltinBindingIdentity {
+        BuiltinBindingIdentity {
+            builtin: self.identity,
+            variant: binding.variant,
+        }
+    }
+
     pub fn legacy_semantics(&self) -> BuiltinSemantics {
         let effects = self.contract.effect_set();
         BuiltinSemantics {

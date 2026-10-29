@@ -6,6 +6,28 @@ use crate::{
     BuiltinSemanticKind, BuiltinWorkspaceEffect,
 };
 
+mod acceleration;
+mod aggregate;
+mod array;
+mod inference;
+mod introspection;
+mod io;
+mod logical;
+mod math;
+mod parallel;
+mod stats;
+
+pub use acceleration::*;
+pub use aggregate::*;
+pub use array::*;
+pub use inference::*;
+pub use introspection::*;
+pub use io::*;
+pub use logical::*;
+pub use math::*;
+pub use parallel::*;
+pub use stats::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum BuiltinContractMaturity {
     Complete,
@@ -15,12 +37,9 @@ pub enum BuiltinContractMaturity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct BuiltinInferenceRuleId(pub &'static str);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct BuiltinContractDeclaration {
     pub maturity: BuiltinContractMaturity,
-    pub inference_rule: BuiltinInferenceRuleId,
+    pub inference_rule: BuiltinInferenceRule,
     pub compatibility: BuiltinCompatibility,
     pub async_behavior: BuiltinAsyncBehavior,
     pub purity: BuiltinPurity,

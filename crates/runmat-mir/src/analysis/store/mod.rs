@@ -24,6 +24,7 @@ pub struct AnalysisStore {
     pub dependencies: Vec<AnalysisDependency>,
     pub program_points: Vec<ProgramPointFacts>,
     pub regions: Vec<RegionAnalysis>,
+    pub parallel: runmat_types::ParallelManifest,
     pub functions: Vec<FunctionAnalysis>,
     pub classes: Vec<ClassAnalysis>,
     pub diagnostics: Vec<MirDiagnostic>,
@@ -36,6 +37,7 @@ impl Default for AnalysisStore {
             dependencies: Vec::new(),
             program_points: Vec::new(),
             regions: Vec::new(),
+            parallel: runmat_types::ParallelManifest::empty(),
             functions: Vec::new(),
             classes: Vec::new(),
             diagnostics: Vec::new(),
@@ -49,6 +51,28 @@ impl AnalysisStore {
             .binary_search_by_key(&point, |facts| facts.point)
             .ok()
             .map(|index| &self.program_points[index])
+    }
+
+    pub(crate) fn local_facts_at(
+        &self,
+        point: runmat_types::ProgramPointId,
+        local_count: usize,
+    ) -> Vec<Option<runmat_types::ValueFact>> {
+        let mut values = vec![None; local_count];
+        let Some(facts) = self.facts_at(point) else {
+            return values;
+        };
+        for local in &facts.locals {
+            if local.value.function != point.function {
+                continue;
+            }
+            if let Ok(index) = usize::try_from(local.value.local) {
+                if let Some(slot) = values.get_mut(index) {
+                    *slot = local.fact.clone();
+                }
+            }
+        }
+        values
     }
 
     pub fn function(&self, function: runmat_types::ProgramFunctionId) -> Option<&FunctionAnalysis> {

@@ -4,7 +4,7 @@ use std::time::Duration;
 use runmat_execution::identity::{ArtifactId, PoolId};
 use runmat_execution::state::TaskState;
 use runmat_execution::task::{Callable, RetryPolicy, TaskRequest};
-use runmat_execution::{CancellationReason, Digest, ExecutionScopeId, OutputContract, TaskId};
+use runmat_execution::{CancellationReason, ExecutionScopeId, OutputContract, TaskId};
 use runmat_execution_artifact::encryption::RunKeyMaterial;
 use runmat_execution_artifact::{ProgramExecutionRequest, ProgramExecutionResponse};
 use runmat_execution_runner::{PoolSpec, TaskSubmission};
@@ -66,7 +66,8 @@ pub(super) async fn execute(
         authority.fencing_token,
         bundle_archive,
         authority.run_id.clone(),
-    )?;
+    )
+    .map_err(|error| NativeExecutionError::Protocol(error.to_string()))?;
     let mut worker_pool = control
         .resize_workers(authority, 0, desired_workers, resources.clone())
         .await
@@ -123,6 +124,24 @@ pub(super) async fn execute(
 
     let artifact_id = ArtifactId::derive(&[request.artifact.id.0.bytes()]);
     let task_id = TaskId::derive(&[authority.run_id.as_bytes(), b"remote-root"]);
+    let host = request
+        .artifact
+        .execution_host_requirement(
+            &request.recipe,
+            [
+                runmat_execution::security::ExecutionTrustTier::CustomerTrusted,
+                runmat_execution::security::ExecutionTrustTier::HostedOrdinary,
+                runmat_execution::security::ExecutionTrustTier::AttestedConfidential,
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .map_err(protocol)?;
+    let task_resources = task_resources(&resources)?;
+    request
+        .recipe
+        .validate_resource_request(&task_resources)
+        .map_err(protocol)?;
     let completion = pool.submit(
         TaskSubmission {
             request: TaskRequest {
@@ -130,16 +149,14 @@ pub(super) async fn execute(
                 scope_id,
                 pool_id,
                 program_artifact_id: artifact_id,
-                callable: Callable {
-                    owner_identity: "remote-run".into(),
-                    qualified_name: request.recipe.entrypoint.clone(),
-                    entrypoint_digest: Digest::sha256(request.recipe.entrypoint.as_bytes()),
-                },
+                callable: Callable::for_program("remote-run", &request.callable),
+                host,
+                invocation_context: request.context.clone(),
                 inputs: request.arguments.clone(),
                 outputs: OutputContract {
                     requested_outputs: request.requested_outputs,
                 },
-                resources: task_resources(&resources)?,
+                resources: task_resources,
                 retry: RetryPolicy::Never,
                 deadline_unix_millis: None,
             },
@@ -159,32 +176,49 @@ pub(super) async fn execute(
         tokio::select! {
             result = &mut completion => {
                 return match result {
-                    Ok(success) if success.result_objects.is_empty() => {
-                        match success.outputs.as_slice() {
-                            [value] => Ok(RemotePoolExecutionOutcome::Completed(
-                                ProgramExecutionResponse::Success {
-                                    value: value.clone(),
-                                },
-                            )),
-                            _ => Err(protocol(
-                                "remote worker returned an invalid inline output count",
-                            )),
-                        }
+                    Ok(runmat_execution_runner::AttemptSuccess::Values {
+                        outputs,
+                        result_objects,
+                    }) if result_objects.is_empty() => {
+                        Ok(RemotePoolExecutionOutcome::Completed(
+                            ProgramExecutionResponse::Success { outputs },
+                        ))
                     }
-                    Ok(success) => Ok(RemotePoolExecutionOutcome::Completed(
+                    Ok(runmat_execution_runner::AttemptSuccess::Values {
+                        outputs,
+                        result_objects,
+                    }) => Ok(RemotePoolExecutionOutcome::Completed(
                         ProgramExecutionResponse::ExternalizedSuccess {
-                            outputs: success.outputs,
-                            result_objects: success.result_objects,
+                            outputs,
+                            result_objects,
                         },
                     )),
-                    Err(message) => {
+                    Ok(runmat_execution_runner::AttemptSuccess::Spmd { .. }) => Err(protocol(
+                        "remote root execution returned an SPMD rank result outside the typed gang path",
+                    )),
+                    Err(failure) => {
                         let state = pool.snapshot().tasks.get(&task_id).map(|task| task.state);
                         if state == Some(TaskState::Indeterminate) {
-                            Ok(RemotePoolExecutionOutcome::Indeterminate(message))
+                            Ok(RemotePoolExecutionOutcome::Indeterminate(failure.to_string()))
                         } else {
-                            Ok(RemotePoolExecutionOutcome::Completed(
-                                ProgramExecutionResponse::Failure { message },
-                            ))
+                            let response = match failure {
+                                crate::NativeProgramFailure::Execution(message) => {
+                                    ProgramExecutionResponse::Failure { message }
+                                }
+                                crate::NativeProgramFailure::Infrastructure(message) => {
+                                    ProgramExecutionResponse::Failure { message }
+                                }
+                                crate::NativeProgramFailure::WorkerLost(message) => {
+                                    return Ok(RemotePoolExecutionOutcome::Indeterminate(message));
+                                }
+                                crate::NativeProgramFailure::Cancelled => {
+                                    return Ok(RemotePoolExecutionOutcome::Cancelled);
+                                }
+                                crate::NativeProgramFailure::Runtime(failure) => {
+                                    ProgramExecutionResponse::RuntimeFailure { failure }
+                                }
+                            };
+                            Ok(RemotePoolExecutionOutcome::Completed(response))
                         }
                     }
                 };

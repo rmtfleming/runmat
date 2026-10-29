@@ -422,7 +422,7 @@ fn snapshot_to_value(snapshot: RngSnapshot) -> BuiltinResult<Value> {
     let mut struct_value = StructValue::new();
     let seed = snapshot.seed.unwrap_or(DEFAULT_USER_SEED);
     let seed_value =
-        if crate::builtins::math::trigonometry::cos::integer_is_exact_f64(&IntValue::U64(seed)) {
+        if crate::builtins::common::validation::integer_is_exact_f64(&IntValue::U64(seed)) {
             Value::Num(seed as f64)
         } else {
             Value::Int(IntValue::U64(seed))
@@ -804,9 +804,7 @@ pub(crate) mod tests {
 
     #[test]
     fn rng_wide_seed_is_gated_and_query_preserves_exact_seed() {
-        let _guard = random::test_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = random::test_guard();
         random::reset_rng();
         let wide = (1_u64 << 53) + 1;
         {

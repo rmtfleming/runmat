@@ -6,7 +6,6 @@ pub(crate) const MAX_DATA_PREVIEW: usize = 4096;
 const MAX_STRUCT_FIELDS: usize = 64;
 const MAX_OBJECT_FIELDS: usize = 64;
 const MAX_OBJECT_ARRAY_ITEMS: usize = 256;
-const MAX_OUTPUT_LIST_ITEMS: usize = 64;
 const MAX_RECURSION_DEPTH: usize = 2;
 
 pub(crate) fn value_to_json(value: &Value, depth: usize) -> JsonValue {
@@ -163,7 +162,7 @@ pub(crate) fn value_to_json(value: &Value, depth: usize) -> JsonValue {
                     let (preview, truncated) = preview_slice(values, MAX_DATA_PREVIEW);
                     let preview = preview
                         .into_iter()
-                        .map(|(real, imag)| json!({ "real": real, "imag": imag }))
+                        .map(|value| json!({ "real": value.0, "imag": value.1 }))
                         .collect();
                     (preview, truncated, values.len(), "double")
                 }
@@ -171,7 +170,7 @@ pub(crate) fn value_to_json(value: &Value, depth: usize) -> JsonValue {
                     let (preview, truncated) = preview_slice(values, MAX_DATA_PREVIEW);
                     let preview = preview
                         .into_iter()
-                        .map(|(real, imag)| json!({ "real": real, "imag": imag }))
+                        .map(|value| json!({ "real": value.0, "imag": value.1 }))
                         .collect();
                     (preview, truncated, values.len(), "single")
                 }
@@ -226,21 +225,21 @@ pub(crate) fn value_to_json(value: &Value, depth: usize) -> JsonValue {
             "cols": ca.cols,
             "length": ca.data.len(),
         }),
-        Value::OutputList(values) => {
-            let truncated = values.len() > MAX_OUTPUT_LIST_ITEMS;
-            let items: Vec<JsonValue> = values
-                .iter()
-                .take(MAX_OUTPUT_LIST_ITEMS)
-                .map(|v| value_to_json(v, depth + 1))
-                .collect();
-            json!({
-                "kind": "output-list",
-                "length": values.len(),
-                "items": items,
-                "truncated": truncated,
-            })
-        }
+        Value::OutputList(_) => json!({
+            "kind": "unavailable",
+            "identifier": "TransientSequenceNotPortable",
+            "message": "transient output sequences cannot be stored or serialized as values",
+        }),
         Value::Struct(st) => struct_to_json(st, depth + 1),
+        // The existing product-value JSON contract has no typed structure-array
+        // form. Keep its established display fallback until that boundary has
+        // an explicit versioned aggregate-value schema.
+        Value::StructArray(array) => json!({
+            "kind": "display",
+            "className": "struct",
+            "shape": array.shape(),
+            "value": array.to_string(),
+        }),
         Value::GpuTensor(handle) => {
             let (rows, cols) = rows_cols_from_shape(&handle.shape);
             json!({
@@ -345,6 +344,22 @@ pub(crate) fn value_to_json(value: &Value, depth: usize) -> JsonValue {
             "runId": handle.run_id.to_string(),
             "generation": handle.generation,
             "requestedOutputs": handle.outputs.requested_outputs,
+        }),
+        Value::Distributed(handle) => json!({
+            "kind": "distributed",
+            "className": "distributed",
+            "shape": handle.global_shape,
+            "partitionCount": handle.partition_count.0,
+            "scheme": handle.scheme,
+            "materializable": handle.materializable,
+            "valueFact": handle.value,
+        }),
+        Value::Composite(handle) => json!({
+            "kind": "composite",
+            "className": "Composite",
+            "shape": scalar_shape(),
+            "labCount": handle.gang.labs.0,
+            "valueFact": handle.value,
         }),
         Value::Foreign(reference) => json!({
             "kind": "foreign",
@@ -493,9 +508,17 @@ fn preview_slice<T: Clone>(data: &[T], limit: usize) -> (Vec<T>, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_output_sequence_is_not_projected_as_a_portable_value() {
+        let json = value_to_json(&Value::OutputList(vec![Value::Num(1.0)]), 0);
+        assert_eq!(json["kind"], "unavailable");
+        assert_eq!(json["identifier"], "TransientSequenceNotPortable");
+        assert!(json.get("items").is_none());
+    }
     use runmat_value::{
         ComplexTensor, IntegerComplexStorage, IntegerStorage, ObjectArray, ObjectInstance,
-        SparseTensor, Tensor,
+        SparseTensor, StructArray, StructValue, Tensor,
     };
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -520,6 +543,41 @@ mod tests {
         assert_eq!(json["dtype"], "single");
         assert_eq!(json["preview"], json!([1.25, -3.5]));
         assert_eq!(json["length"], 2);
+    }
+
+    #[test]
+    fn structure_array_uses_the_v1_display_fallback() {
+        let mut element = StructValue::new();
+        element.insert("name", Value::from("entry"));
+        let array = StructArray::new(vec![element.clone(), element], vec![1, 2]).unwrap();
+        let json = value_to_json(&Value::StructArray(array), 0);
+
+        assert_eq!(json["kind"], "display");
+        assert_eq!(json["className"], "struct");
+        assert_eq!(json["shape"], json!([1, 2]));
+        assert_eq!(json["value"], "1x2 struct array with fields:\n    name");
+        assert!(json.get("fields").is_none());
+        assert!(json.get("items").is_none());
+    }
+
+    #[test]
+    fn floating_complex_json_uses_the_canonical_element_layout() {
+        let double = ComplexTensor::new(vec![(1.25, -2.5)], vec![1, 1]).expect("double complex");
+        let double_json = value_to_json(&Value::ComplexTensor(double), 0);
+        assert_eq!(double_json["dtype"], "double");
+        assert_eq!(
+            double_json["preview"],
+            json!([{"real": 1.25, "imag": -2.5}])
+        );
+
+        let single =
+            ComplexTensor::from_f32(vec![(3.5, -4.25)], vec![1, 1]).expect("single complex");
+        let single_json = value_to_json(&Value::ComplexTensor(single), 0);
+        assert_eq!(single_json["dtype"], "single");
+        assert_eq!(
+            single_json["preview"],
+            json!([{"real": 3.5, "imag": -4.25}])
+        );
     }
 
     #[wasm_bindgen_test]
@@ -553,9 +611,9 @@ mod tests {
 
     #[test]
     fn object_array_json_preserves_class_shape_and_items() {
-        let mut first = ObjectInstance::new("matlab.unittest.TestResult".into());
+        let mut first = ObjectInstance::new("matlab.unittest.TestResult");
         first.properties.insert("Passed".into(), Value::Bool(true));
-        let mut second = ObjectInstance::new("matlab.unittest.TestResult".into());
+        let mut second = ObjectInstance::new("matlab.unittest.TestResult");
         second
             .properties
             .insert("Passed".into(), Value::Bool(false));
@@ -576,19 +634,21 @@ mod tests {
 
     #[test]
     fn foreign_json_is_opaque_and_does_not_expose_runtime_handle_identity() {
-        let value = Value::Foreign(runmat_value::ForeignRef {
-            host_identity: "private-host".into(),
-            handle: 42,
-            generation: 7,
-            type_identity: runmat_value::ForeignTypeIdentity {
+        let value = Value::Foreign(runmat_value::ForeignRef::detached(
+            runmat_value::ForeignResourceKey {
+                host_identity: "private-host".into(),
+                handle: 42,
+                generation: 7,
+            },
+            runmat_value::ForeignTypeIdentity {
                 family: "java".into(),
                 name: "java.lang.StringBuilder".into(),
                 version: 1,
             },
-            ownership: runmat_value::ForeignOwnership::Shared,
-            affinity: runmat_value::ForeignAffinity::OriginProcess,
-            lifetime: runmat_value::ForeignLifetime::Session,
-        });
+            runmat_value::ForeignOwnership::Shared,
+            runmat_value::ForeignAffinity::OriginProcess,
+            runmat_value::ForeignLifetime::Session,
+        ));
 
         let json = value_to_json(&value, 0);
         assert_eq!(json["kind"], "foreign");

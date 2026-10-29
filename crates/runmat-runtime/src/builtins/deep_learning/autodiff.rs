@@ -10,9 +10,11 @@ use runmat_value::{
 use crate::builtins::common::tensor;
 use crate::BuiltinResult;
 
+use super::layer_identity::ForwardLayerKind;
 use super::{any_type, deep_learning_error, gather_args, model, unsupported_error};
 
-pub(super) const DLARRAY_CLASS: &str = "dlarray";
+pub(super) const DLARRAY_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("dlarray");
 const AD_NODE_PROPERTY: &str = "__runmat_ad_node";
 
 thread_local! {
@@ -151,6 +153,7 @@ pub(super) fn annotate_tree(value: Value) -> BuiltinResult<Value> {
             }
             Ok(Value::Struct(st))
         }
+        Value::StructArray(array) => array.try_map_values(annotate_tree).map(Value::StructArray),
         Value::Cell(cell) => {
             let data = cell
                 .data
@@ -203,7 +206,10 @@ fn annotate_network_object(object: &mut ObjectInstance) -> BuiltinResult<()> {
         let Value::Object(layer_object) = layer else {
             continue;
         };
-        if layer_object.class_name != "nnet.cnn.layer.FullyConnectedLayer" {
+        if !layer_object
+            .class_name
+            .is(super::FULLY_CONNECTED_LAYER_CLASS)
+        {
             continue;
         }
         for parameter in ["Weights", "Bias"] {
@@ -817,7 +823,7 @@ fn gradient_tree_for_target(
                 )?
             };
             let (format, labels) = dlarray_format_and_labels(target);
-            Ok(super::object(
+            Ok(super::object_with_identity(
                 DLARRAY_CLASS,
                 vec![
                     ("Data", Value::Tensor(tensor)),
@@ -858,6 +864,10 @@ fn gradient_tree_for_target(
             }
             Ok(Value::Struct(out))
         }
+        Value::StructArray(array) => array
+            .clone()
+            .try_map_values(|value| gradient_tree_for_target(&value, gradients))
+            .map(Value::StructArray),
         Value::Cell(cell) => {
             let data = cell
                 .data
@@ -1274,8 +1284,8 @@ pub(super) fn record_network_forward(
                 format!("{function}: network layers must be layer objects"),
             ));
         };
-        current = match layer.class_name.as_str() {
-            "nnet.cnn.layer.FeatureInputLayer" => {
+        current = match ForwardLayerKind::from_identity(&layer.class_name) {
+            Some(ForwardLayerKind::FeatureInput) => {
                 let tensor = host_tensor_from_value(&current, function, "input")?;
                 let expected = model::feature_input_width(&layer, function)?;
                 if tensor.cols != expected {
@@ -1290,15 +1300,15 @@ pub(super) fn record_network_forward(
                 saw_input = true;
                 current
             }
-            "nnet.cnn.layer.FullyConnectedLayer" => {
+            Some(ForwardLayerKind::FullyConnected) => {
                 record_fully_connected(&current, &layer, function)?
             }
-            "nnet.cnn.layer.ReLULayer" => {
+            Some(ForwardLayerKind::Relu) => {
                 let input_tensor = host_tensor_from_value(&current, function, "input")?;
                 let output = map_tensor(input_tensor, |value| value.max(0.0), function)?;
                 record_activation(&current, output, ActivationKind::Relu)?
             }
-            "nnet.cnn.layer.ELULayer" => {
+            Some(ForwardLayerKind::Elu) => {
                 let input_tensor = host_tensor_from_value(&current, function, "input")?;
                 let alpha = layer
                     .properties
@@ -1320,18 +1330,16 @@ pub(super) fn record_network_forward(
                 )?;
                 record_activation(&current, output, ActivationKind::Elu { alpha })?
             }
-            "nnet.cnn.layer.SoftmaxLayer" => {
+            Some(ForwardLayerKind::Softmax) => {
                 let input_tensor = host_tensor_from_value(&current, function, "input")?;
                 let output = softmax_rows(input_tensor, function)?;
                 record_activation(&current, output, ActivationKind::Softmax)?
             }
-            "nnet.cnn.layer.ClassificationOutputLayer" | "nnet.cnn.layer.RegressionOutputLayer" => {
-                current
-            }
-            other => {
+            Some(kind) if kind.is_output() => current,
+            _ => {
                 return Err(deep_learning_error(
                     function,
-                    format!("{function}: unsupported layer type '{other}'"),
+                    format!("{function}: unsupported layer type '{}'", layer.class_name),
                 ));
             }
         };
@@ -1485,4 +1493,55 @@ fn matmul_grad_rhs(grad: &Tensor, lhs: &Tensor, rhs: &Tensor) -> BuiltinResult<T
         }
     }
     floating_tensor_from_f64(data, rhs.shape.clone(), rhs.numeric_dtype(), "dlgradient")
+}
+
+#[cfg(test)]
+mod struct_array_tests {
+    use super::*;
+    use runmat_value::StructArray;
+
+    fn dlarray(value: f64) -> Value {
+        let mut object = ObjectInstance::new(DLARRAY_CLASS.to_string());
+        object.properties.insert("Data".into(), Value::Num(value));
+        Value::Object(object)
+    }
+
+    fn element(value: f64) -> StructValue {
+        let mut structure = StructValue::new();
+        structure.insert("payload", dlarray(value));
+        structure
+    }
+
+    #[test]
+    fn annotation_and_gradient_preserve_typed_struct_array_shape_and_schema() {
+        ACTIVE_TAPE.with(|slot| *slot.borrow_mut() = Some(Tape { nodes: Vec::new() }));
+        let input = Value::StructArray(
+            StructArray::new(vec![element(1.0), element(2.0)], vec![2, 1]).unwrap(),
+        );
+        let annotated = annotate_tree(input).expect("annotate structure array");
+        let gradient = gradient_tree_for_target(&annotated, &HashMap::new())
+            .expect("gradient structure array");
+        ACTIVE_TAPE.with(|slot| *slot.borrow_mut() = None);
+
+        let Value::StructArray(gradient) = gradient else {
+            panic!("expected typed structure array");
+        };
+        assert_eq!(gradient.shape(), &[2, 1]);
+        assert_eq!(
+            gradient
+                .field_names()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["payload"]
+        );
+        for value in gradient.field_values("payload").unwrap() {
+            let Value::Object(object) = value else {
+                panic!("expected gradient dlarray");
+            };
+            let Value::Tensor(data) = object.properties.get("Data").unwrap() else {
+                panic!("expected gradient tensor");
+            };
+            assert_eq!(data.materialize_f64(), [0.0]);
+        }
+    }
 }

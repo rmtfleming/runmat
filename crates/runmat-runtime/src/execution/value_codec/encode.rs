@@ -1,7 +1,7 @@
 use super::ValueCodecError;
 use runmat_execution::value::{
-    CallableValue, DenseValue, ElementType, ExceptionValue, InlineValue, SparseValue, StructField,
-    ValuePayload,
+    CallableValue, DenseValue, ElementType, ExceptionValue, InlineValue, RegisteredData,
+    RegisteredField, SparseValue, StructField, ValuePayload,
 };
 use runmat_value::{ComplexStorage, IntValue, IntegerStorage, SparseTensor, Tensor, Value};
 
@@ -21,7 +21,7 @@ fn encode(value: &Value, path: &str) -> Result<ValuePayload, ValueCodecError> {
         Value::LogicalArray(value) => InlineValue::Dense(DenseValue {
             element_type: ElementType::Logical,
             shape: shape(&value.shape, path)?,
-            little_endian_data: value.data.clone(),
+            little_endian_data: value.data.to_vec(),
         }),
         Value::String(value) => InlineValue::String(value.clone()),
         Value::StringArray(value) => InlineValue::StringArray {
@@ -71,16 +71,44 @@ fn encode(value: &Value, path: &str) -> Result<ValuePayload, ValueCodecError> {
             fields.sort_by(|left, right| left.name.cmp(&right.name));
             InlineValue::Struct(fields)
         }
+        Value::StructArray(_) => {
+            return Err(ValueCodecError::unsupported(
+                path,
+                "structure arrays require the versioned aggregate-value transport",
+            ))
+        }
         Value::GpuTensor(_) => {
             return Err(ValueCodecError::unsupported(
                 path,
                 "GPU buffers require an object reference fenced to a worker and device",
             ))
         }
+        Value::Object(value)
+            if crate::parallel::codistributor::is_supported_class(&value.class_name) =>
+        {
+            crate::parallel::codistributor::validate_definition(value)
+                .map_err(|error| ValueCodecError::invalid(path, error.to_string()))?;
+            let mut fields = value
+                .properties
+                .iter()
+                .map(|(name, value)| {
+                    Ok(RegisteredField {
+                        name: name.clone(),
+                        value: encode(value, &field_path(path, name))?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ValueCodecError>>()?;
+            fields.sort_by(|left, right| left.name.cmp(&right.name));
+            InlineValue::ImmutableValueClass(RegisteredData {
+                type_identity: value.class_name.to_string(),
+                schema_version: 1,
+                fields,
+            })
+        }
         Value::Object(_) | Value::ObjectArray(_) => {
             return Err(ValueCodecError::unsupported(
                 path,
-                "value classes require an explicitly registered immutable class codec",
+                "value classes and object arrays require an explicitly registered codec",
             ))
         }
         Value::HandleObject(_) => {
@@ -95,13 +123,7 @@ fn encode(value: &Value, path: &str) -> Result<ValuePayload, ValueCodecError> {
                 "event listeners are session-bound and cannot be transferred",
             ))
         }
-        Value::OutputList(values) => InlineValue::OutputList(
-            values
-                .iter()
-                .enumerate()
-                .map(|(index, value)| encode(value, &index_path(path, index)))
-                .collect::<Result<_, _>>()?,
-        ),
+        Value::OutputList(_) => return Err(ValueCodecError::transient_not_portable(path)),
         Value::FunctionHandle(name) => callable("workspace", name, Vec::new()),
         Value::ExternalFunctionHandle(name) => callable("external", name, Vec::new()),
         Value::MethodFunctionHandle(name) => callable("method", name, Vec::new()),
@@ -139,6 +161,8 @@ fn encode(value: &Value, path: &str) -> Result<ValuePayload, ValueCodecError> {
                 "execution handles are capabilities, not transferable values",
             ))
         }
+        Value::Distributed(handle) => return Ok(ValuePayload::Distributed(handle.clone())),
+        Value::Composite(handle) => return Ok(ValuePayload::Composite(handle.clone())),
         Value::Foreign(_) => return Err(ValueCodecError::unsupported(
             path,
             "foreign references require an interop-manifest adapter and cannot be encoded inline",
@@ -208,11 +232,38 @@ fn encode_sparse(value: &SparseTensor, path: &str) -> Result<SparseValue, ValueC
                 .flat_map(|value| value.to_bits().to_le_bytes())
                 .collect(),
         )
+    } else if let Some(values) = value.as_complex_f64_slice() {
+        (
+            ElementType::ComplexF64,
+            values
+                .iter()
+                .flat_map(|value| {
+                    let (real, imaginary) = (*value).into();
+                    real.to_bits()
+                        .to_le_bytes()
+                        .into_iter()
+                        .chain(imaginary.to_bits().to_le_bytes())
+                })
+                .collect(),
+        )
+    } else if let Some(values) = value.as_complex_f32_slice() {
+        (
+            ElementType::ComplexF32,
+            values
+                .iter()
+                .flat_map(|value| {
+                    let (real, imaginary) = (*value).into();
+                    real.to_bits()
+                        .to_le_bytes()
+                        .into_iter()
+                        .chain(imaginary.to_bits().to_le_bytes())
+                })
+                .collect(),
+        )
+    } else if value.is_logical() {
+        (ElementType::Logical, vec![1; value.nnz()])
     } else {
-        return Err(ValueCodecError::unsupported(
-            path,
-            "logical sparse transport",
-        ));
+        return Err(ValueCodecError::invalid(path, "unknown sparse storage"));
     };
     Ok(SparseValue {
         element_type,
@@ -230,7 +281,8 @@ fn encode_complex_storage(storage: &ComplexStorage) -> (ElementType, Vec<u8>) {
             ElementType::ComplexF64,
             values
                 .iter()
-                .flat_map(|(real, imag)| {
+                .flat_map(|value| {
+                    let (real, imag) = (*value).into();
                     real.to_bits()
                         .to_le_bytes()
                         .into_iter()
@@ -242,7 +294,8 @@ fn encode_complex_storage(storage: &ComplexStorage) -> (ElementType, Vec<u8>) {
             ElementType::ComplexF32,
             values
                 .iter()
-                .flat_map(|(real, imag)| {
+                .flat_map(|value| {
+                    let (real, imag) = (*value).into();
                     real.to_bits()
                         .to_le_bytes()
                         .into_iter()

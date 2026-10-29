@@ -414,6 +414,7 @@ async fn classify_argument(arg: &Value) -> Result<PauseArgument, RuntimeError> {
         | Value::SparseTensor(_)
         | Value::Cell(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -429,6 +430,8 @@ async fn classify_argument(arg: &Value) -> Result<PauseArgument, RuntimeError> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(pause_error_with_message(
             PAUSE_ERROR_INVALID_ARG.message,

@@ -292,6 +292,7 @@ async fn tril_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResult<Va
         | Value::Listener(_)
         | Value::SparseTensor(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
         | Value::MethodFunctionHandle(_)
@@ -303,6 +304,8 @@ async fn tril_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResult<Va
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::Symbolic(_)
         | Value::SymbolicArray(_)
@@ -443,11 +446,11 @@ fn tril_complex_tensor(
     let shape = tensor.shape.clone();
     let storage = match tensor.into_complex_storage() {
         ComplexStorage::F64(mut values) => {
-            apply_tril_inplace(&mut values, &shape, offset, (0.0, 0.0))?;
+            apply_tril_inplace(&mut values, &shape, offset, (0.0, 0.0).into())?;
             ComplexStorage::F64(values)
         }
         ComplexStorage::F32(mut values) => {
-            apply_tril_inplace(&mut values, &shape, offset, (0.0, 0.0))?;
+            apply_tril_inplace(&mut values, &shape, offset, (0.0, 0.0).into())?;
             ComplexStorage::F32(values)
         }
         ComplexStorage::Integer(storage) => {

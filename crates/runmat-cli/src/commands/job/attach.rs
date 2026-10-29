@@ -181,13 +181,23 @@ async fn print_terminal(
         } else {
             print_run(&run);
             match response {
-                ProgramExecutionResponse::Success { value } => {
-                    println!("{}", serde_json::to_string_pretty(&value)?);
+                ProgramExecutionResponse::Success { outputs } => {
+                    println!("{}", serde_json::to_string_pretty(&outputs)?);
                 }
                 ProgramExecutionResponse::ExternalizedSuccess { .. } => {
                     bail!("remote result requires an artifact-aware consumer")
                 }
+                ProgramExecutionResponse::SpmdSuccess { .. } => {
+                    bail!("per-rank SPMD results require the gang execution consumer")
+                }
                 ProgramExecutionResponse::Failure { message } => bail!("{message}"),
+                ProgramExecutionResponse::RuntimeFailure { failure } => {
+                    bail!(
+                        "{}",
+                        crate::diagnostics::format_program_runtime_failure(failure)
+                            .map_err(anyhow::Error::msg)?
+                    )
+                }
             }
         }
         return Ok(());

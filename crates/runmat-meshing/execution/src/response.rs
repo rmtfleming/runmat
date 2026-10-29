@@ -24,7 +24,7 @@ pub enum MeshingHostResponse {
     Validated {
         schema_version: u16,
         stage_manifest_digest: StableDigest,
-        root: ValueRef,
+        root: Box<ValueRef>,
         result_objects: Vec<ValueRef>,
     },
     Failed {
@@ -47,7 +47,16 @@ impl MeshingHostResponse {
             ));
         };
         let attempt = completed.attempt_success();
-        let [ValuePayload::Object(root)] = attempt.outputs.as_slice() else {
+        let runmat_execution_runner::AttemptSuccess::Values {
+            outputs,
+            result_objects,
+        } = attempt
+        else {
+            return Err(MeshingExecutionError::Invalid(
+                "completed meshing stage returned an SPMD result".into(),
+            ));
+        };
+        let [ValuePayload::Object(root)] = outputs.as_slice() else {
             return Err(MeshingExecutionError::Invalid(
                 "completed meshing stage must have one externalized root output".into(),
             ));
@@ -55,8 +64,8 @@ impl MeshingHostResponse {
         let response = Self::Validated {
             schema_version: MESHING_HOST_RESPONSE_SCHEMA_VERSION,
             stage_manifest_digest: *stage_manifest_digest,
-            root: (**root).clone(),
-            result_objects: attempt.result_objects,
+            root: root.clone(),
+            result_objects,
         };
         response.validate_against(host)?;
         Ok(response)
@@ -109,8 +118,8 @@ impl MeshingHostResponse {
                 root,
                 result_objects,
                 ..
-            } => Some(runmat_execution_runner::AttemptSuccess {
-                outputs: vec![ValuePayload::Object(Box::new(root.clone()))],
+            } => Some(runmat_execution_runner::AttemptSuccess::Values {
+                outputs: vec![ValuePayload::Object(root.clone())],
                 result_objects: result_objects.clone(),
             }),
             Self::Failed { .. } => None,
@@ -124,7 +133,7 @@ impl MeshingHostResponse {
                 result_objects,
                 ..
             } => runmat_execution_artifact::ProgramExecutionResponse::ExternalizedSuccess {
-                outputs: vec![ValuePayload::Object(Box::new(root.clone()))],
+                outputs: vec![ValuePayload::Object(root.clone())],
                 result_objects: result_objects.clone(),
             },
             Self::Failed { failure, .. } => {
@@ -177,7 +186,7 @@ impl MeshingHostResponse {
                                 .into(),
                         ));
                     }
-                    contains_root |= object == root;
+                    contains_root |= object == root.as_ref();
                 }
                 if !contains_root {
                     return Err(MeshingExecutionError::Invalid(

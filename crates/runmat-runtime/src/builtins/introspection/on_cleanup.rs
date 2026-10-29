@@ -14,11 +14,12 @@ use runmat_builtins::{
     BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
-use runmat_value::{CellArray, HandleRef, ObjectInstance, Value};
+use runmat_value::{HandleRef, ObjectInstance, Value};
 
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
-pub(crate) const ON_CLEANUP_CLASS: &str = "onCleanup";
+pub(crate) const ON_CLEANUP_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("onCleanup");
 const CALLBACK_PROPERTY: &str = "__oncleanup_callback";
 const ACTIVE_PROPERTY: &str = "__oncleanup_active";
 const ON_CLEANUP_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
@@ -29,7 +30,7 @@ const ON_CLEANUP_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAu
 const CANCEL_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
     kind: BuiltinIntegerAuditKind::NotApplicable,
     canonical_builtin: None,
-    notes: "cancel accepts only an onCleanup handle and returns a fixed double status; it has no integer data, control, or class-preserving form.",
+    notes: "cancel accepts lifecycle and execution handles and returns a fixed double status; it has no integer data, control, or class-preserving form.",
 };
 
 #[cfg(test)]
@@ -72,10 +73,29 @@ const ON_CLEANUP_ERROR_GC: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     when: "The cleanup object target cannot be allocated, rooted, or mutated.",
     message: "onCleanup: internal object storage failed",
 };
+const CANCEL_ERROR_RUNTIME_CONTEXT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.CANCEL.RUNTIME_CONTEXT",
+    identifier: Some("RunMat:parallel:RuntimeContextUnavailable"),
+    when: "A task, future, or job is cancelled without an active runtime context.",
+    message: "cancel: no active runtime context",
+};
+const CANCEL_ERROR_EXECUTION_SERVICE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.CANCEL.EXECUTION_SERVICE",
+    identifier: Some("RunMat:cancel:ExecutionService"),
+    when: "The execution service rejects cancellation of a task, future, or job.",
+    message: "cancel: execution service failed",
+};
 const ON_CLEANUP_ERRORS: [BuiltinErrorDescriptor; 3] = [
     ON_CLEANUP_ERROR_INVALID_CALLBACK,
     ON_CLEANUP_ERROR_INVALID_OBJECT,
     ON_CLEANUP_ERROR_GC,
+];
+const CANCEL_ERRORS: [BuiltinErrorDescriptor; 5] = [
+    ON_CLEANUP_ERROR_INVALID_CALLBACK,
+    ON_CLEANUP_ERROR_INVALID_OBJECT,
+    ON_CLEANUP_ERROR_GC,
+    CANCEL_ERROR_RUNTIME_CONTEXT,
+    CANCEL_ERROR_EXECUTION_SERVICE,
 ];
 pub const ON_CLEANUP_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &ON_CLEANUP_SIGNATURES,
@@ -133,7 +153,7 @@ pub const ON_CLEANUP_CANCEL_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &CANCEL_SIGNATURES,
     output_mode: BuiltinOutputMode::Fixed,
     completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &ON_CLEANUP_ERRORS,
+    errors: &CANCEL_ERRORS,
 };
 
 #[runtime_builtin(
@@ -164,7 +184,7 @@ pub(crate) async fn on_cleanup_builtin(callback: Value) -> BuiltinResult<Value> 
         .map_err(|err| on_cleanup_error(&ON_CLEANUP_ERROR_GC, format!("onCleanup: {err}")))?;
 
     Ok(Value::HandleObject(HandleRef {
-        class_name: ON_CLEANUP_CLASS.to_string(),
+        class_name: ON_CLEANUP_CLASS.into(),
         target,
         valid: true,
     }))
@@ -172,6 +192,7 @@ pub(crate) async fn on_cleanup_builtin(callback: Value) -> BuiltinResult<Value> 
 
 #[runtime_builtin(
     name = "__runmat_oncleanup_delete",
+    execution_stack = "process",
     category = "introspection",
     summary = "Execute an onCleanup object callback once.",
     keywords = "onCleanup,delete,cleanup",
@@ -212,7 +233,44 @@ pub(crate) async fn on_cleanup_delete_builtin(value: Value) -> BuiltinResult<Val
     builtin_path = "crate::builtins::introspection::on_cleanup"
 )]
 async fn on_cleanup_cancel_builtin(value: Value) -> BuiltinResult<Value> {
-    cancel_on_cleanup_value(&value)?;
+    if let Some(tasks) = crate::parallel::future::output_tasks(&value) {
+        let context = crate::context::legacy::active().ok_or_else(|| {
+            cancel_error(
+                &CANCEL_ERROR_RUNTIME_CONTEXT,
+                CANCEL_ERROR_RUNTIME_CONTEXT.message,
+            )
+        })?;
+        for task in tasks {
+            context
+                .execution()
+                .cancel(
+                    &Value::Task(task),
+                    runmat_execution::CancellationReason::User,
+                )
+                .map_err(|error| {
+                    cancel_error(&CANCEL_ERROR_EXECUTION_SERVICE, format!("cancel: {error}"))
+                })?;
+        }
+        return Ok(Value::Num(0.0));
+    }
+    let execution_value = crate::parallel::future::execution_value(&value).unwrap_or(&value);
+    match execution_value {
+        Value::Future(_) | Value::Task(_) | Value::Job(_) => {
+            let context = crate::context::legacy::active().ok_or_else(|| {
+                cancel_error(
+                    &CANCEL_ERROR_RUNTIME_CONTEXT,
+                    CANCEL_ERROR_RUNTIME_CONTEXT.message,
+                )
+            })?;
+            context
+                .execution()
+                .cancel(execution_value, runmat_execution::CancellationReason::User)
+                .map_err(|error| {
+                    cancel_error(&CANCEL_ERROR_EXECUTION_SERVICE, format!("cancel: {error}"))
+                })?;
+        }
+        _ => cancel_on_cleanup_value(&value)?,
+    }
     Ok(Value::Num(0.0))
 }
 
@@ -257,38 +315,39 @@ pub(crate) async fn run_cleanup_for_workspace_values(values: &[Value]) -> Builti
 }
 
 fn ensure_on_cleanup_class_registered() {
-    if crate::class_registry::get_class(ON_CLEANUP_CLASS).is_some() {
+    if crate::class_registry::get_class(&ON_CLEANUP_CLASS.owned()).is_some() {
         return;
     }
     let mut methods = HashMap::new();
     methods.insert(
-        "delete".to_string(),
+        "delete".into(),
         crate::class_registry::RuntimeMethod {
-            name: "delete".to_string(),
+            name: "delete".into(),
             is_static: false,
             is_abstract: false,
             is_sealed: false,
             access: MemberAccess::Public,
-            function_name: "__runmat_oncleanup_delete".to_string(),
+            function_name: "__runmat_oncleanup_delete".into(),
             implicit_class_argument: None,
         },
     );
     methods.insert(
-        "cancel".to_string(),
+        "cancel".into(),
         crate::class_registry::RuntimeMethod {
-            name: "cancel".to_string(),
+            name: "cancel".into(),
             is_static: false,
             is_abstract: false,
             is_sealed: false,
             access: MemberAccess::Public,
-            function_name: "cancel".to_string(),
+            function_name: "cancel".into(),
             implicit_class_argument: None,
         },
     );
     crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-        name: ON_CLEANUP_CLASS.to_string(),
-        parent: Some("handle".to_string()),
-        properties: HashMap::<String, crate::class_registry::RuntimeProperty>::new(),
+        name: ON_CLEANUP_CLASS.into(),
+        parent: Some(runmat_types::standard::HANDLE.into()),
+        properties:
+            HashMap::<runmat_types::MemberName, crate::class_registry::RuntimeProperty>::new(),
         methods,
     });
 }
@@ -382,10 +441,22 @@ fn on_cleanup_error(
     builder.build()
 }
 
+fn cancel_error(
+    error: &'static BuiltinErrorDescriptor,
+    message: impl Into<String>,
+) -> RuntimeError {
+    let mut builder = build_runtime_error(message).with_builtin("cancel");
+    if let Some(identifier) = error.identifier {
+        builder = builder.with_identifier(identifier);
+    }
+    builder.build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use futures::executor::block_on;
+    use runmat_value::CellArray;
     use std::sync::Arc;
 
     fn callback_invoker(counter: Arc<Mutex<usize>>) -> Arc<crate::user_functions::FunctionInvoker> {
@@ -393,7 +464,7 @@ mod tests {
             assert!(args.is_empty(), "cleanup callbacks receive no arguments");
             assert_eq!(requested_outputs, 0);
             let counter = Arc::clone(&counter);
-            Box::pin(async move {
+            crate::sequence::single_value_future(async move {
                 *counter.lock().unwrap() += 1;
                 Ok(Value::Tensor(runmat_value::Tensor::zeros(vec![0, 0])))
             })
@@ -409,7 +480,7 @@ mod tests {
             callback_invoker(Arc::clone(&counter)),
         ));
         let cleanup = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanup".to_string(),
+            name: "cleanup".into(),
             function: 7,
         }))
         .expect("create cleanup");
@@ -429,7 +500,7 @@ mod tests {
             callback_invoker(Arc::clone(&counter)),
         ));
         let cleanup = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanup".to_string(),
+            name: "cleanup".into(),
             function: 7,
         }))
         .expect("create cleanup");
@@ -455,7 +526,7 @@ mod tests {
             callback_invoker(Arc::clone(&counter)),
         ));
         let cleanup = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanup".to_string(),
+            name: "cleanup".into(),
             function: 7,
         }))
         .expect("create cleanup");
@@ -490,7 +561,7 @@ mod tests {
             callback_invoker(Arc::clone(&counter)),
         ));
         let cleanup = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanup".to_string(),
+            name: "cleanup".into(),
             function: 7,
         }))
         .expect("create cleanup");
@@ -510,17 +581,17 @@ mod tests {
             callback_invoker(Arc::clone(&counter)),
         ));
         let cleanup_a = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanupA".to_string(),
+            name: "cleanupA".into(),
             function: 7,
         }))
         .expect("create cleanup a");
         let cleanup_b = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanupB".to_string(),
+            name: "cleanupB".into(),
             function: 8,
         }))
         .expect("create cleanup b");
         let cleanup_c = block_on(on_cleanup_builtin(Value::BoundFunctionHandle {
-            name: "cleanupC".to_string(),
+            name: "cleanupC".into(),
             function: 9,
         }))
         .expect("create cleanup c");

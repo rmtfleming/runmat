@@ -213,6 +213,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "ode15s",
+    execution_stack = "process",
     category = "math/ode",
     summary = "Solve stiff ODE systems with adaptive implicit integration.",
     keywords = "ode15s,ode,stiff,implicit,adaptive step",
@@ -270,7 +271,9 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-15.0 * y)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(-15.0 * y)) },
+                )
             },
         )));
 
@@ -306,7 +309,9 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-1000.0 * y)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(-1000.0 * y)) },
+                )
             },
         )));
         let mut options = StructValue::new();
@@ -345,13 +350,15 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-15.0 * y)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(-15.0 * y)) },
+                )
             },
         )));
 
         let out = block_on(ode15s_builtin(
             Value::BoundFunctionHandle {
-                name: "ode_stiff_decay".to_string(),
+                name: "ode_stiff_decay".into(),
                 function: 57,
             },
             Value::Tensor(Tensor::new(vec![0.0, 1.0], vec![1, 2]).unwrap()),

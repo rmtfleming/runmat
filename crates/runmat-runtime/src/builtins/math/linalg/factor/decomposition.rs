@@ -1,7 +1,6 @@
 //! MATLAB-compatible `decomposition` objects for reusable linear solves.
 use runmat_types::MemberAccess;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 use num_complex::Complex64;
@@ -15,16 +14,19 @@ use runmat_builtins::{
 };
 use runmat_macros::runtime_builtin;
 use runmat_value::{
-    ComplexTensor, IntValue, IntegerComplexStorage, IntegerStorage, LogicalArray, NumericDType,
-    ObjectInstance, Tensor, Value,
+    ComplexElement, ComplexTensor, IntValue, IntegerComplexStorage, IntegerStorage, LogicalArray,
+    NumericDType, ObjectInstance, Tensor, Value,
 };
 
 use crate::builtins::common::tensor;
-use crate::builtins::math::linalg::ops::{mldivide::mldivide_eval, mrdivide::mrdivide_eval};
-use crate::{build_runtime_error, BuiltinResult, RuntimeError, OBJECT_INDEX_MEMBER};
+use crate::builtins::math::linalg::ops::matrix_arithmetic::{
+    mldivide::mldivide_eval, mrdivide::mrdivide_eval,
+};
+use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const NAME: &str = "decomposition";
-const CLASS_NAME: &str = "decomposition";
+const CLASS_IDENTITY: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("decomposition");
 
 const DECOMPOSITION_NONFLOATING_INPUT_EXTENSION: BuiltinExtensionDescriptor =
     BuiltinExtensionDescriptor {
@@ -322,7 +324,7 @@ const SCALE_FACTOR_FIELD: &str = "ScaleFactor";
 const RANK_TOLERANCE_FIELD: &str = "RankTolerance";
 
 static DECOMPOSITION_CLASS_REGISTERED: crate::class_registry::ClassRegistration =
-    crate::class_registry::ClassRegistration::new(CLASS_NAME);
+    crate::class_registry::ClassRegistration::new(CLASS_IDENTITY);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DecompositionType {
@@ -394,7 +396,7 @@ const UNARY_INPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     description: "Matrix decomposition object.",
 }];
 
-const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
+const SUBSREF_INPUTS: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "obj",
         ty: BuiltinParamType::Any,
@@ -403,18 +405,11 @@ const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
         description: "Matrix decomposition object.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Indexing kind.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Indexing payload.",
+        description: "Standard substruct indexing path.",
     },
 ];
 
@@ -460,7 +455,7 @@ const UNARY_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescr
 }];
 
 const SUBSREF_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "out = decomposition.subsref(obj, kind, payload)",
+    label: "out = decomposition.subsref(obj, S)",
     inputs: &SUBSREF_INPUTS,
     outputs: &OUTPUT,
 }];
@@ -549,9 +544,9 @@ fn ensure_decomposition_class_registered() {
             SCALE_FACTOR_FIELD,
         ] {
             properties.insert(
-                name.to_string(),
+                name.into(),
                 crate::class_registry::RuntimeProperty {
-                    name: name.to_string(),
+                    name: name.into(),
                     is_static: false,
                     is_constant: false,
                     is_dependent: false,
@@ -562,9 +557,9 @@ fn ensure_decomposition_class_registered() {
             );
         }
         properties.insert(
-            MATRIX_FIELD.to_string(),
+            MATRIX_FIELD.into(),
             crate::class_registry::RuntimeProperty {
-                name: MATRIX_FIELD.to_string(),
+                name: MATRIX_FIELD.into(),
                 is_static: false,
                 is_constant: false,
                 is_dependent: false,
@@ -576,32 +571,32 @@ fn ensure_decomposition_class_registered() {
 
         let mut methods = HashMap::new();
         for method_name in [
-            "subsref",
-            "uplus",
-            "uminus",
-            "ctranspose",
-            "times",
-            "mtimes",
-            "rdivide",
-            "mrdivide",
-            "mldivide",
+            runmat_types::StaticMethodName::new("subsref"),
+            runmat_types::StaticMethodName::new("uplus"),
+            runmat_types::StaticMethodName::new("uminus"),
+            runmat_types::StaticMethodName::new("ctranspose"),
+            runmat_types::StaticMethodName::new("times"),
+            runmat_types::StaticMethodName::new("mtimes"),
+            runmat_types::StaticMethodName::new("rdivide"),
+            runmat_types::StaticMethodName::new("mrdivide"),
+            runmat_types::StaticMethodName::new("mldivide"),
         ] {
             methods.insert(
-                method_name.to_string(),
+                method_name.into(),
                 crate::class_registry::RuntimeMethod {
-                    name: method_name.to_string(),
+                    name: method_name.into(),
                     is_static: false,
                     is_abstract: false,
                     is_sealed: false,
                     access: MemberAccess::Public,
-                    function_name: format!("{CLASS_NAME}.{method_name}"),
+                    function_name: format!("{CLASS_IDENTITY}.{method_name}"),
                     implicit_class_argument: None,
                 },
             );
         }
 
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: CLASS_NAME.to_string(),
+            name: CLASS_IDENTITY.into(),
             parent: None,
             properties,
             methods,
@@ -701,13 +696,21 @@ fn is_nonfloating_coefficient_matrix(value: &Value) -> bool {
     ),
     builtin_path = "crate::builtins::math::linalg::factor::decomposition"
 )]
-async fn decomposition_subsref(obj: Value, kind: String, payload: Value) -> BuiltinResult<Value> {
-    if kind != OBJECT_INDEX_MEMBER {
+async fn decomposition_subsref(obj: Value, subscript: Value) -> BuiltinResult<Value> {
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsref(obj, path, decomposition_read_step, None).await
+}
+
+async fn decomposition_read_step(
+    obj: Value,
+    step: crate::object::indexing::ObjectSubscript,
+) -> BuiltinResult<Value> {
+    if step.kind() != crate::object::indexing::ObjectIndexKind::Member {
         return Err(invalid(
             "decomposition objects only support property indexing",
         ));
     }
-    let field = text_from_value(&payload)
+    let field = text_from_value(&step.selector_value()?)
         .ok_or_else(|| invalid("decomposition property name must be a text scalar"))?;
     let spec = object_to_spec(&obj)?;
     ensure_nonfloating_object_enabled(&spec)?;
@@ -1407,10 +1410,10 @@ fn is_diagonal_matrix(matrix: &Value) -> bool {
             true
         }
         Value::ComplexTensor(tensor) => {
-            let values = complex_tensor_values_pair_cow(tensor);
+            let values = complex_tensor_values_pair_view(tensor);
             for col in 0..tensor.cols {
                 for row in 0..tensor.rows {
-                    if row != col && values[row + col * tensor.rows] != (0.0, 0.0) {
+                    if row != col && values.get(row + col * tensor.rows) != (0.0, 0.0) {
                         return false;
                     }
                 }
@@ -1445,10 +1448,10 @@ fn is_upper_triangular(matrix: &Value) -> bool {
             true
         }
         Value::ComplexTensor(tensor) => {
-            let values = complex_tensor_values_pair_cow(tensor);
+            let values = complex_tensor_values_pair_view(tensor);
             for col in 0..tensor.cols {
                 for row in (col + 1)..tensor.rows {
-                    if values[row + col * tensor.rows] != (0.0, 0.0) {
+                    if values.get(row + col * tensor.rows) != (0.0, 0.0) {
                         return false;
                     }
                 }
@@ -1478,10 +1481,10 @@ fn is_lower_triangular(matrix: &Value) -> bool {
             true
         }
         Value::ComplexTensor(tensor) => {
-            let values = complex_tensor_values_pair_cow(tensor);
+            let values = complex_tensor_values_pair_view(tensor);
             for col in 0..tensor.cols {
                 for row in 0..col.min(tensor.rows) {
-                    if values[row + col * tensor.rows] != (0.0, 0.0) {
+                    if values.get(row + col * tensor.rows) != (0.0, 0.0) {
                         return false;
                     }
                 }
@@ -1515,11 +1518,11 @@ fn is_hermitian_matrix(matrix: &Value) -> bool {
             true
         }
         Value::ComplexTensor(tensor) => {
-            let values = complex_tensor_values_pair_cow(tensor);
+            let values = complex_tensor_values_pair_view(tensor);
             for col in 0..cols {
                 for row in 0..rows {
-                    let lhs = values[row + col * rows];
-                    let rhs = values[col + row * rows];
+                    let lhs = values.get(row + col * rows);
+                    let rhs = values.get(col + row * rows);
                     if lhs != (rhs.0, -rhs.1) {
                         return false;
                     }
@@ -1535,7 +1538,7 @@ fn is_hermitian_matrix(matrix: &Value) -> bool {
 }
 
 fn spec_to_object(spec: &DecompositionSpec) -> BuiltinResult<ObjectInstance> {
-    let mut object = ObjectInstance::new(CLASS_NAME.to_string());
+    let mut object = ObjectInstance::new(CLASS_IDENTITY);
     let public_matrix = oriented_matrix(spec)?;
     object
         .properties
@@ -1653,7 +1656,7 @@ fn object_to_spec(value: &Value) -> BuiltinResult<DecompositionSpec> {
 
 fn expect_object(value: &Value) -> BuiltinResult<&ObjectInstance> {
     match value {
-        Value::Object(object) if object.is_class(CLASS_NAME) => Ok(object),
+        Value::Object(object) if object.is_class(CLASS_IDENTITY) => Ok(object),
         _ => Err(invalid("receiver must be a decomposition object")),
     }
 }
@@ -1722,7 +1725,7 @@ async fn left_solve(lhs: Value, rhs: Value) -> BuiltinResult<Value> {
 }
 
 fn is_decomposition_value(value: &Value) -> bool {
-    matches!(value, Value::Object(object) if object.is_class(CLASS_NAME))
+    matches!(value, Value::Object(object) if object.is_class(CLASS_IDENTITY))
 }
 
 fn effective_matrix(spec: &DecompositionSpec) -> BuiltinResult<Value> {
@@ -1984,18 +1987,40 @@ fn matrix_datatype(matrix: &Value) -> &'static str {
 
 fn matrix_is_real(matrix: &Value) -> bool {
     match matrix {
-        Value::ComplexTensor(tensor) => complex_tensor_values_pair_cow(tensor)
-            .iter()
-            .all(|(_, im)| *im == 0.0),
+        Value::ComplexTensor(tensor) => {
+            let values = complex_tensor_values_pair_view(tensor);
+            (0..values.len()).all(|index| values.get(index).1 == 0.0)
+        }
         _ => true,
     }
 }
 
-fn complex_tensor_values_pair_cow(tensor: &ComplexTensor) -> Cow<'_, [(f64, f64)]> {
+enum ComplexPairView<'a> {
+    Borrowed(&'a [ComplexElement<f64>]),
+    Materialized(Vec<(f64, f64)>),
+}
+
+impl ComplexPairView<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Borrowed(values) => values.len(),
+            Self::Materialized(values) => values.len(),
+        }
+    }
+
+    fn get(&self, index: usize) -> (f64, f64) {
+        match self {
+            Self::Borrowed(values) => values[index].into(),
+            Self::Materialized(values) => values[index],
+        }
+    }
+}
+
+fn complex_tensor_values_pair_view(tensor: &ComplexTensor) -> ComplexPairView<'_> {
     if let Some(values) = tensor.as_f64_slice() {
-        Cow::Borrowed(values)
+        ComplexPairView::Borrowed(values)
     } else {
-        Cow::Owned(
+        ComplexPairView::Materialized(
             tensor::complex_tensor_values_complex64(tensor)
                 .into_iter()
                 .map(|value| (value.re, value.im))
@@ -2183,8 +2208,19 @@ fn complex_div(lhs: (f64, f64), rhs: (f64, f64)) -> BuiltinResult<(f64, f64)> {
 mod tests {
     use super::*;
     use crate::builtins::common::test_support;
+    use crate::OBJECT_INDEX_MEMBER;
     use futures::executor::block_on;
     use runmat_value::{IntegerComplexStorage, IntegerStorage, NumericScalar};
+
+    async fn decomposition_subsref(
+        obj: Value,
+        kind: String,
+        payload: Value,
+    ) -> BuiltinResult<Value> {
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        super::decomposition_subsref(obj, subscript).await
+    }
 
     fn tensor(data: &[f64], rows: usize, cols: usize) -> Value {
         Value::Tensor(Tensor::new(data.to_vec(), vec![rows, cols]).unwrap())
@@ -2326,12 +2362,13 @@ mod tests {
     fn all_integer_classes_and_logical_coefficients_solve_only_in_runmat_mode() {
         let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
         for storage in all_integer_coefficient_storages() {
+            let dtype = storage.numeric_dtype();
             let class = storage.class_name();
             let d = call_constructor(vec![typed_int_tensor(storage, vec![2, 2])])
                 .unwrap_or_else(|error| panic!("{class} construction failed: {error}"));
             let stored = object_to_spec(&d).expect("stored decomposition").matrix;
             assert!(
-                matches!(stored, Value::Tensor(ref tensor) if tensor.integer_storage().is_some_and(|storage| storage.class_name() == class)),
+                matches!(stored, Value::Tensor(ref tensor) if tensor.integer_storage().is_some_and(|storage| storage.numeric_dtype() == dtype)),
                 "{class} must remain exact before solve"
             );
             let result = call_mldivide(d, tensor(&[8.0, 12.0], 2, 1))
@@ -2531,7 +2568,8 @@ mod tests {
     #[test]
     fn decomposition_ldivide_is_not_a_public_method() {
         let _ = call_constructor(vec![tensor(&[1.0], 1, 1)]).expect("register class");
-        let class = crate::class_registry::get_class(CLASS_NAME).expect("decomposition class");
+        let class =
+            crate::class_registry::get_class(&CLASS_IDENTITY.owned()).expect("decomposition class");
         assert!(!class.methods.contains_key("ldivide"));
 
         assert!(runmat_builtins::builtin_function_by_name("decomposition.ldivide").is_none());

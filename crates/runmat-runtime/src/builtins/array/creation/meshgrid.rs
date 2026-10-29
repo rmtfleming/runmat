@@ -717,6 +717,7 @@ fn analyse_like_prototype(proto: &Value) -> crate::BuiltinResult<PrototypeSpec> 
         )),
         Value::Cell(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -732,6 +733,8 @@ fn analyse_like_prototype(proto: &Value) -> crate::BuiltinResult<PrototypeSpec> 
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(builtin_error("meshgrid: prototypes must be numeric arrays")),
     }
@@ -812,7 +815,7 @@ async fn axis_from_value(
         Value::Complex(re, im) => Ok(AxisData {
             len: 1,
             is_complex: im != 0.0,
-            storage: AxisStorage::Complex(ComplexStorage::F64(vec![(re, im)])),
+            storage: AxisStorage::Complex(ComplexStorage::F64(vec![(re, im)].into())),
         }),
         Value::ComplexTensor(tensor) => axis_from_complex_tensor(tensor, index),
         Value::GpuTensor(handle) => {
@@ -1131,12 +1134,12 @@ async fn axis_to_host_async(axis: &AxisData) -> crate::BuiltinResult<AxisData> {
         Value::Num(n) => Ok(AxisData {
             len: 1,
             is_complex: false,
-            storage: AxisStorage::Complex(ComplexStorage::F64(vec![(n, 0.0)])),
+            storage: AxisStorage::Complex(ComplexStorage::F64(vec![(n, 0.0)].into())),
         }),
         Value::Complex(re, im) => Ok(AxisData {
             len: 1,
             is_complex: im != 0.0,
-            storage: AxisStorage::Complex(ComplexStorage::F64(vec![(re, im)])),
+            storage: AxisStorage::Complex(ComplexStorage::F64(vec![(re, im)].into())),
         }),
         other => Err(builtin_error(format!(
             "meshgrid: expected numeric GPU axis, got {other:?}"
@@ -2195,8 +2198,12 @@ pub(crate) mod tests {
         assert_eq!(output.numeric_dtype(), NumericDType::F32);
         assert_eq!(output.shape, vec![2, 2]);
         assert_eq!(
-            output.as_f32_slice(),
-            Some(&[(1.25, -2.5), (1.25, -2.5), (3.75, 4.5), (3.75, 4.5),][..])
+            output.as_f32_slice().map(|values| values
+                .iter()
+                .copied()
+                .map(<(f32, f32)>::from)
+                .collect::<Vec<_>>()),
+            Some(vec![(1.25, -2.5), (1.25, -2.5), (3.75, 4.5), (3.75, 4.5),])
         );
     }
 

@@ -14,7 +14,7 @@ use runmat_builtins::{
     BuiltinSignatureDescriptor,
 };
 use runmat_macros::runtime_builtin;
-use runmat_value::{CellArray, CharArray, NumericScalar, StringArray, Value};
+use runmat_value::{CellArray, CharArray, StringArray, Value};
 
 use crate::builtins::common::fs::{contains_wildcards, expand_user_path, path_to_string};
 use crate::builtins::common::spec::{
@@ -180,7 +180,13 @@ const DELETE_ERROR_OS_ERROR: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
     when: "Underlying filesystem operation fails while deleting files.",
     message: "delete: filesystem deletion failed",
 };
-const DELETE_ERRORS: [BuiltinErrorDescriptor; 7] = [
+const DELETE_ERROR_RUNTIME_CONTEXT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
+    code: "RM.DELETE.RUNTIME_CONTEXT",
+    identifier: Some("RunMat:parallel:RuntimeContextUnavailable"),
+    when: "Pool deletion is requested without an active runtime context.",
+    message: "delete: no active runtime context",
+};
+const DELETE_ERRORS: [BuiltinErrorDescriptor; 8] = [
     DELETE_ERROR_INVALID_INPUT,
     DELETE_ERROR_INVALID_HANDLE,
     DELETE_ERROR_EMPTY_FILENAME,
@@ -188,6 +194,7 @@ const DELETE_ERRORS: [BuiltinErrorDescriptor; 7] = [
     DELETE_ERROR_FILE_NOT_FOUND,
     DELETE_ERROR_IS_DIRECTORY,
     DELETE_ERROR_OS_ERROR,
+    DELETE_ERROR_RUNTIME_CONTEXT,
 ];
 pub const DELETE_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &DELETE_SIGNATURES,
@@ -243,6 +250,16 @@ async fn delete_builtin(args: Vec<Value>) -> crate::BuiltinResult<Value> {
             &DELETE_ERROR_INVALID_INPUT,
             "delete: resident arguments are not supported",
         ));
+    }
+    if let [Value::Pool(pool)] = args.as_slice() {
+        let context = crate::context::legacy::active().ok_or_else(|| {
+            delete_error_with(
+                &DELETE_ERROR_RUNTIME_CONTEXT,
+                DELETE_ERROR_RUNTIME_CONTEXT.message,
+            )
+        })?;
+        crate::parallel::pool::close(&context, pool)?;
+        return Ok(Value::Num(0.0));
     }
     let (operands, resolve_symbolic_links) = parse_delete_options(&args)?;
     let gathered = gather_arguments(operands).await?;
@@ -333,55 +350,12 @@ fn option_name(value: &Value) -> Option<String> {
 }
 
 fn exact_zero_one(value: &Value) -> BuiltinResult<bool> {
-    let numeric = match value {
-        Value::Bool(flag) => return Ok(*flag),
-        Value::LogicalArray(array) if array.data.len() == 1 => return Ok(array.data[0] != 0),
-        Value::Int(value) => {
-            return if value.is_zero() {
-                Ok(false)
-            } else if value.try_to_u64() == Some(1) {
-                Ok(true)
-            } else {
-                Err(delete_error_with(
-                    &DELETE_ERROR_INVALID_INPUT,
-                    "delete: ResolveSymbolicLinks must be scalar logical or numeric 0 or 1",
-                ))
-            }
-        }
-        Value::Num(value) => NumericScalar::F64(*value),
-        Value::Tensor(tensor) if tensor.len() == 1 => {
-            tensor.numeric_value_at(0).ok_or_else(|| {
-                delete_error_with(
-                    &DELETE_ERROR_INVALID_INPUT,
-                    "delete: ResolveSymbolicLinks must be numeric or logical",
-                )
-            })?
-        }
-        _ => {
-            return Err(delete_error_with(
-                &DELETE_ERROR_INVALID_INPUT,
-                "delete: ResolveSymbolicLinks must be scalar logical or numeric 0 or 1",
-            ))
-        }
-    };
-    match numeric {
-        NumericScalar::F64(0.0) => Ok(false),
-        NumericScalar::F64(1.0) => Ok(true),
-        NumericScalar::F32(0.0) => Ok(false),
-        NumericScalar::F32(1.0) => Ok(true),
-        value if value.into_int_value().is_some_and(|value| value.is_zero()) => Ok(false),
-        value
-            if value
-                .into_int_value()
-                .is_some_and(|value| value.try_to_u64() == Some(1)) =>
-        {
-            Ok(true)
-        }
-        _ => Err(delete_error_with(
+    crate::builtins::common::exact_logical::decode(value).map_err(|_| {
+        delete_error_with(
             &DELETE_ERROR_INVALID_INPUT,
             "delete: ResolveSymbolicLinks must be scalar logical or numeric 0 or 1",
-        )),
-    }
+        )
+    })
 }
 
 async fn delete_target(raw: &str, resolve_symbolic_links: bool) -> BuiltinResult<()> {
@@ -667,9 +641,10 @@ async fn process_handle_value(
     match value {
         Value::HandleObject(handle) => {
             let mut method_dispatched = false;
-            if let Some((delete_method, _owner)) =
-                crate::class_registry::lookup_method(&handle.class_name, "delete")
-            {
+            if let Some((delete_method, _owner)) = crate::class_registry::lookup_method(
+                &handle.class_name,
+                &runmat_types::MethodName::from("delete"),
+            ) {
                 if let Some(result) = crate::user_functions::try_call_semantic_function_by_name(
                     &delete_method.function_name,
                     &[Value::HandleObject(handle.clone())],

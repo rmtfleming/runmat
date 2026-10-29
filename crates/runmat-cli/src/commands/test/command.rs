@@ -30,8 +30,8 @@ use super::discovery::prepare;
 use super::exit::TestCommandError;
 use super::remote::{RemoteTestBackend, RemoteTestBackendConfig};
 
-pub async fn execute(args: TestArgs, cli: &Cli, _runtime: &RunMatRuntimeConfig) -> Result<()> {
-    match execute_inner(args, cli).await {
+pub async fn execute(args: TestArgs, cli: &Cli, runtime: &RunMatRuntimeConfig) -> Result<()> {
+    match execute_inner(args, cli, runtime).await {
         Ok(()) => Ok(()),
         Err(error) if error.downcast_ref::<TestCommandError>().is_some() => Err(error),
         Err(error) => {
@@ -41,7 +41,7 @@ pub async fn execute(args: TestArgs, cli: &Cli, _runtime: &RunMatRuntimeConfig) 
     }
 }
 
-async fn execute_inner(args: TestArgs, cli: &Cli) -> Result<()> {
+async fn execute_inner(args: TestArgs, cli: &Cli, runtime: &RunMatRuntimeConfig) -> Result<()> {
     let prepared = prepare(&args, cli).await?;
     let mut session = runmat_core::RunMatSession::with_options(!cli.no_jit, false)
         .context("failed to initialize test discovery session")?;
@@ -177,6 +177,12 @@ async fn execute_inner(args: TestArgs, cli: &Cli) -> Result<()> {
             .project_handoff
             .clone()
             .context("remote tests require a project manifest with an exact frozen graph")?;
+        let foreign_artifacts = crate::commands::package::prepare_foreign_artifacts(
+            &project_handoff.project,
+            runtime,
+            false,
+        )
+        .context("failed to prepare project foreign artifacts for remote tests")?;
         let backend = RemoteTestBackend::new(RemoteTestBackendConfig {
             project: args.project,
             cluster: cluster.clone(),
@@ -184,6 +190,9 @@ async fn execute_inner(args: TestArgs, cli: &Cli) -> Result<()> {
             trust_identity,
             max_workers: jobs,
             project_handoff,
+            interop: foreign_artifacts.interop,
+            foreign_artifacts: foreign_artifacts.objects,
+            foreign_artifact_closures: foreign_artifacts.closures,
         })
         .map_err(|error| anyhow::anyhow!("failed to configure remote tests: {error}"))?;
         run_coordinator(

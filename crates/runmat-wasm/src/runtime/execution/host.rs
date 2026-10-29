@@ -7,6 +7,8 @@ use serde::Serialize;
 
 use super::model::BrowserExecutionCapabilities;
 
+const BROWSER_EXECUTION_SUBMISSION_SCHEMA_V2: u16 = 2;
+
 #[derive(Clone)]
 pub(crate) struct BrowserExecutionHost {
     target: JsValue,
@@ -44,16 +46,21 @@ impl BrowserExecutionHost {
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct LaunchRequest<'a> {
+            schema_version: u16,
             task_id: &'a str,
             worker_id: &'a str,
             program: &'a ProgramExecutionRequest,
         }
         let function = required_method(&self.target, "launch").map_err(js_error)?;
-        let payload = serde_wasm_bindgen::to_value(&LaunchRequest {
+        let serializer =
+            serde_wasm_bindgen::Serializer::new().serialize_large_number_types_as_bigints(true);
+        let payload = LaunchRequest {
+            schema_version: BROWSER_EXECUTION_SUBMISSION_SCHEMA_V2,
             task_id,
             worker_id,
             program: request,
-        })
+        }
+        .serialize(&serializer)
         .map_err(|error| error.to_string())?;
         let result = function.call1(&self.target, &payload).map_err(js_error)?;
         let resolved = JsFuture::from(Promise::resolve(&result))

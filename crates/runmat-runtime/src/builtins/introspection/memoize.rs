@@ -16,17 +16,17 @@ use runmat_builtins::{
 };
 use runmat_macros::runtime_builtin;
 use runmat_value::{
-    CellArray, CharArray, ComplexTensor, HandleRef, IntValue, IntegerComplexStorage,
-    IntegerStorage, LogicalArray, NumericScalar, ObjectInstance, SparseTensor, StringArray,
-    StructValue, Tensor, Value,
+    CellArray, ComplexTensor, HandleRef, IntValue, LogicalArray, NumericScalar, ObjectInstance,
+    SparseTensor, StringArray, StructValue, Tensor, Value,
 };
 
 use crate::{
     build_runtime_error, builtins::common::tensor, BuiltinResult, RuntimeError,
-    OBJECT_INDEX_MEMBER, OBJECT_INDEX_PAREN, OBJECT_SUBSREF_METHOD,
+    OBJECT_SUBSREF_METHOD,
 };
 
-pub(crate) const MEMOIZED_FUNCTION_CLASS: &str = "MemoizedFunction";
+pub(crate) const MEMOIZED_FUNCTION_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("MemoizedFunction");
 pub const MEMOIZE_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
     kind: BuiltinIntegerAuditKind::NotApplicable,
     canonical_builtin: None,
@@ -124,7 +124,7 @@ const CLEAR_ALL_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureD
     outputs: &STATUS_OUTPUTS,
 }];
 
-const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
+const SUBSREF_INPUTS: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "obj",
         ty: BuiltinParamType::Any,
@@ -133,18 +133,11 @@ const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
         description: "MemoizedFunction receiver.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Indexing kind token.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Indexing payload.",
+        description: "Standard substruct indexing path.",
     },
 ];
 const SUBSREF_OUTPUTS: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
@@ -155,7 +148,7 @@ const SUBSREF_OUTPUTS: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     description: "Result of function invocation or property access.",
 }];
 const SUBSREF_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "varargout = subsref(obj, kind, payload)",
+    label: "varargout = subsref(obj, S)",
     inputs: &SUBSREF_INPUTS,
     outputs: &SUBSREF_OUTPUTS,
 }];
@@ -268,7 +261,7 @@ pub(crate) async fn memoize_builtin(function: Value) -> BuiltinResult<Value> {
                 matches!(
                     target_value,
                     Value::Object(object)
-                        if object.class_name == MEMOIZED_FUNCTION_CLASS
+                        if object.class_name.is(MEMOIZED_FUNCTION_CLASS)
                             && object.properties.get(FUNCTION_PROPERTY) == Some(&function)
                             && matches!(
                                 object.properties.get(crate::HANDLE_VALID_FLAG_PROPERTY),
@@ -318,6 +311,7 @@ pub(crate) async fn memoize_builtin(function: Value) -> BuiltinResult<Value> {
 
 #[runtime_builtin(
     name = "MemoizedFunction.subsref",
+    execution_stack = "process",
     category = "introspection",
     summary = "Dispatch MemoizedFunction indexing and invocation.",
     keywords = "memoize,MemoizedFunction,subsref",
@@ -326,16 +320,24 @@ pub(crate) async fn memoize_builtin(function: Value) -> BuiltinResult<Value> {
 )]
 pub(crate) async fn memoized_subsref_builtin(
     receiver: Value,
-    kind: String,
-    payload: Value,
+    subscript: Value,
 ) -> BuiltinResult<Value> {
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsref(receiver, path, memoized_read_step, None).await
+}
+
+async fn memoized_read_step(
+    receiver: Value,
+    step: crate::object::indexing::ObjectSubscript,
+) -> BuiltinResult<Value> {
+    let payload = step.selector_value()?;
     let handle = memoized_handle(&receiver)?;
-    match kind.as_str() {
-        OBJECT_INDEX_PAREN => call_memoized(handle, payload).await,
-        OBJECT_INDEX_MEMBER => memoized_member(handle, payload),
-        _ => Err(memoize_error(
+    match step.kind() {
+        crate::object::indexing::ObjectIndexKind::Paren => call_memoized(handle, payload).await,
+        crate::object::indexing::ObjectIndexKind::Member => memoized_member(handle, payload),
+        crate::object::indexing::ObjectIndexKind::Brace => Err(memoize_error(
             &MEMOIZE_ERROR_INVALID_INDEX,
-            format!("memoize: unsupported MemoizedFunction indexing kind {kind}"),
+            "memoize: brace indexing is not supported",
         )),
     }
 }
@@ -394,7 +396,7 @@ pub(crate) async fn clear_all_memoized_caches_builtin() -> BuiltinResult<Value> 
                 let Value::Object(object) = target_value else {
                     return false;
                 };
-                if object.class_name != MEMOIZED_FUNCTION_CLASS {
+                if !object.class_name.is(MEMOIZED_FUNCTION_CLASS) {
                     return false;
                 }
                 reset_object_cache(object).is_ok()
@@ -406,7 +408,7 @@ pub(crate) async fn clear_all_memoized_caches_builtin() -> BuiltinResult<Value> 
 }
 
 fn ensure_memoized_function_class_registered() {
-    if crate::class_registry::get_class(MEMOIZED_FUNCTION_CLASS).is_some() {
+    if crate::class_registry::get_class(&MEMOIZED_FUNCTION_CLASS.owned()).is_some() {
         return;
     }
 
@@ -425,9 +427,9 @@ fn ensure_memoized_function_class_registered() {
         ),
     ] {
         properties.insert(
-            name.to_string(),
+            name.into(),
             crate::class_registry::RuntimeProperty {
-                name: name.to_string(),
+                name: name.into(),
                 is_static: false,
                 is_constant: false,
                 is_dependent: false,
@@ -441,26 +443,29 @@ fn ensure_memoized_function_class_registered() {
     let mut methods = HashMap::new();
     for (method_name, function_name) in [
         (OBJECT_SUBSREF_METHOD, "MemoizedFunction.subsref"),
-        ("clearCache", "clearCache"),
-        ("stats", "stats"),
+        (
+            runmat_types::StaticMethodName::new("clearCache"),
+            "clearCache",
+        ),
+        (runmat_types::StaticMethodName::new("stats"), "stats"),
     ] {
         methods.insert(
-            method_name.to_string(),
+            method_name.into(),
             crate::class_registry::RuntimeMethod {
-                name: method_name.to_string(),
+                name: method_name.into(),
                 is_static: false,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: function_name.to_string(),
+                function_name: function_name.into(),
                 implicit_class_argument: None,
             },
         );
     }
 
     crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-        name: MEMOIZED_FUNCTION_CLASS.to_string(),
-        parent: Some("handle".to_string()),
+        name: MEMOIZED_FUNCTION_CLASS.into(),
+        parent: Some(runmat_types::standard::HANDLE.into()),
         properties,
         methods,
     });
@@ -484,7 +489,7 @@ fn canonicalize_memoized_function(function: Value) -> BuiltinResult<Value> {
 
 fn handle_from_target(target: runmat_gc::GcHandle) -> Value {
     Value::HandleObject(HandleRef {
-        class_name: MEMOIZED_FUNCTION_CLASS.to_string(),
+        class_name: MEMOIZED_FUNCTION_CLASS.into(),
         target,
         valid: true,
     })
@@ -984,14 +989,29 @@ fn value_equal_for_cache(lhs: &Value, rhs: &Value) -> bool {
         (Value::LogicalArray(a), Value::LogicalArray(b)) => logical_arrays_equal(a, b),
         (Value::Cell(a), Value::Cell(b)) => cells_equal(a, b),
         (Value::Struct(a), Value::Struct(b)) => structs_equal(a, b),
+        (Value::StructArray(a), Value::StructArray(b)) => {
+            a.shape() == b.shape()
+                && a.field_names().eq(b.field_names())
+                && a.field_names().all(|name| {
+                    a.field_values(name)
+                        .zip(b.field_values(name))
+                        .is_some_and(|(left, right)| {
+                            left.len() == right.len()
+                                && left
+                                    .iter()
+                                    .zip(right)
+                                    .all(|(left, right)| value_equal_for_cache(left, right))
+                        })
+                })
+        }
         (Value::Object(a), Value::Object(b)) => objects_equal(a, b),
         (Value::HandleObject(a), Value::HandleObject(b)) => a == b,
         (Value::Listener(a), Value::Listener(b)) => a == b,
         (Value::OutputList(a), Value::OutputList(b)) => values_equal_for_cache(a, b),
         (Value::FunctionHandle(a), Value::FunctionHandle(b))
         | (Value::ExternalFunctionHandle(a), Value::ExternalFunctionHandle(b))
-        | (Value::MethodFunctionHandle(a), Value::MethodFunctionHandle(b))
-        | (Value::ClassRef(a), Value::ClassRef(b)) => a == b,
+        | (Value::MethodFunctionHandle(a), Value::MethodFunctionHandle(b)) => a == b,
+        (Value::ClassRef(a), Value::ClassRef(b)) => a == b,
         (Value::Symbolic(a), Value::Symbolic(b)) => a == b,
         (
             Value::BoundFunctionHandle {
@@ -1050,6 +1070,20 @@ fn sparse_tensors_equal(a: &SparseTensor, b: &SparseTensor) -> bool {
         (Some(_), None) | (None, Some(_)) => return false,
         (None, None) => {}
     }
+    if a.is_complex() || b.is_complex() {
+        if !a.is_complex() || !b.is_complex() || a.numeric_dtype() != b.numeric_dtype() {
+            return false;
+        }
+        return (0..a.nnz()).all(|index| {
+            let a = a
+                .complex_value_at(index)
+                .expect("complex sparse storage is consistent");
+            let b = b
+                .complex_value_at(index)
+                .expect("complex sparse storage is consistent");
+            floats_equal_nan(a.0, b.0) && floats_equal_nan(a.1, b.1)
+        });
+    }
     if a.numeric_dtype() != b.numeric_dtype() {
         return false;
     }
@@ -1097,12 +1131,12 @@ fn cells_equal(a: &CellArray, b: &CellArray) -> bool {
 
 fn structs_equal(a: &StructValue, b: &StructValue) -> bool {
     a.fields.len() == b.fields.len()
-        && a.fields.iter().all(|(name, value)| {
-            b.fields
-                .get(name)
-                .map(|other| value_equal_for_cache(value, other))
-                .unwrap_or(false)
-        })
+        && a.fields
+            .iter()
+            .zip(&b.fields)
+            .all(|((left_name, left), (right_name, right))| {
+                left_name == right_name && value_equal_for_cache(left, right)
+            })
 }
 
 fn objects_equal(a: &ObjectInstance, b: &ObjectInstance) -> bool {
@@ -1163,6 +1197,17 @@ fn value_fingerprint(value: &Value) -> String {
                 "sparse:{}x{}:{:?}:{:?}:{storage:?}",
                 tensor.rows, tensor.cols, tensor.col_ptrs, tensor.row_indices
             ),
+            None if tensor.is_complex() => format!(
+                "sparse-complex:{}x{}:{:?}:{:?}:{:?}:{:?}",
+                tensor.rows,
+                tensor.cols,
+                tensor.col_ptrs,
+                tensor.row_indices,
+                tensor.numeric_dtype(),
+                tensor
+                    .materialize_complex_f64()
+                    .expect("complex sparse storage")
+            ),
             None => format!(
                 "sparse:{}x{}:{:?}:{:?}:{:?}:{:?}",
                 tensor.rows,
@@ -1192,6 +1237,22 @@ fn value_fingerprint(value: &Value) -> String {
                 .map(|(name, value)| format!("{name}={}", value_fingerprint(value)))
                 .collect::<Vec<_>>()
                 .join(",")
+        ),
+        Value::StructArray(array) => format!(
+            "struct-array:{:?}:{}:{}",
+            array.shape(),
+            array.field_names().cloned().collect::<Vec<_>>().join(","),
+            (0..array.len())
+                .map(|index| array
+                    .field_names()
+                    .filter_map(|name| array
+                        .field_values(name)
+                        .and_then(|values| values.get(index)))
+                    .map(value_fingerprint)
+                    .collect::<Vec<_>>()
+                    .join(","))
+                .collect::<Vec<_>>()
+                .join(";")
         ),
         Value::Closure(closure) => format!(
             "closure:{}:{:?}:{}",
@@ -1224,9 +1285,21 @@ pub(crate) fn reset_memoize_registry_for_test() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn memoized_subsref_builtin(
+        receiver: Value,
+        kind: String,
+        payload: Value,
+    ) -> crate::BuiltinResult<Value> {
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        super::memoized_subsref_builtin(receiver, subscript).await
+    }
     use futures::executor::block_on;
-    use runmat_value::IntValue;
+    use runmat_value::{IntValue, IntegerComplexStorage, IntegerStorage};
     use std::sync::{Arc, Mutex};
+
+    use crate::OBJECT_INDEX_MEMBER;
 
     #[test]
     fn memoize_constructor_is_integer_inapplicable() {
@@ -1251,12 +1324,13 @@ mod tests {
                     _ => 0.0,
                 };
                 if requested_outputs == 2 {
-                    Ok(Value::OutputList(vec![
+                    crate::sequence::ValueSequence::comma_separated(vec![
                         Value::Num(base + 1.0),
                         Value::Num(base + 2.0),
-                    ]))
+                    ])
+                    .map_err(crate::sequence::sequence_error_to_runtime)
                 } else {
-                    Ok(Value::Num(base + 1.0))
+                    crate::sequence::single_value_sequence(Value::Num(base + 1.0))
                 }
             })
         })
@@ -1282,13 +1356,13 @@ mod tests {
     fn echo_first_invoker() -> Arc<crate::user_functions::FunctionInvoker> {
         Arc::new(move |_function, args, _requested_outputs| {
             let first = args.first().cloned().unwrap_or(Value::Num(0.0));
-            Box::pin(async move { Ok(first) })
+            crate::sequence::single_value_future(async move { Ok(first) })
         })
     }
 
     fn memoized() -> Value {
         block_on(memoize_builtin(Value::BoundFunctionHandle {
-            name: "step".to_string(),
+            name: "step".into(),
             function: 42,
         }))
         .expect("memoized function")
@@ -1326,7 +1400,7 @@ mod tests {
     #[test]
     fn memoized_state_reads_enabled_from_typed_integer_tensor_storage() {
         let function = Value::BoundFunctionHandle {
-            name: "step".to_string(),
+            name: "step".into(),
             function: 42,
         };
         let enabled =
@@ -1341,7 +1415,7 @@ mod tests {
             .insert(ENABLED_PROPERTY.to_string(), Value::Tensor(enabled));
         let target = runmat_gc::gc_allocate(Value::Object(object)).expect("target");
         let handle = HandleRef {
-            class_name: MEMOIZED_FUNCTION_CLASS.to_string(),
+            class_name: MEMOIZED_FUNCTION_CLASS.into(),
             target,
             valid: true,
         };
@@ -1423,6 +1497,29 @@ mod tests {
             value_fingerprint(&left),
             value_fingerprint(&rounded_collision)
         );
+    }
+
+    #[test]
+    fn cache_value_equality_and_fingerprint_preserve_complex_sparse_components() {
+        let sparse = |imaginary| {
+            Value::SparseTensor(
+                SparseTensor::new_complex(
+                    2,
+                    2,
+                    vec![0, 1, 2],
+                    vec![0, 1],
+                    vec![(1.0, imaginary), (f64::NAN, 4.0)],
+                )
+                .expect("complex sparse"),
+            )
+        };
+        let left = sparse(-2.0);
+        let same = sparse(-2.0);
+        let different = sparse(2.0);
+        assert!(value_equal_for_cache(&left, &same));
+        assert!(!value_equal_for_cache(&left, &different));
+        assert_eq!(value_fingerprint(&left), value_fingerprint(&same));
+        assert_ne!(value_fingerprint(&left), value_fingerprint(&different));
     }
 
     #[test]
@@ -1828,7 +1925,7 @@ mod tests {
         )))
         .expect("payload allocation");
         let payload = Value::HandleObject(HandleRef {
-            class_name: "PayloadHandle".to_string(),
+            class_name: "PayloadHandle".into(),
             target: payload_target,
             valid: true,
         });

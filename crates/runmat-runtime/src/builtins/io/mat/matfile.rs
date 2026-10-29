@@ -19,12 +19,13 @@ use crate::builtins::common::spec::{
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
 use crate::{
-    build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError, OBJECT_INDEX_MEMBER,
+    build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError,
     OBJECT_SUBSASGN_METHOD, OBJECT_SUBSREF_METHOD,
 };
 
 const BUILTIN_NAME: &str = "matfile";
-const MATFILE_CLASS: &str = "matlab.io.MatFile";
+const MATFILE_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("matlab.io.MatFile");
 const MATFILE_SUBSREF: &str = "matlab.io.MatFile.subsref";
 const MATFILE_SUBSASGN: &str = "matlab.io.MatFile.subsasgn";
 const PROPERTIES_FIELD: &str = "Properties";
@@ -136,7 +137,7 @@ const SUBSREF_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     default: None,
     description: "MAT-file property or whole variable value.",
 }];
-const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
+const SUBSREF_INPUTS: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "m",
         ty: BuiltinParamType::Any,
@@ -145,22 +146,15 @@ const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
         description: "MAT-file object.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: Some("\".\""),
-        description: "Indexing kind.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Member name.",
+        description: "Standard substruct-compatible indexing path.",
     },
 ];
 const SUBSREF_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "value = matlab.io.MatFile.subsref(m, kind, payload)",
+    label: "value = matlab.io.MatFile.subsref(m, S)",
     inputs: &SUBSREF_INPUTS,
     outputs: &SUBSREF_OUTPUT,
 }];
@@ -171,7 +165,7 @@ pub const MATFILE_SUBSREF_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     errors: &MATFILE_ERRORS,
 };
 
-const SUBSASGN_INPUTS: [BuiltinParamDescriptor; 4] = [
+const SUBSASGN_INPUTS: [BuiltinParamDescriptor; 3] = [
     BuiltinParamDescriptor {
         name: "m",
         ty: BuiltinParamType::Any,
@@ -180,18 +174,11 @@ const SUBSASGN_INPUTS: [BuiltinParamDescriptor; 4] = [
         description: "MAT-file object.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: Some("\".\""),
-        description: "Indexing kind.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Member name.",
+        description: "Standard substruct-compatible indexing path.",
     },
     BuiltinParamDescriptor {
         name: "rhs",
@@ -202,7 +189,7 @@ const SUBSASGN_INPUTS: [BuiltinParamDescriptor; 4] = [
     },
 ];
 const SUBSASGN_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "m = matlab.io.MatFile.subsasgn(m, kind, payload, rhs)",
+    label: "m = matlab.io.MatFile.subsasgn(m, S, rhs)",
     inputs: &SUBSASGN_INPUTS,
     outputs: &MATFILE_OUTPUT,
 }];
@@ -267,10 +254,19 @@ pub async fn matfile_builtin(filename: Value, rest: Vec<Value>) -> BuiltinResult
     descriptor(crate::builtins::io::mat::matfile::MATFILE_SUBSREF_DESCRIPTOR),
     builtin_path = "crate::builtins::io::mat::matfile"
 )]
-pub async fn matfile_subsref(obj: Value, kind: String, payload: Value) -> BuiltinResult<Value> {
+pub async fn matfile_subsref(obj: Value, subscript: Value) -> BuiltinResult<Value> {
     ensure_matfile_class_registered();
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsref(obj, path, matfile_read_step, None).await
+}
+
+async fn matfile_read_step(
+    obj: Value,
+    step: crate::object::indexing::ObjectSubscript,
+) -> BuiltinResult<Value> {
+    let payload = step.selector_value()?;
     let object = into_matfile_object(obj, MATFILE_SUBSREF)?;
-    if kind != OBJECT_INDEX_MEMBER {
+    if step.kind() != crate::object::indexing::ObjectIndexKind::Member {
         return Err(matfile_error_with(
             &MATFILE_ERROR_UNSUPPORTED,
             format!("{MATFILE_SUBSREF}: only whole-variable member access is supported"),
@@ -311,15 +307,33 @@ pub async fn matfile_subsref(obj: Value, kind: String, payload: Value) -> Builti
     descriptor(crate::builtins::io::mat::matfile::MATFILE_SUBSASGN_DESCRIPTOR),
     builtin_path = "crate::builtins::io::mat::matfile"
 )]
-pub async fn matfile_subsasgn(
+pub async fn matfile_subsasgn(obj: Value, subscript: Value, rhs: Value) -> BuiltinResult<Value> {
+    ensure_matfile_class_registered();
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsasgn(
+        obj,
+        path,
+        vec![rhs],
+        matfile_read_step,
+        |obj, step, mut values| async move {
+            let rhs = values
+                .pop()
+                .ok_or_else(|| matfile_error("matfile assignment value is missing"))?;
+            matfile_write_step(obj, step, rhs).await
+        },
+        None,
+    )
+    .await
+}
+
+async fn matfile_write_step(
     obj: Value,
-    kind: String,
-    payload: Value,
+    step: crate::object::indexing::ObjectSubscript,
     rhs: Value,
 ) -> BuiltinResult<Value> {
-    ensure_matfile_class_registered();
+    let payload = step.selector_value()?;
     let object = into_matfile_object(obj, MATFILE_SUBSASGN)?;
-    if kind != OBJECT_INDEX_MEMBER {
+    if step.kind() != crate::object::indexing::ObjectIndexKind::Member {
         return Err(matfile_error_with(
             &MATFILE_ERROR_UNSUPPORTED,
             format!("{MATFILE_SUBSASGN}: partial MAT-file assignment is not supported yet"),
@@ -360,9 +374,9 @@ pub fn ensure_matfile_class_registered() {
     MATFILE_CLASS_REGISTERED.ensure(|| {
         let mut properties = HashMap::new();
         properties.insert(
-            PROPERTIES_FIELD.to_string(),
+            PROPERTIES_FIELD.into(),
             crate::class_registry::RuntimeProperty {
-                name: PROPERTIES_FIELD.to_string(),
+                name: PROPERTIES_FIELD.into(),
                 is_static: false,
                 is_constant: false,
                 is_dependent: false,
@@ -374,32 +388,32 @@ pub fn ensure_matfile_class_registered() {
 
         let mut methods = HashMap::new();
         methods.insert(
-            OBJECT_SUBSREF_METHOD.to_string(),
+            OBJECT_SUBSREF_METHOD.into(),
             crate::class_registry::RuntimeMethod {
-                name: OBJECT_SUBSREF_METHOD.to_string(),
+                name: OBJECT_SUBSREF_METHOD.into(),
                 is_static: false,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: MATFILE_SUBSREF.to_string(),
+                function_name: MATFILE_SUBSREF.into(),
                 implicit_class_argument: None,
             },
         );
         methods.insert(
-            OBJECT_SUBSASGN_METHOD.to_string(),
+            OBJECT_SUBSASGN_METHOD.into(),
             crate::class_registry::RuntimeMethod {
-                name: OBJECT_SUBSASGN_METHOD.to_string(),
+                name: OBJECT_SUBSASGN_METHOD.into(),
                 is_static: false,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: MATFILE_SUBSASGN.to_string(),
+                function_name: MATFILE_SUBSASGN.into(),
                 implicit_class_argument: None,
             },
         );
 
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: MATFILE_CLASS.to_string(),
+            name: MATFILE_CLASS.into(),
             parent: None,
             properties,
             methods,
@@ -625,6 +639,23 @@ fn matfile_error_with_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn matfile_subsref(obj: Value, kind: String, payload: Value) -> BuiltinResult<Value> {
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        super::matfile_subsref(obj, subscript).await
+    }
+
+    async fn matfile_subsasgn(
+        obj: Value,
+        kind: String,
+        payload: Value,
+        rhs: Value,
+    ) -> BuiltinResult<Value> {
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        super::matfile_subsasgn(obj, subscript, rhs).await
+    }
     use crate::builtins::io::mat::save::encode_workspace_to_mat_bytes;
     use futures::executor::block_on;
     use runmat_value::{CharArray, IntegerStorage, Tensor};

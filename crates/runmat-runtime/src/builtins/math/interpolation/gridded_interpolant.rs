@@ -27,17 +27,16 @@ use crate::builtins::common::spec::{
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
 use crate::builtins::common::tensor as tensor_utils;
-use crate::{
-    build_runtime_error, BuiltinResult, RuntimeError, OBJECT_INDEX_MEMBER, OBJECT_INDEX_PAREN,
-    OBJECT_SUBSREF_METHOD,
-};
+use crate::{build_runtime_error, BuiltinResult, RuntimeError, OBJECT_SUBSREF_METHOD};
 
 use super::pp::{
     build_pchip_pp, build_spline_pp, eval_pp_scalar, Extrapolation, NumericSeries,
     PiecewisePolynomial,
 };
 
-const CLASS_NAME: &str = "griddedInterpolant";
+const BUILTIN_NAME: &str = "griddedInterpolant";
+const CLASS_IDENTITY: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("griddedInterpolant");
 const BUILTIN_SUBSREF: &str = "griddedInterpolant.subsref";
 const GRID_VECTORS: &str = "GridVectors";
 const VALUES: &str = "Values";
@@ -45,7 +44,7 @@ const METHOD: &str = "Method";
 const EXTRAPOLATION_METHOD: &str = "ExtrapolationMethod";
 
 static GRIDDED_INTERPOLANT_CLASS_REGISTERED: crate::class_registry::ClassRegistration =
-    crate::class_registry::ClassRegistration::new(CLASS_NAME);
+    crate::class_registry::ClassRegistration::new(CLASS_IDENTITY);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InterpMethod {
@@ -153,7 +152,7 @@ const INPUTS_VARIADIC: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
         "Grid vectors or full grids, values, interpolation method, and extrapolation method.",
 }];
 
-const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
+const SUBSREF_INPUTS: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "obj",
         ty: BuiltinParamType::Any,
@@ -162,18 +161,11 @@ const SUBSREF_INPUTS: [BuiltinParamDescriptor; 3] = [
         description: "griddedInterpolant object.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Indexing kind.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Indexing payload.",
+        description: "Standard substruct-compatible indexing path.",
     },
 ];
 
@@ -216,7 +208,7 @@ const SIGNATURES: [BuiltinSignatureDescriptor; 7] = [
 ];
 
 const SUBSREF_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "out = griddedInterpolant.subsref(obj, kind, payload)",
+    label: "out = griddedInterpolant.subsref(obj, S)",
     inputs: &SUBSREF_INPUTS,
     outputs: &SUBSREF_OUTPUT,
 }];
@@ -353,7 +345,7 @@ pub const GRIDDED_INTERPOLANT_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDes
     builtin_path = "crate::builtins::math::interpolation::gridded_interpolant"
 )]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
-    name: CLASS_NAME,
+    name: BUILTIN_NAME,
     op_kind: GpuOpKind::Custom("gridded-interpolation"),
     supported_precisions: &[],
     broadcast: BroadcastSemantics::Matlab,
@@ -371,7 +363,7 @@ pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
     builtin_path = "crate::builtins::math::interpolation::gridded_interpolant"
 )]
 pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
-    name: CLASS_NAME,
+    name: BUILTIN_NAME,
     shape: ShapeRequirements::Any,
     constant_strategy: ConstantStrategy::InlineLiteral,
     elementwise: None,
@@ -389,7 +381,7 @@ fn gridded_error(
     detail: impl AsRef<str>,
 ) -> RuntimeError {
     let mut builder = build_runtime_error(format!("{}: {}", descriptor.message, detail.as_ref()))
-        .with_builtin(CLASS_NAME);
+        .with_builtin(BUILTIN_NAME);
     if let Some(identifier) = descriptor.identifier {
         builder = builder.with_identifier(identifier);
     }
@@ -413,9 +405,9 @@ fn ensure_gridded_interpolant_class_registered() {
         let mut properties = HashMap::new();
         for name in [GRID_VECTORS, VALUES, METHOD, EXTRAPOLATION_METHOD] {
             properties.insert(
-                name.to_string(),
+                name.into(),
                 crate::class_registry::RuntimeProperty {
-                    name: name.to_string(),
+                    name: name.into(),
                     is_static: false,
                     is_constant: false,
                     is_dependent: false,
@@ -427,19 +419,19 @@ fn ensure_gridded_interpolant_class_registered() {
         }
         let mut methods = HashMap::new();
         methods.insert(
-            OBJECT_SUBSREF_METHOD.to_string(),
+            OBJECT_SUBSREF_METHOD.into(),
             crate::class_registry::RuntimeMethod {
-                name: OBJECT_SUBSREF_METHOD.to_string(),
+                name: OBJECT_SUBSREF_METHOD.into(),
                 is_static: false,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Public,
-                function_name: BUILTIN_SUBSREF.to_string(),
+                function_name: BUILTIN_SUBSREF.into(),
                 implicit_class_argument: None,
             },
         );
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: CLASS_NAME.to_string(),
+            name: CLASS_IDENTITY.into(),
             parent: None,
             properties,
             methods,
@@ -480,21 +472,29 @@ async fn gridded_interpolant_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
     ),
     builtin_path = "crate::builtins::math::interpolation::gridded_interpolant"
 )]
-async fn gridded_interpolant_subsref(
+async fn gridded_interpolant_subsref(obj: Value, subscript: Value) -> BuiltinResult<Value> {
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsref(obj, path, gridded_interpolant_read_step, None)
+        .await
+}
+
+async fn gridded_interpolant_read_step(
     obj: Value,
-    kind: String,
-    payload: Value,
+    step: crate::object::indexing::ObjectSubscript,
 ) -> BuiltinResult<Value> {
-    match kind.as_str() {
-        OBJECT_INDEX_MEMBER => gridded_member(obj, payload),
-        OBJECT_INDEX_PAREN => {
+    let payload = step.selector_value()?;
+    match step.kind() {
+        crate::object::indexing::ObjectIndexKind::Member => gridded_member(obj, payload),
+        crate::object::indexing::ObjectIndexKind::Paren => {
             let spec = object_to_spec(&obj)?;
             let query_args = payload_to_args(payload)?;
             ensure_query_integer_extensions(&query_args)?;
             let query_args = gather_values(query_args).await?;
             evaluate_interpolant(&spec, query_args)
         }
-        other => Err(invalid(format!("unsupported indexing kind '{other}'"))),
+        crate::object::indexing::ObjectIndexKind::Brace => {
+            Err(invalid("brace indexing is not supported"))
+        }
     }
 }
 
@@ -552,7 +552,7 @@ fn ensure_integer_extension(
     role: &str,
 ) -> BuiltinResult<()> {
     if value_contains_typed_integer(value) {
-        crate::compatibility::ensure_builtin_extension_enabled(extension, CLASS_NAME)?;
+        crate::compatibility::ensure_builtin_extension_enabled(extension, BUILTIN_NAME)?;
         ensure_exact_integer_value(value, role)?;
     }
     Ok(())
@@ -569,7 +569,7 @@ fn value_contains_typed_integer(value: &Value) -> bool {
 }
 
 fn ensure_exact_integer_value(value: &Value, role: &str) -> BuiltinResult<()> {
-    let exact = crate::builtins::math::trigonometry::cos::integer_is_exact_f64;
+    let exact = crate::builtins::common::validation::integer_is_exact_f64;
     let valid = match value {
         Value::Int(value) => exact(value),
         Value::Tensor(tensor) => tensor
@@ -782,7 +782,7 @@ fn numeric_vector(value: Value, name: &str) -> BuiltinResult<Vec<f64>> {
 }
 
 fn ensure_exact_integer_scalar(value: &IntValue, name: &str) -> BuiltinResult<()> {
-    if crate::builtins::math::trigonometry::cos::integer_is_exact_f64(value) {
+    if crate::builtins::common::validation::integer_is_exact_f64(value) {
         Ok(())
     } else {
         Err(invalid(format!(
@@ -795,7 +795,7 @@ fn ensure_exact_integer_tensor(tensor: &Tensor, name: &str) -> BuiltinResult<()>
     let Some(storage) = tensor.integer_storage() else {
         return Ok(());
     };
-    let exact = crate::builtins::math::trigonometry::cos::integer_is_exact_f64;
+    let exact = crate::builtins::common::validation::integer_is_exact_f64;
     if storage.exact_values().iter().all(exact) {
         Ok(())
     } else {
@@ -1014,7 +1014,7 @@ fn validate_method_support(
 }
 
 fn spec_to_object(spec: InterpolantSpec) -> BuiltinResult<ObjectInstance> {
-    let mut object = ObjectInstance::new(CLASS_NAME.to_string());
+    let mut object = ObjectInstance::new(CLASS_IDENTITY);
     let grid_cells = spec
         .grid_vectors
         .iter()
@@ -1049,7 +1049,7 @@ fn object_to_spec(value: &Value) -> BuiltinResult<InterpolantSpec> {
     let Value::Object(object) = value else {
         return Err(invalid("receiver must be a griddedInterpolant object"));
     };
-    if !object.is_class(CLASS_NAME) {
+    if !object.is_class(CLASS_IDENTITY) {
         return Err(invalid("receiver must be a griddedInterpolant object"));
     }
     let grid_vectors = match object.properties.get(GRID_VECTORS) {
@@ -1101,7 +1101,7 @@ fn gridded_member(obj: Value, payload: Value) -> BuiltinResult<Value> {
     let Value::Object(object) = obj else {
         return Err(invalid("receiver must be a griddedInterpolant object"));
     };
-    if !object.is_class(CLASS_NAME) {
+    if !object.is_class(CLASS_IDENTITY) {
         return Err(invalid("receiver must be a griddedInterpolant object"));
     }
     object
@@ -1202,14 +1202,14 @@ fn evaluate_piecewise_interpolant(
             series: 1,
             trailing_shape: Vec::new(),
         };
-        let pp =
-            match spec.method {
-                InterpMethod::Pchip => build_pchip_pp(&series_data, CLASS_NAME)
-                    .map_err(|err| internal(err.message()))?,
-                InterpMethod::Spline => build_spline_pp(&series_data, CLASS_NAME)
-                    .map_err(|err| internal(err.message()))?,
-                _ => unreachable!("piecewise evaluator only handles higher-order methods"),
-            };
+        let pp = match spec.method {
+            InterpMethod::Pchip => {
+                build_pchip_pp(&series_data, BUILTIN_NAME).map_err(|err| internal(err.message()))?
+            }
+            InterpMethod::Spline => build_spline_pp(&series_data, BUILTIN_NAME)
+                .map_err(|err| internal(err.message()))?,
+            _ => unreachable!("piecewise evaluator only handles higher-order methods"),
+        };
         plan.for_each_point(|point| {
             out.push(evaluate_piecewise_scalar(
                 spec,
@@ -1644,8 +1644,19 @@ fn extrap_method_name(method: ExtrapolationMethod) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{OBJECT_INDEX_MEMBER, OBJECT_INDEX_PAREN};
     use futures::executor::block_on;
     use runmat_value::{IntegerStorage, NumericStorage};
+
+    async fn gridded_interpolant_subsref(
+        obj: Value,
+        kind: String,
+        payload: Value,
+    ) -> BuiltinResult<Value> {
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        super::gridded_interpolant_subsref(obj, subscript).await
+    }
 
     fn row(values: &[f64]) -> Value {
         Value::Tensor(Tensor::new(values.to_vec(), vec![1, values.len()]).unwrap())
@@ -1759,7 +1770,7 @@ mod tests {
         let Value::Object(obj) = value else {
             panic!("expected object");
         };
-        assert_eq!(obj.class_name, CLASS_NAME);
+        assert!(obj.class_name.is(CLASS_IDENTITY));
         assert_eq!(
             obj.properties.get(METHOD),
             Some(&Value::String("linear".to_string()))

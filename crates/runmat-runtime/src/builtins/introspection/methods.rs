@@ -136,15 +136,17 @@ pub(crate) fn public_method_names(class_name: &str) -> Vec<String> {
         if !visited.insert(name.clone()) {
             break;
         }
-        let Some(class_def) = crate::class_registry::get_class(&name) else {
+        let Some(class_def) =
+            crate::class_registry::get_class(&runmat_types::ClassIdentity::from(name.as_str()))
+        else {
             break;
         };
         for (method_name, method) in &class_def.methods {
             if method.access == MemberAccess::Public {
-                names.insert(method_name.clone());
+                names.insert(method_name.to_string());
             }
         }
-        current = class_def.parent.clone();
+        current = class_def.parent.as_ref().map(ToString::to_string);
     }
     names.into_iter().collect()
 }
@@ -174,7 +176,10 @@ fn methods_builtin(value: Value) -> crate::BuiltinResult<Value> {
         value,
         Value::Object(_) | Value::HandleObject(_) | Value::ClassRef(_)
     );
-    if !is_instance && crate::class_registry::get_class(&class_name).is_none() {
+    if !is_instance
+        && crate::class_registry::get_class(&runmat_types::ClassIdentity::from(class_name.as_str()))
+            .is_none()
+    {
         return Err(methods_error(&METHODS_ERROR_UNKNOWN_CLASS));
     }
     names_to_column_cell(public_method_names(&class_name))
@@ -230,7 +235,7 @@ pub(crate) mod tests {
 
     fn method(name: &str, access: MemberAccess) -> RuntimeMethod {
         RuntimeMethod {
-            name: name.to_string(),
+            name: name.into(),
             is_static: false,
             is_abstract: false,
             is_sealed: false,
@@ -246,7 +251,7 @@ pub(crate) mod tests {
             method_map.insert(m.name.clone(), m);
         }
         crate::class_registry::register_class(RuntimeClass {
-            name: name.to_string(),
+            name: name.into(),
             parent: None,
             properties: HashMap::new(),
             methods: method_map,
@@ -294,7 +299,7 @@ pub(crate) mod tests {
     #[test]
     fn unresolved_choice_no_methods_is_empty_column() {
         register_test_class("runmat.unittest.MethodsEmpty", Vec::new());
-        let result = run(Value::ClassRef("runmat.unittest.MethodsEmpty".to_string()))
+        let result = run(Value::ClassRef("runmat.unittest.MethodsEmpty".into()))
             .expect("methods(empty class)");
         match result {
             Value::Cell(cell) => {
@@ -335,8 +340,8 @@ pub(crate) mod tests {
                 method("secret", MemberAccess::Private),
             ],
         );
-        let result = run(Value::ClassRef("runmat.unittest.MethodsMixed".to_string()))
-            .expect("methods(mixed)");
+        let result =
+            run(Value::ClassRef("runmat.unittest.MethodsMixed".into())).expect("methods(mixed)");
         assert_eq!(cell_names(&result), vec!["open".to_string()]);
     }
 

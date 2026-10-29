@@ -21,17 +21,21 @@ use runmat_value::{
     NumericStorage, StringArray, Tensor, Value,
 };
 
-use super::{float_order::SetFloat, integer_order, type_resolvers::set_values_output_type};
+use super::{
+    float_order::{ComplexSequence, SetFloat},
+    integer_order,
+    type_resolvers::set_values_output_type,
+};
 use crate::build_runtime_error;
 use crate::builtins::common::arg_tokens::tokens_from_values;
 use crate::builtins::common::gpu_helpers;
+use crate::builtins::common::integer_conversion::{IntegerClass, IntegerClassExt};
 use crate::builtins::common::random_args::complex_tensor_into_value;
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ProviderHook, ReductionNaN, ResidencyPolicy, ScalarType, ShapeRequirements,
 };
 use crate::builtins::common::tensor;
-use crate::builtins::math::elementwise::integer_cast::IntegerTarget;
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::array::sorting_sets::setdiff")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -508,7 +512,7 @@ fn setdiff_numeric(
     let a_dtype = a.numeric_dtype();
     let b_dtype = b.numeric_dtype();
     if let (Some(a_storage), Some(b_storage)) = (a.integer_storage(), b.integer_storage()) {
-        if a_storage.class_name() == b_storage.class_name() {
+        if a_storage.numeric_dtype() == b_storage.numeric_dtype() {
             return if opts.rows {
                 setdiff_integer_rows(a_storage, a.shape.clone(), b_storage, b.shape.clone(), opts)
             } else {
@@ -519,7 +523,7 @@ fn setdiff_numeric(
     }
     match (a.integer_storage(), b.integer_storage()) {
         (Some(storage), None) if b_dtype == NumericDType::F64 => {
-            let target = IntegerTarget::from_storage(storage);
+            let target = IntegerClass::from_storage(storage);
             let b = target.cast_tensor(b).map_err(setdiff_internal_error)?;
             return setdiff_numeric(a, b, opts);
         }
@@ -779,10 +783,10 @@ fn setdiff_promoted_complex_f64(
     )
 }
 
-fn setdiff_floating_complex<T: SetFloat>(
-    a: Vec<(T, T)>,
+fn setdiff_floating_complex<T: SetFloat, A: ComplexSequence<T>, B: ComplexSequence<T>>(
+    a: A,
     a_shape: Vec<usize>,
-    b: Vec<(T, T)>,
+    b: B,
     b_shape: Vec<usize>,
     opts: &SetdiffOptions,
 ) -> crate::BuiltinResult<SetdiffEvaluation> {
@@ -793,13 +797,14 @@ fn setdiff_floating_complex<T: SetFloat>(
     }
 }
 
-fn setdiff_complex_elements<T: SetFloat>(
-    a: Vec<(T, T)>,
-    b: Vec<(T, T)>,
+fn setdiff_complex_elements<T: SetFloat, A: ComplexSequence<T>, B: ComplexSequence<T>>(
+    a: A,
+    b: B,
     opts: &SetdiffOptions,
 ) -> crate::BuiltinResult<SetdiffEvaluation> {
     let mut b_keys: HashSet<ComplexKey> = HashSet::new();
-    for &value in &b {
+    for index in 0..b.len() {
+        let value = b.pair_at(index);
         b_keys.insert(ComplexKey::new(value));
     }
 
@@ -807,7 +812,8 @@ fn setdiff_complex_elements<T: SetFloat>(
     let mut entries = Vec::<ComplexDiffEntry<T>>::new();
     let mut order_counter = 0usize;
 
-    for (idx, &value) in a.iter().enumerate() {
+    for idx in 0..a.len() {
+        let value = a.pair_at(idx);
         let key = ComplexKey::new(value);
         if b_keys.contains(&key) {
             continue;
@@ -826,10 +832,10 @@ fn setdiff_complex_elements<T: SetFloat>(
     assemble_complex_setdiff(entries, opts)
 }
 
-fn setdiff_complex_rows<T: SetFloat>(
-    a: Vec<(T, T)>,
+fn setdiff_complex_rows<T: SetFloat, A: ComplexSequence<T>, B: ComplexSequence<T>>(
+    a: A,
     a_shape: Vec<usize>,
-    b: Vec<(T, T)>,
+    b: B,
     b_shape: Vec<usize>,
     opts: &SetdiffOptions,
 ) -> crate::BuiltinResult<SetdiffEvaluation> {
@@ -851,7 +857,7 @@ fn setdiff_complex_rows<T: SetFloat>(
         let mut key_row = Vec::with_capacity(cols);
         for c in 0..cols {
             let idx = r + c * rows_b;
-            key_row.push(ComplexKey::new(b[idx]));
+            key_row.push(ComplexKey::new(b.pair_at(idx)));
         }
         b_keys.insert(key_row);
     }
@@ -865,7 +871,7 @@ fn setdiff_complex_rows<T: SetFloat>(
         let mut key_row = Vec::with_capacity(cols);
         for c in 0..cols {
             let idx = r + c * rows_a;
-            let value = a[idx];
+            let value = a.pair_at(idx);
             row_values.push(value);
             key_row.push(ComplexKey::new(value));
         }
@@ -1801,8 +1807,14 @@ pub(crate) mod tests {
         let Value::ComplexTensor(values) = values else {
             panic!("expected native complex single value");
         };
-        assert_eq!(values.as_f32_slice(), Some(&[(1.0, 1.0)][..]));
-
+        assert_eq!(
+            values.as_f32_slice().map(|values| values
+                .iter()
+                .copied()
+                .map(<(f32, f32)>::from)
+                .collect::<Vec<_>>()),
+            Some(vec![(1.0, 1.0)])
+        );
         let a = ComplexTensor::from_f32(
             vec![
                 (1.0, 0.0),
@@ -1827,7 +1839,14 @@ pub(crate) mod tests {
             panic!("expected native complex single rows");
         };
         assert_eq!(values.shape, vec![1, 2]);
-        assert_eq!(values.as_f32_slice(), Some(&[(1.0, 0.0), (2.0, 1.0)][..]));
+        assert_eq!(
+            values.as_f32_slice().map(|values| values
+                .iter()
+                .copied()
+                .map(<(f32, f32)>::from)
+                .collect::<Vec<_>>()),
+            Some(vec![(1.0, 0.0), (2.0, 1.0)])
+        );
     }
 
     #[test]

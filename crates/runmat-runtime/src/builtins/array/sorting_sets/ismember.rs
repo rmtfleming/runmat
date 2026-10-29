@@ -18,15 +18,18 @@ use runmat_value::{
     StringArray, Tensor, Value,
 };
 
-use super::{float_order::SetFloat, type_resolvers::logical_output_type};
+use super::{
+    float_order::{ComplexSequence, SetFloat},
+    type_resolvers::logical_output_type,
+};
 use crate::build_runtime_error;
 use crate::builtins::common::gpu_helpers;
+use crate::builtins::common::integer_conversion::{IntegerClass, IntegerClassExt};
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ProviderHook, ReductionNaN, ResidencyPolicy, ScalarType, ShapeRequirements,
 };
 use crate::builtins::common::tensor;
-use crate::builtins::math::elementwise::integer_cast::IntegerTarget;
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::array::sorting_sets::ismember")]
 pub const GPU_SPEC: BuiltinGpuSpec = BuiltinGpuSpec {
@@ -467,7 +470,7 @@ fn ismember_numeric_tensors(
     let a_dtype = a.numeric_dtype();
     let b_dtype = b.numeric_dtype();
     if let (Some(a_storage), Some(b_storage)) = (a.integer_storage(), b.integer_storage()) {
-        if a_storage.class_name() == b_storage.class_name() {
+        if a_storage.numeric_dtype() == b_storage.numeric_dtype() {
             return if opts.rows {
                 ismember_integer_rows(&a, &b)
             } else {
@@ -478,12 +481,12 @@ fn ismember_numeric_tensors(
     }
     match (a.integer_storage(), b.integer_storage()) {
         (Some(storage), None) if b_dtype == NumericDType::F64 => {
-            let target = IntegerTarget::from_storage(storage);
+            let target = IntegerClass::from_storage(storage);
             let b = target.cast_tensor(b).map_err(ismember_internal_error)?;
             return ismember_numeric_tensors(a, b, opts);
         }
         (None, Some(storage)) if a_dtype == NumericDType::F64 => {
-            let target = IntegerTarget::from_storage(storage);
+            let target = IntegerClass::from_storage(storage);
             let a = target.cast_tensor(a).map_err(ismember_internal_error)?;
             return ismember_numeric_tensors(a, b, opts);
         }
@@ -727,10 +730,10 @@ fn ismember_promoted_complex_f64(
     )
 }
 
-fn ismember_floating_complex<T: SetFloat>(
-    a: Vec<(T, T)>,
+fn ismember_floating_complex<T: SetFloat, A: ComplexSequence<T>, B: ComplexSequence<T>>(
+    a: A,
     a_shape: Vec<usize>,
-    b: Vec<(T, T)>,
+    b: B,
     b_shape: Vec<usize>,
     rows: bool,
 ) -> crate::BuiltinResult<IsMemberEvaluation> {
@@ -749,20 +752,22 @@ fn ismember_complex_elements(
     ismember_complex(a, b, false)
 }
 
-fn ismember_floating_complex_elements<T: SetFloat>(
-    a: Vec<(T, T)>,
+fn ismember_floating_complex_elements<T: SetFloat, A: ComplexSequence<T>, B: ComplexSequence<T>>(
+    a: A,
     a_shape: Vec<usize>,
-    b: Vec<(T, T)>,
+    b: B,
 ) -> crate::BuiltinResult<IsMemberEvaluation> {
     let mut map: HashMap<ComplexKey, usize> = HashMap::new();
-    for (idx, &value) in b.iter().enumerate() {
+    for idx in 0..b.len() {
+        let value = b.pair_at(idx);
         map.entry(ComplexKey::new(value)).or_insert(idx + 1);
     }
 
     let mut mask_data = Vec::<u8>::with_capacity(a.len());
     let mut loc_data = Vec::<f64>::with_capacity(a.len());
 
-    for &value in &a {
+    for index in 0..a.len() {
+        let value = a.pair_at(index);
         let key = ComplexKey::new(value);
         if let Some(&pos) = map.get(&key) {
             mask_data.push(1);
@@ -788,10 +793,10 @@ fn ismember_complex_rows(
     ismember_complex(a, b, true)
 }
 
-fn ismember_floating_complex_rows<T: SetFloat>(
-    a: Vec<(T, T)>,
+fn ismember_floating_complex_rows<T: SetFloat, A: ComplexSequence<T>, B: ComplexSequence<T>>(
+    a: A,
     a_shape: Vec<usize>,
-    b: Vec<(T, T)>,
+    b: B,
     b_shape: Vec<usize>,
 ) -> crate::BuiltinResult<IsMemberEvaluation> {
     let (rows_a, cols_a) = shape_rows_cols(&a_shape, "ismember")?;
@@ -805,7 +810,7 @@ fn ismember_floating_complex_rows<T: SetFloat>(
         let mut row_keys = Vec::with_capacity(cols_b);
         for c in 0..cols_b {
             let idx = r + c * rows_b;
-            row_keys.push(ComplexKey::new(b[idx]));
+            row_keys.push(ComplexKey::new(b.pair_at(idx)));
         }
         map.entry(row_keys).or_insert(r + 1);
     }
@@ -817,7 +822,7 @@ fn ismember_floating_complex_rows<T: SetFloat>(
         let mut row_keys = Vec::with_capacity(cols_a);
         for c in 0..cols_a {
             let idx = r + c * rows_a;
-            row_keys.push(ComplexKey::new(a[idx]));
+            row_keys.push(ComplexKey::new(a.pair_at(idx)));
         }
         if let Some(&pos) = map.get(&row_keys) {
             mask_data[r] = 1;
@@ -1096,7 +1101,7 @@ impl IsMemberEvaluation {
         let IsMemberEvaluation { mask, loc } = self;
         Ok(IsMemberResult {
             mask: HostLogicalOwned {
-                data: mask.data,
+                data: mask.data.into_vec(),
                 shape: mask.shape,
             },
             loc: tensor::tensor_into_host_f64_owned(loc),

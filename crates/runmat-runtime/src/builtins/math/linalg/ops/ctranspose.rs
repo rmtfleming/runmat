@@ -224,6 +224,14 @@ async fn ctranspose_builtin(mut args: Vec<Value>) -> BuiltinResult<Value> {
         Value::CharArray(ca) => Ok(Value::CharArray(ctranspose_char_array(ca)?)),
         Value::StringArray(sa) => Ok(Value::StringArray(ctranspose_string_array(sa)?)),
         Value::Cell(ca) => Ok(Value::Cell(ctranspose_cell_array(ca)?)),
+        Value::StructArray(array) => {
+            ensure_vector_or_matrix_shape(array.shape())?;
+            let order = ctranspose_order(array.shape().len());
+            array
+                .permute(&order)
+                .map(Value::StructArray)
+                .map_err(invalid_input)
+        }
         Value::Num(n) => Ok(Value::Num(n)),
         Value::Int(i) => Ok(Value::Int(i)),
         Value::Bool(b) => Ok(Value::Bool(b)),
@@ -312,7 +320,7 @@ fn ctranspose_complex_tensor_value(ct: ComplexTensor) -> BuiltinResult<Value> {
                     (re, imag)
                 })
                 .collect::<Vec<_>>();
-            ComplexTensor::from_complex_storage(ComplexStorage::F64(conj_data), shape)
+            ComplexTensor::from_complex_storage(ComplexStorage::F64(conj_data.into()), shape)
                 .map(Value::ComplexTensor)
                 .map_err(|e| internal_error(format!("{NAME}: {e}")))
         }
@@ -324,7 +332,7 @@ fn ctranspose_complex_tensor_value(ct: ComplexTensor) -> BuiltinResult<Value> {
                     (re, imag)
                 })
                 .collect::<Vec<_>>();
-            ComplexTensor::from_complex_storage(ComplexStorage::F32(conj_data), shape)
+            ComplexTensor::from_complex_storage(ComplexStorage::F32(conj_data.into()), shape)
                 .map(Value::ComplexTensor)
                 .map_err(|e| internal_error(format!("{NAME}: {e}")))
         }

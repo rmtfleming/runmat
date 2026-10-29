@@ -18,6 +18,15 @@ pub struct NativeCompilationInput {
     coverage_sites: BTreeMap<runmat_types::ProgramPointId, Vec<u64>>,
 }
 
+pub struct AotObjectDataOptions {
+    pub runtime_binding_mode: runmat_native_codegen::aot::AotRuntimeBindingMode,
+    pub builtin_bindings: Vec<runmat_native_codegen::aot::AotBuiltinBinding>,
+    pub native_interfaces: Vec<u8>,
+    pub mex_artifacts: Vec<u8>,
+    pub java_artifacts: Vec<u8>,
+    pub python_artifacts: Vec<u8>,
+}
+
 impl NativeCompilationInput {
     pub fn entrypoint(&self) -> runmat_types::ProgramFunctionId {
         self.entrypoint
@@ -111,7 +120,7 @@ impl NativeCompilationInput {
             .collectives
             .retain(|collective| retained.contains(&collective.id.region.0.function));
         let mut registry: runmat_vm::FunctionRegistry =
-            serde_json::from_slice(&self.program_capture).map_err(|error| {
+            runmat_vm::decode_interpreter_program_v2(&self.program_capture).map_err(|error| {
                 native_product_error(format!("failed to decode native program capture: {error}"))
             })?;
         registry
@@ -124,17 +133,17 @@ impl NativeCompilationInput {
             functions.retain(|function| retained_local.contains(function));
             !functions.is_empty()
         });
-        self.program_capture = serde_json::to_vec(&registry).map_err(|error| {
-            native_product_error(format!("failed to encode retained native program: {error}"))
-        })?;
+        self.program_capture =
+            runmat_vm::encode_interpreter_program_v2(&registry).map_err(|error| {
+                native_product_error(format!("failed to encode retained native program: {error}"))
+            })?;
         Ok(self)
     }
 
     pub fn aot_object_data(
         &self,
         assembly: &runmat_native_codegen::NativeAssembly,
-        runtime_binding_mode: runmat_native_codegen::aot::AotRuntimeBindingMode,
-        builtin_bindings: Vec<runmat_native_codegen::aot::AotBuiltinBinding>,
+        options: AotObjectDataOptions,
     ) -> Result<
         Vec<runmat_native_codegen::aot::NativeObjectData>,
         runmat_native_codegen::NativeCodegenError,
@@ -154,8 +163,8 @@ impl NativeCompilationInput {
         let program = runmat_native_codegen::aot::AotProgramManifest::from_assembly(
             assembly,
             runmat_execution::Digest::sha256(&native_ir),
-            runtime_binding_mode,
-            builtin_bindings,
+            options.runtime_binding_mode,
+            options.builtin_bindings,
         )?
         .canonical_bytes()?;
         let ordered_resume_points = self
@@ -169,7 +178,7 @@ impl NativeCompilationInput {
                 format!("failed to encode embedded resume points: {error}"),
             )
         })?;
-        let mut data = Vec::with_capacity(3);
+        let mut data = Vec::with_capacity(7);
         for blob in [
             runmat_native_codegen::aot::embedded_blob(
                 runmat_native_codegen::aot::AOT_NATIVE_IR_SYMBOL,
@@ -184,6 +193,26 @@ impl NativeCompilationInput {
             runmat_native_codegen::aot::embedded_blob(
                 runmat_native_codegen::aot::AOT_RESUME_POINTS_SYMBOL,
                 resume_points,
+                8,
+            )?,
+            runmat_native_codegen::aot::embedded_blob(
+                runmat_native_codegen::aot::AOT_NATIVE_INTERFACES_SYMBOL,
+                options.native_interfaces,
+                8,
+            )?,
+            runmat_native_codegen::aot::embedded_blob(
+                runmat_native_codegen::aot::AOT_MEX_ARTIFACTS_SYMBOL,
+                options.mex_artifacts,
+                8,
+            )?,
+            runmat_native_codegen::aot::embedded_blob(
+                runmat_native_codegen::aot::AOT_JAVA_ARTIFACTS_SYMBOL,
+                options.java_artifacts,
+                8,
+            )?,
+            runmat_native_codegen::aot::embedded_blob(
+                runmat_native_codegen::aot::AOT_PYTHON_ARTIFACTS_SYMBOL,
+                options.python_artifacts,
                 8,
             )?,
         ] {
@@ -204,12 +233,24 @@ impl ExecutableUnit {
         &self,
         preferred_function: Option<&str>,
     ) -> Result<NativeCompilationInput, runmat_runtime::RuntimeError> {
+        self.prepare_native_compilation_for_with_interop(
+            preferred_function,
+            runmat_types::InteropManifest::empty(),
+        )
+    }
+
+    pub fn prepare_native_compilation_for_with_interop(
+        &self,
+        preferred_function: Option<&str>,
+        interop: runmat_types::InteropManifest,
+    ) -> Result<NativeCompilationInput, runmat_runtime::RuntimeError> {
         let envelope = self
-            .portable_envelope_for(preferred_function)
+            .portable_envelope_for_with_interop(preferred_function, interop)
             .map_err(native_product_error)?;
-        let program_capture = serde_json::to_vec(self.functions()).map_err(|error| {
-            native_product_error(format!("failed to capture native program: {error}"))
-        })?;
+        let program_capture =
+            runmat_vm::encode_interpreter_program_v2(self.functions()).map_err(|error| {
+                native_product_error(format!("failed to capture native program: {error}"))
+            })?;
         let mut interpreter_resume_points = self
             .vm_layout()
             .functions
@@ -296,6 +337,7 @@ mod tests {
 
     use futures::executor::block_on;
 
+    use super::AotObjectDataOptions;
     use crate::{ExecutableSource, RunMatSession};
 
     #[test]
@@ -360,7 +402,8 @@ end
             .iter()
             .all(|region| retained.contains(&region.id.function)));
         let registry: runmat_vm::FunctionRegistry =
-            serde_json::from_slice(&input.program_capture).expect("decode retained registry");
+            runmat_vm::decode_interpreter_program_v2(&input.program_capture)
+                .expect("decode retained registry");
         assert_eq!(registry.functions.len(), 1);
         assert!(registry.names.contains_key("helper"));
         assert!(!registry.names.contains_key("unused_nested"));
@@ -376,8 +419,16 @@ end
         let object_data = input
             .aot_object_data(
                 &assembly,
-                runmat_native_codegen::aot::AotRuntimeBindingMode::Dynamic,
-                Vec::new(),
+                AotObjectDataOptions {
+                    runtime_binding_mode:
+                        runmat_native_codegen::aot::AotRuntimeBindingMode::Dynamic,
+                    builtin_bindings: Vec::new(),
+                    native_interfaces: br#"{"schema_version":1,"interfaces":[]}"#.to_vec(),
+                    mex_artifacts: br#"{"schema_version":1,"artifacts":[]}"#.to_vec(),
+                    java_artifacts: br#"{"schema_version":1,"environment":null,"artifacts":[]}"#
+                        .to_vec(),
+                    python_artifacts: br#"{"schema_version":1,"artifacts":[]}"#.to_vec(),
+                },
             )
             .expect("build retained AOT object data");
         let program_bytes = &object_data

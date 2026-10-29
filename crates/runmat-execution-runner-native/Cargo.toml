@@ -10,6 +10,8 @@ repository = "https://github.com/runmat-org/runmat"
 
 [dependencies]
 runmat-value = { workspace = true }
+runmat-accelerate = { workspace = true, features = ["cuda"] }
+runmat-accelerate-api = { workspace = true }
 runmat-builtins = { workspace = true }
 runmat-core = { workspace = true }
 runmat-execution = { workspace = true }
@@ -18,11 +20,16 @@ runmat-execution-runner = { workspace = true }
 runmat-execution-transport-native = { workspace = true }
 runmat-meshing-core = { workspace = true }
 runmat-meshing-execution = { workspace = true }
+runmat-native-ffi = { workspace = true }
+runmat-mex = { workspace = true }
+runmat-java = { workspace = true }
+runmat-python = { workspace = true }
 runmat-process-host = { workspace = true }
 runmat-package = { workspace = true }
 runmat-runtime = { workspace = true }
 runmat-test-runner = { workspace = true }
 runmat-test-runner-execution = { workspace = true }
+runmat-types = { workspace = true }
 runmat-vm = { workspace = true }
 dirs = "5.0"
 base64 = "0.22"
@@ -44,7 +51,9 @@ rcgen = "0.14"
 runmat-geometry-core = { workspace = true }
 runmat-geometry-fixtures = { workspace = true }
 runmat-meshing-curve = { workspace = true }
+runmat-native-codegen = { workspace = true, features = ["compiler"] }
 runmat-test = { workspace = true }
+target-lexicon = "0.12"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [[test]]

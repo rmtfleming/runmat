@@ -135,7 +135,7 @@ pub(super) async fn run_remote_driver(
     }
     let request = ProgramExecutionRequest::from_parts(descriptor, inputs).map_err(protocol)?;
     let materialized_project = (bootstrap.desired_worker_count == 0
-        && bundle.requires_source_project())
+        && bundle.requires_materialization())
     .then(|| crate::materialized_project::MaterializedProject::from_bundle(&bundle))
     .transpose()?;
 
@@ -174,11 +174,9 @@ pub(super) async fn run_remote_driver(
         if bootstrap.desired_worker_count == 0 {
             Ok(
                 super::pool_execution::RemotePoolExecutionOutcome::Completed(
-                    crate::execute_host_program_request_with_project(
+                    crate::test_workload::execute_host_program_request_with_project(
                         request,
-                        materialized_project
-                            .as_ref()
-                            .map(|project| project.handoff()),
+                        materialized_project.as_ref(),
                     )
                     .await,
                 ),
@@ -308,8 +306,8 @@ async fn commit_response(
     response: ProgramExecutionResponse,
 ) -> NativeExecutionResult<()> {
     match response {
-        ProgramExecutionResponse::Success { value } => {
-            let plaintext = serde_json::to_vec(&ProgramExecutionResponse::Success { value })
+        ProgramExecutionResponse::Success { outputs } => {
+            let plaintext = serde_json::to_vec(&ProgramExecutionResponse::Success { outputs })
                 .map_err(protocol)?;
             let result = store_encrypted(
                 control,
@@ -353,6 +351,28 @@ async fn commit_response(
             )
             .await
         }
+        ProgramExecutionResponse::SpmdSuccess { .. } => {
+            let message = "SPMD worker response requires the typed remote gang driver";
+            let diagnostic = store_encrypted(
+                control,
+                config,
+                run_key,
+                DriverArtifactKind::Diagnostic,
+                EncryptionPurpose::DetailedEvent,
+                message.as_bytes(),
+                None,
+            )
+            .await?;
+            transition(
+                control,
+                config,
+                DriverRunTarget::Failed,
+                Some("spmd-gang-driver-required"),
+                None,
+                Some(diagnostic),
+            )
+            .await
+        }
         ProgramExecutionResponse::Failure { message } => {
             let diagnostic = store_encrypted(
                 control,
@@ -369,6 +389,29 @@ async fn commit_response(
                 config,
                 DriverRunTarget::Failed,
                 Some("execution-failed"),
+                None,
+                Some(diagnostic),
+            )
+            .await
+        }
+        ProgramExecutionResponse::RuntimeFailure { failure } => {
+            let response = ProgramExecutionResponse::RuntimeFailure { failure };
+            let plaintext = serde_json::to_vec(&response).map_err(protocol)?;
+            let diagnostic = store_encrypted(
+                control,
+                config,
+                run_key,
+                DriverArtifactKind::Diagnostic,
+                EncryptionPurpose::DetailedEvent,
+                &plaintext,
+                None,
+            )
+            .await?;
+            transition(
+                control,
+                config,
+                DriverRunTarget::Failed,
+                Some("runtime-execution-failed"),
                 None,
                 Some(diagnostic),
             )

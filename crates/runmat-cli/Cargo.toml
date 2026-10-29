@@ -52,11 +52,14 @@ openssl-sys = { version = "0.9.109", optional = true }
 
 # RunMat crates
 runmat-core = { version = "=0.6.2", path = "../runmat-core" }
+runmat-mex = { workspace = true }
 runmat-aot = { workspace = true }
 runmat-native-codegen = { workspace = true, features = ["compiler"] }
 runmat-execution = { workspace = true }
 runmat-execution-artifact = { workspace = true }
 runmat-execution-runner-native = { workspace = true }
+runmat-native-ffi = { workspace = true }
+runmat-java = { workspace = true }
 runmat-process-host = { workspace = true }
 runmat-parser = { version = "=0.6.2", path = "../runmat-parser" }
 runmat-hir = { version = "=0.6.2", path = "../runmat-hir" }
@@ -73,6 +76,7 @@ runmat-package = { workspace = true }
 runmat-package-cache = { workspace = true }
 runmat-package-cache-native = { workspace = true }
 runmat-time = { version = "=0.6.2", path = "../runmat-time" }
+runmat-types = { workspace = true }
 runmat-filesystem = { version = "=0.6.2", path = "../runmat-filesystem" }
 runmat-telemetry = { version = "=0.6.2", path = "../runmat-telemetry" }
 runmat-static-analysis = { version = "=0.6.2", path = "../runmat-static-analysis" }
@@ -82,12 +86,14 @@ runmat-test = { workspace = true }
 runmat-test-runner = { workspace = true }
 runmat-test-runner-execution = { workspace = true }
 runmat-test-runner-native = { workspace = true }
+runmat-python = { workspace = true }
 sha2 = { workspace = true }
 
 [features]
 # High-level feature toggles (default build keeps everything enabled)
-default = ["gui", "blas-lapack", "wgpu", "jit", "occt-native"]
+default = ["gui", "blas-lapack", "wgpu", "cuda", "jit", "occt-native"]
 wgpu = ["runmat-accelerate/wgpu", "runmat-runtime/wgpu"]
+cuda = ["runmat-accelerate/cuda"]
 gui = ["runmat-plot/gui"]
 blas-lapack = ["runmat-runtime/blas-lapack"]
 blas-only = ["runmat-runtime/blas-only"]
@@ -96,6 +102,7 @@ vendored-openssl = ["openssl/vendored", "openssl-sys/vendored"]
 occt-native = ["runmat-core/occt-native", "runmat-runtime/occt-native"]
 
 [dev-dependencies]
+libc = "0.2"
 tempfile = "3.12" 
 git2 = { version = "0.20", default-features = false }
 serde_json = { workspace = true }

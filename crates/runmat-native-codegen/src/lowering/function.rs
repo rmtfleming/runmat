@@ -13,6 +13,13 @@ pub(super) fn lower_function(
     binding_names: Option<&BTreeMap<runmat_types::BindingId, String>>,
     regions: &[RegionContract],
 ) -> NativeCodegenResult<NativeFunction> {
+    body.validate_expression_regions().map_err(|error| {
+        NativeCodegenError::new(
+            "native.lowering.expression_region",
+            format!("invalid MIR expression region: {error}"),
+        )
+        .at_function(function)
+    })?;
     let local_count = body.locals.len();
     let _ = u32::try_from(local_count).map_err(|_| {
         NativeCodegenError::new(
@@ -213,14 +220,26 @@ pub(super) fn lower_function(
     })?;
     let abi = lower_abi(body, function)?;
     let argument_validations = lower_argument_validations(metadata, &locals, &abi, function)?;
+    let capabilities = analysis
+        .function(function)
+        .ok_or_else(|| {
+            NativeCodegenError::new(
+                "native.lowering.function_analysis",
+                "MIR function has no canonical analysis summary",
+            )
+            .at_function(function)
+        })?
+        .capabilities
+        .clone();
     Ok(NativeFunction {
         id: function,
         source: metadata.source,
         name: metadata.name.0.clone(),
+        class_method_owner: metadata.class_method_owner.clone(),
+        capabilities,
         abi,
         argument_validations,
         locals,
-        index_expressions: super::index_expression::derive(body, function)?,
         entry: checked_block(entry.id, function)?,
         blocks,
         expected_sites,
@@ -271,19 +290,24 @@ pub(super) fn lower_argument_validations(
 fn rvalue_result(statement: &MirStmtKind) -> NativeCodegenResult<NativeRvalueResult> {
     Ok(match statement {
         MirStmtKind::Assign { .. } => NativeRvalueResult::Assignment,
-        MirStmtKind::MultiAssign { targets, .. } => NativeRvalueResult::MultiAssignment(
-            u32::try_from(targets.targets.len()).map_err(|_| {
+        MirStmtKind::MultiAssign { targets, .. } => {
+            let _ = u32::try_from(targets.targets.len()).map_err(|_| {
                 NativeCodegenError::new(
                     "native.lowering.output_arity",
                     "MIR output arity exceeds the Native IR schema",
                 )
-            })?,
-        ),
+            })?;
+            NativeRvalueResult::MultiAssignment(targets.clone())
+        }
+        MirStmtKind::SequenceAssign { target, .. } => {
+            NativeRvalueResult::SequenceAssignment(target.clone())
+        }
         MirStmtKind::Expr(value) if expression_produces_value(value) => {
             NativeRvalueResult::Expression
         }
         MirStmtKind::Expr(_) => NativeRvalueResult::Discard,
         MirStmtKind::PlaceMutation(_)
+        | MirStmtKind::CaptureSequence { .. }
         | MirStmtKind::WorkspaceEffect { .. }
         | MirStmtKind::EnvironmentEffect(_) => {
             return Err(NativeCodegenError::new(
@@ -301,17 +325,27 @@ fn statement_rvalue_outputs(
         MirStmtKind::Assign { place, value } => {
             Some((value, vec![super::operation::root_local(place)]))
         }
-        MirStmtKind::MultiAssign { targets, value } => Some((
-            value,
-            targets
+        MirStmtKind::MultiAssign { targets, value } => {
+            let outputs = if targets
                 .targets
                 .iter()
-                .map(|target| match target {
-                    MirOutputTarget::Place(place) => super::operation::root_local(place),
-                    MirOutputTarget::Discard => None,
-                })
-                .collect(),
-        )),
+                .any(|target| matches!(target, MirOutputTarget::Sequence(_)))
+            {
+                Vec::new()
+            } else {
+                targets
+                    .targets
+                    .iter()
+                    .map(|target| match target {
+                        MirOutputTarget::Place(place) => super::operation::root_local(place),
+                        MirOutputTarget::Sequence(_) => None,
+                        MirOutputTarget::Discard => None,
+                    })
+                    .collect()
+            };
+            Some((value, outputs))
+        }
+        MirStmtKind::SequenceAssign { value, .. } => Some((value, Vec::new())),
         MirStmtKind::Expr(value) => Some((
             value,
             expression_produces_value(value)
@@ -320,13 +354,24 @@ fn statement_rvalue_outputs(
                 .collect(),
         )),
         MirStmtKind::PlaceMutation(_)
+        | MirStmtKind::CaptureSequence { .. }
         | MirStmtKind::WorkspaceEffect { .. }
         | MirStmtKind::EnvironmentEffect(_) => None,
     }
 }
 
 fn expression_produces_value(value: &runmat_mir::MirRvalue) -> bool {
-    !matches!(value, runmat_mir::MirRvalue::Call(call) if call.requested_outputs.fixed_count() == 0)
+    !matches!(value, runmat_mir::MirRvalue::Call(call) if call.requested_outputs.known_count() == Some(0))
+        && !matches!(
+            value,
+            runmat_mir::MirRvalue::Member {
+                sequence_use: runmat_types::SequenceUse::Discard,
+                ..
+            } | runmat_mir::MirRvalue::DynamicMember {
+                sequence_use: runmat_types::SequenceUse::Discard,
+                ..
+            }
+        )
 }
 
 fn statement_output_roots(statement: &MirStmtKind) -> Vec<MirLocalId> {
@@ -339,20 +384,30 @@ fn statement_output_roots(statement: &MirStmtKind) -> Vec<MirLocalId> {
             .iter()
             .filter_map(|target| match target {
                 MirOutputTarget::Place(place) => super::operation::root_local(place),
+                MirOutputTarget::Sequence(target) => super::operation::root_local(target.base()),
                 MirOutputTarget::Discard => None,
             })
             .collect(),
+        MirStmtKind::SequenceAssign { target, .. } => {
+            sequence_target_root_local(target).into_iter().collect()
+        }
         MirStmtKind::PlaceMutation(mutation) => super::operation::root_local(&mutation.place)
             .into_iter()
             .collect(),
         MirStmtKind::WorkspaceEffect { bindings, .. } => bindings.clone(),
-        MirStmtKind::Expr(_) | MirStmtKind::EnvironmentEffect(_) => Vec::new(),
+        MirStmtKind::Expr(_)
+        | MirStmtKind::CaptureSequence { .. }
+        | MirStmtKind::EnvironmentEffect(_) => Vec::new(),
     };
     let mut seen = BTreeSet::new();
     roots
         .into_iter()
         .filter(|local| seen.insert(*local))
         .collect()
+}
+
+fn sequence_target_root_local(target: &runmat_mir::MirSequenceTarget) -> Option<MirLocalId> {
+    super::operation::root_local(target.base())
 }
 
 pub(super) fn lower_abi(

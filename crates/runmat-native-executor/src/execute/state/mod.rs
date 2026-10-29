@@ -55,6 +55,24 @@ pub(super) struct HostState {
     pub pending_place_mutation: Option<runmat_mir::MirPlaceMutation>,
     pub program_capture: Option<Vec<u8>>,
     pub pending_await: Option<super::awaiting::PendingAwait>,
+    pub pending_call: Option<super::call_suspension::PendingCall>,
+    pub completed_call: Option<super::call_suspension::CompletedCall>,
+    /// Typed one-producer/one-consumer channel between a sequence-assignment
+    /// rvalue site and its immediately following statement site.
+    pub sequence_assignment_register: Option<super::mutation::PreparedSequenceAssignment>,
+    pub prepared_multi_assignment: Option<super::mutation::PreparedMultiAssignment>,
+    /// First-class comma-separated sequences captured in source evaluation
+    /// order and consumed by a later call or aggregate construction.
+    pub captured_sequences:
+        BTreeMap<runmat_mir::MirSequenceLocalId, Vec<runmat_runtime::native::NativeValueRef>>,
+    pub contextual_index_extents: Vec<usize>,
+    pub subscript_end_receivers: Vec<(
+        runmat_runtime::object::protocol::PreparedSubscriptReceiver,
+        usize,
+        usize,
+    )>,
+    contextual_regions: contextual_regions::ContextualRegionState,
+    pub current_request: Option<runmat_runtime::native::NativeSiteRequest>,
     resume_target: Option<runmat_runtime::native::NativeSiteRequest>,
     current_block: Option<NativeBlockId>,
     global_bindings: BTreeMap<usize, String>,
@@ -247,6 +265,15 @@ impl HostState {
             pending_place_mutation: None,
             program_capture,
             pending_await: None,
+            pending_call: None,
+            completed_call: None,
+            sequence_assignment_register: None,
+            prepared_multi_assignment: None,
+            captured_sequences: BTreeMap::new(),
+            contextual_index_extents: Vec::new(),
+            subscript_end_receivers: Vec::new(),
+            contextual_regions: contextual_regions::ContextualRegionState::default(),
+            current_request: None,
             resume_target: None,
             current_block: None,
             global_bindings: BTreeMap::new(),
@@ -284,9 +311,12 @@ impl HostState {
 }
 
 mod captures;
+mod contextual_regions;
 mod continuation;
 mod control;
 mod workspace;
+
+pub(crate) use contextual_regions::EmbeddedOperationIdentity;
 
 fn optimized_site_identity(
     request: runmat_runtime::native::NativeSiteRequest,

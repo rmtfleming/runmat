@@ -2,7 +2,7 @@ use runmat_execution::value::{DenseValue, ElementType, InlineValue, ValuePayload
 use runmat_execution::OutputContract;
 use runmat_execution_artifact::{
     ExecutableForm, ProgramArtifact, ProgramBuildRecipe, ProgramExecutionRequest,
-    PROGRAM_EXECUTION_REQUEST_SCHEMA_V1,
+    PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
 };
 use runmat_test::identity::TestId;
 use runmat_test_runner::worker::{RunSubmission, WorkerExecution};
@@ -52,7 +52,10 @@ impl TestAttemptWorkload {
         Ok(())
     }
 
-    pub fn program_request(&self) -> Result<ProgramExecutionRequest, String> {
+    pub fn program_request(
+        &self,
+        interop: runmat_types::InteropManifest,
+    ) -> Result<ProgramExecutionRequest, String> {
         self.validate()?;
         let recipe = ProgramBuildRecipe {
             schema_version: runmat_execution_artifact::PROGRAM_BUILD_RECIPE_SCHEMA_VERSION,
@@ -63,6 +66,8 @@ impl TestAttemptWorkload {
             },
             execution_mode: TEST_ATTEMPT_EXECUTION_MODE.into(),
             target: runmat_execution_artifact::ProgramTarget::portable(TEST_ATTEMPT_TARGET_PROFILE),
+            interop,
+            accelerators: Vec::new(),
             features: Default::default(),
             compile_options: Default::default(),
             source_objects: Vec::new(),
@@ -72,10 +77,16 @@ impl TestAttemptWorkload {
         let artifact = ProgramArtifact::materialize(&recipe, ExecutableForm::TestAttemptV1, bytes)
             .map_err(|error| error.to_string())?;
         let request = ProgramExecutionRequest {
-            schema_version: PROGRAM_EXECUTION_REQUEST_SCHEMA_V1,
+            schema_version: PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
             recipe,
             artifact,
-            function: 0,
+            callable: runmat_execution::ProgramCallable::semantic(
+                runmat_execution::ProgramFunctionId(0),
+                None,
+            ),
+            context: runmat_execution::ProgramInvocationContext::Direct,
+            assignment: None,
+            job_id: None,
             arguments: Vec::new(),
             requested_outputs: 1,
         };

@@ -34,11 +34,12 @@ use crate::builtins::containers::type_resolvers::{
     map_cell_type, map_handle_type, map_is_key_type, map_unknown_type,
 };
 use crate::{
-    build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError, OBJECT_INDEX_BRACE,
-    OBJECT_INDEX_MEMBER, OBJECT_INDEX_PAREN, OBJECT_SUBSASGN_METHOD, OBJECT_SUBSREF_METHOD,
+    build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError,
+    OBJECT_SUBSASGN_METHOD, OBJECT_SUBSREF_METHOD,
 };
 
-const CLASS_NAME: &str = "containers.Map";
+const CLASS_IDENTITY: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("containers.Map");
 const BUILTIN_CONSTRUCTOR: &str = "containers.Map";
 const BUILTIN_KEYS: &str = "containers.Map.keys";
 const BUILTIN_VALUES: &str = "containers.Map.values";
@@ -204,7 +205,7 @@ const CONTAINERS_MAP_ISKEY_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDe
     description: "Logical membership result for each key.",
 }];
 
-const CONTAINERS_MAP_INPUTS_SUBSREF: [BuiltinParamDescriptor; 3] = [
+const CONTAINERS_MAP_INPUTS_SUBSREF: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "M",
         ty: BuiltinParamType::Any,
@@ -213,22 +214,15 @@ const CONTAINERS_MAP_INPUTS_SUBSREF: [BuiltinParamDescriptor; 3] = [
         description: "containers.Map handle object.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Indexing kind: (), ., or {}.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Indexing payload cell/property argument.",
+        description: "Standard substruct-compatible indexing path.",
     },
 ];
 
-const CONTAINERS_MAP_INPUTS_SUBSASGN: [BuiltinParamDescriptor; 4] = [
+const CONTAINERS_MAP_INPUTS_SUBSASGN: [BuiltinParamDescriptor; 3] = [
     BuiltinParamDescriptor {
         name: "M",
         ty: BuiltinParamType::Any,
@@ -237,18 +231,11 @@ const CONTAINERS_MAP_INPUTS_SUBSASGN: [BuiltinParamDescriptor; 4] = [
         description: "containers.Map handle object.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Assignment kind: (), ., or {}.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Assignment payload cell/property argument.",
+        description: "Standard substruct-compatible assignment path.",
     },
     BuiltinParamDescriptor {
         name: "rhs",
@@ -303,14 +290,14 @@ const CONTAINERS_MAP_REMOVE_SIGNATURES: [BuiltinSignatureDescriptor; 1] =
 
 const CONTAINERS_MAP_SUBSREF_SIGNATURES: [BuiltinSignatureDescriptor; 1] =
     [BuiltinSignatureDescriptor {
-        label: "value = containers.Map.subsref(M, kind, payload)",
+        label: "value = containers.Map.subsref(M, S)",
         inputs: &CONTAINERS_MAP_INPUTS_SUBSREF,
         outputs: &CONTAINERS_MAP_SUBSREF_OUTPUT,
     }];
 
 const CONTAINERS_MAP_SUBSASGN_SIGNATURES: [BuiltinSignatureDescriptor; 1] =
     [BuiltinSignatureDescriptor {
-        label: "M = containers.Map.subsasgn(M, kind, payload, rhs)",
+        label: "M = containers.Map.subsasgn(M, S, rhs)",
         inputs: &CONTAINERS_MAP_INPUTS_SUBSASGN,
         outputs: &CONTAINERS_MAP_OUTPUT,
     }];
@@ -597,7 +584,7 @@ pub const CONTAINERS_MAP_REMOVE_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityD
 ];
 pub const CONTAINERS_MAP_SUBSREF_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 4] = [
     BuiltinIntegerCapabilityDescriptor {
-        form: "count = containers.Map.subsref(M, '.', 'Count')",
+        form: "S = substruct('.', 'Count'); count = containers.Map.subsref(M, S)",
         inputs: &[],
         computation_domain: BuiltinIntegerComputationDomain::Structural,
         output_class: BuiltinIntegerOutputClassRule::FunctionSpecific,
@@ -607,7 +594,7 @@ pub const CONTAINERS_MAP_SUBSREF_INTEGER_CAPABILITIES: [BuiltinIntegerCapability
         notes: "The read-only Count property is a scalar uint64 and is derived from the host Map entry count without floating conversion.",
     },
     BuiltinIntegerCapabilityDescriptor {
-        form: "value = containers.Map.subsref(M, '()', integer_key)",
+        form: "S = substruct('()', {integer_key}); value = containers.Map.subsref(M, S)",
         inputs: &MAP_KEY_INPUT,
         computation_domain: BuiltinIntegerComputationDomain::Structural,
         output_class: BuiltinIntegerOutputClassRule::NotApplicable,
@@ -617,7 +604,7 @@ pub const CONTAINERS_MAP_SUBSREF_INTEGER_CAPABILITIES: [BuiltinIntegerCapability
         notes: "The integer controls lookup only; output class is the stored value class.",
     },
     BuiltinIntegerCapabilityDescriptor {
-        form: "integer_value = containers.Map.subsref(M_with_integer_value, '()', key)",
+        form: "S = substruct('()', {key}); integer_value = containers.Map.subsref(M_with_integer_value, S)",
         inputs: &MAP_STORED_VALUE_INPUT,
         computation_domain: BuiltinIntegerComputationDomain::Structural,
         output_class: BuiltinIntegerOutputClassRule::PreserveInput,
@@ -628,7 +615,7 @@ pub const CONTAINERS_MAP_SUBSREF_INTEGER_CAPABILITIES: [BuiltinIntegerCapability
             "Lookup returns the exact stored integer scalar or array without floating conversion.",
     },
     BuiltinIntegerCapabilityDescriptor {
-        form: "value = containers.Map.subsref(M, '()', resident_integer_key)",
+        form: "S = substruct('()', {resident_integer_key}); value = containers.Map.subsref(M, S)",
         inputs: &MAP_RESIDENT_KEY_INPUT,
         computation_domain: BuiltinIntegerComputationDomain::Structural,
         output_class: BuiltinIntegerOutputClassRule::NotApplicable,
@@ -640,7 +627,7 @@ pub const CONTAINERS_MAP_SUBSREF_INTEGER_CAPABILITIES: [BuiltinIntegerCapability
 ];
 pub const CONTAINERS_MAP_SUBSASGN_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 2] = [
     BuiltinIntegerCapabilityDescriptor {
-        form: "containers.Map.subsasgn(M, '()', integer_key, integer_rhs)",
+        form: "S = substruct('()', {integer_key}); containers.Map.subsasgn(M, S, integer_rhs)",
         inputs: &MAP_ASSIGN_INPUTS,
         computation_domain: BuiltinIntegerComputationDomain::Structural,
         output_class: BuiltinIntegerOutputClassRule::NotApplicable,
@@ -650,7 +637,7 @@ pub const CONTAINERS_MAP_SUBSASGN_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilit
         notes: "Exact key identity is independent of exact rhs storage; a declared integer ValueType applies MATLAB integer conversion before storage.",
     },
     BuiltinIntegerCapabilityDescriptor {
-        form: "containers.Map.subsasgn(M, '()', resident_integer_key, resident_integer_rhs)",
+        form: "S = substruct('()', {resident_integer_key}); containers.Map.subsasgn(M, S, resident_integer_rhs)",
         inputs: &MAP_RESIDENT_ASSIGN_INPUTS,
         computation_domain: BuiltinIntegerComputationDomain::Structural,
         output_class: BuiltinIntegerOutputClassRule::NotApplicable,
@@ -799,7 +786,7 @@ thread_local! {
 }
 
 static CONTAINERS_MAP_CLASS_REGISTERED: crate::class_registry::ClassRegistration =
-    crate::class_registry::ClassRegistration::new(CLASS_NAME);
+    crate::class_registry::ClassRegistration::new(CLASS_IDENTITY);
 
 struct MapRootState {
     root_id: RootId,
@@ -897,9 +884,9 @@ fn ensure_containers_map_class_registered() {
         let mut properties = HashMap::new();
         for name in ["Count", "KeyType", "ValueType"] {
             properties.insert(
-                name.to_string(),
+                name.into(),
                 crate::class_registry::RuntimeProperty {
-                    name: name.to_string(),
+                    name: name.into(),
                     is_static: false,
                     is_constant: false,
                     is_dependent: true,
@@ -912,29 +899,35 @@ fn ensure_containers_map_class_registered() {
 
         let mut methods = HashMap::new();
         for (name, function_name) in [
-            ("keys", BUILTIN_KEYS),
-            ("values", BUILTIN_VALUES),
-            ("isKey", BUILTIN_IS_KEY),
-            ("remove", BUILTIN_REMOVE),
+            (runmat_types::StaticMethodName::new("keys"), BUILTIN_KEYS),
+            (
+                runmat_types::StaticMethodName::new("values"),
+                BUILTIN_VALUES,
+            ),
+            (runmat_types::StaticMethodName::new("isKey"), BUILTIN_IS_KEY),
+            (
+                runmat_types::StaticMethodName::new("remove"),
+                BUILTIN_REMOVE,
+            ),
             (OBJECT_SUBSREF_METHOD, BUILTIN_SUBSREF),
             (OBJECT_SUBSASGN_METHOD, BUILTIN_SUBSASGN),
         ] {
             methods.insert(
-                name.to_string(),
+                name.into(),
                 crate::class_registry::RuntimeMethod {
-                    name: name.to_string(),
+                    name: name.into(),
                     is_static: false,
                     is_abstract: false,
                     is_sealed: false,
                     access: MemberAccess::Public,
-                    function_name: function_name.to_string(),
+                    function_name: function_name.into(),
                     implicit_class_argument: None,
                 },
             );
         }
 
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: CLASS_NAME.to_string(),
+            name: CLASS_IDENTITY.into(),
             parent: None,
             properties,
             methods,
@@ -1242,7 +1235,7 @@ impl ValueClass {
             Value::Bool(_) | Value::LogicalArray(_) => ValueClass::Logical,
             Value::Int(value) => ValueClass::Numeric(int_value_dtype(value)),
             Value::Cell(_) => ValueClass::Cell,
-            Value::Struct(_) => ValueClass::Struct,
+            Value::Struct(_) | Value::StructArray(_) => ValueClass::Struct,
             Value::ObjectArray(_)
             | Value::Object(_)
             | Value::HandleObject(_)
@@ -1432,11 +1425,16 @@ async fn containers_map_remove(map: Value, key_spec: Value) -> crate::BuiltinRes
     integer_capabilities(crate::builtins::containers::map::containers_map::CONTAINERS_MAP_SUBSREF_INTEGER_CAPABILITIES),
     builtin_path = "crate::builtins::containers::map::containers_map"
 )]
-async fn containers_map_subsref(
+async fn containers_map_subsref(map: Value, subscript: Value) -> crate::BuiltinResult<Value> {
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsref(map, path, containers_map_read_step, None).await
+}
+
+async fn containers_map_read_step(
     map: Value,
-    kind: String,
-    payload: Value,
+    step: crate::object::indexing::ObjectSubscript,
 ) -> crate::BuiltinResult<Value> {
+    let payload = step.selector_value()?;
     ensure_resident_extension(&payload, &MAP_RESIDENT_SUBSREF_EXTENSION, BUILTIN_SUBSREF)?;
     if !matches!(map, Value::HandleObject(_)) {
         return Err(map_error(
@@ -1444,8 +1442,8 @@ async fn containers_map_subsref(
             BUILTIN_SUBSREF,
         ));
     }
-    match kind.as_str() {
-        OBJECT_INDEX_PAREN => {
+    match step.kind() {
+        crate::object::indexing::ObjectIndexKind::Paren => {
             let mut args = extract_key_arguments(&payload, BUILTIN_SUBSREF)?;
             if args.is_empty() {
                 return Err(map_error(
@@ -1476,7 +1474,7 @@ async fn containers_map_subsref(
                 })
             })
         }
-        OBJECT_INDEX_MEMBER => {
+        crate::object::indexing::ObjectIndexKind::Member => {
             let field = string_from_value(
                 &payload,
                 "containers.Map: property name must be text",
@@ -1496,12 +1494,8 @@ async fn containers_map_subsref(
                 }
             })
         }
-        OBJECT_INDEX_BRACE => Err(map_error(
+        crate::object::indexing::ObjectIndexKind::Brace => Err(map_error(
             "containers.Map: curly-brace indexing is not supported.",
-            BUILTIN_SUBSREF,
-        )),
-        other => Err(map_error(
-            format!("containers.Map: unsupported indexing kind '{other}'"),
             BUILTIN_SUBSREF,
         )),
     }
@@ -1519,10 +1513,35 @@ async fn containers_map_subsref(
 )]
 async fn containers_map_subsasgn(
     map: Value,
-    kind: String,
-    payload: Value,
+    subscript: Value,
     rhs: Value,
 ) -> crate::BuiltinResult<Value> {
+    let path = crate::object::indexing::parse_standard_substruct(&subscript)?;
+    crate::object::protocol::execute_owned_subsasgn(
+        map,
+        path,
+        vec![rhs],
+        containers_map_read_step,
+        |map, step, mut values| async move {
+            let rhs = values.pop().ok_or_else(|| {
+                map_error(
+                    "containers.Map: assignment value is missing",
+                    BUILTIN_SUBSASGN,
+                )
+            })?;
+            containers_map_write_step(map, step, rhs).await
+        },
+        None,
+    )
+    .await
+}
+
+async fn containers_map_write_step(
+    map: Value,
+    step: crate::object::indexing::ObjectSubscript,
+    rhs: Value,
+) -> crate::BuiltinResult<Value> {
+    let payload = step.selector_value()?;
     if contains_resident_value(&payload) || contains_resident_value(&rhs) {
         crate::compatibility::ensure_builtin_extension_enabled(
             &MAP_RESIDENT_SUBSASGN_EXTENSION,
@@ -1535,8 +1554,8 @@ async fn containers_map_subsasgn(
             BUILTIN_SUBSASGN,
         ));
     }
-    match kind.as_str() {
-        OBJECT_INDEX_PAREN => {
+    match step.kind() {
+        crate::object::indexing::ObjectIndexKind::Paren => {
             let mut args = extract_key_arguments(&payload, BUILTIN_SUBSASGN)?;
             if args.is_empty() {
                 return Err(map_error(
@@ -1578,16 +1597,12 @@ async fn containers_map_subsasgn(
             })?;
             Ok(map)
         }
-        OBJECT_INDEX_MEMBER => Err(map_error(
+        crate::object::indexing::ObjectIndexKind::Member => Err(map_error(
             "containers.Map: property assignments are not supported.",
             BUILTIN_SUBSASGN,
         )),
-        OBJECT_INDEX_BRACE => Err(map_error(
+        crate::object::indexing::ObjectIndexKind::Brace => Err(map_error(
             "containers.Map: curly-brace assignment is not supported.",
-            BUILTIN_SUBSASGN,
-        )),
-        other => Err(map_error(
-            format!("containers.Map: unsupported assignment kind '{other}'"),
             BUILTIN_SUBSASGN,
         )),
     }
@@ -1877,7 +1892,7 @@ fn allocate_handle(store: MapStore, builtin: &'static str) -> BuiltinResult<Valu
             .insert(id, store);
         Ok::<(), RuntimeError>(())
     })?;
-    let mut storage = ObjectInstance::new(CLASS_NAME.to_string());
+    let mut storage = ObjectInstance::new(CLASS_IDENTITY);
     storage
         .properties
         .insert("id".to_string(), Value::Int(IntValue::U64(id)));
@@ -1904,7 +1919,7 @@ fn allocate_handle(store: MapStore, builtin: &'static str) -> BuiltinResult<Valu
         Ok::<(), RuntimeError>(())
     })?;
     Ok(Value::HandleObject(HandleRef {
-        class_name: CLASS_NAME.to_string(),
+        class_name: CLASS_IDENTITY.owned(),
         target: gc,
         valid: true,
     }))
@@ -1960,11 +1975,11 @@ fn ensure_handle(handle: &HandleRef, builtin: &'static str) -> BuiltinResult<()>
     if !crate::is_handle_valid(handle) {
         return Err(map_error("containers.Map: handle is invalid", builtin));
     }
-    if handle.class_name != CLASS_NAME {
+    if !handle.class_name.is(CLASS_IDENTITY) {
         return Err(map_error(
             format!(
                 "containers.Map: expected handle of class '{}', got '{}'",
-                CLASS_NAME, handle.class_name
+                CLASS_IDENTITY, handle.class_name
             ),
             builtin,
         ));
@@ -1980,7 +1995,9 @@ fn map_id(handle: &HandleRef, builtin: &'static str) -> BuiltinResult<u64> {
         )
     })?;
     let id_value = match &storage {
-        Value::Object(object) if object.class_name == CLASS_NAME => object.properties.get("id"),
+        Value::Object(object) if object.class_name.is(CLASS_IDENTITY) => {
+            object.properties.get("id")
+        }
         Value::Struct(StructValue { fields }) => fields.get("id"),
         other => {
             return Err(map_internal(
@@ -2424,6 +2441,7 @@ fn normalize_numeric_value(
         Value::Cell(_)
         | Value::SparseTensor(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -2446,6 +2464,8 @@ fn normalize_numeric_value(
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::GpuTensor(_)
         | Value::OutputList(_)
@@ -2490,6 +2510,7 @@ fn normalize_logical_value(value: Value, builtin: &'static str) -> BuiltinResult
         | Value::String(_)
         | Value::StringArray(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::Cell(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
@@ -2510,6 +2531,8 @@ fn normalize_logical_value(value: Value, builtin: &'static str) -> BuiltinResult
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::GpuTensor(_)
         | Value::OutputList(_)
@@ -2847,7 +2870,7 @@ async fn collect_key_spec(
 
 pub fn map_length(value: &Value) -> Option<usize> {
     if let Value::HandleObject(handle) = value {
-        if crate::is_handle_valid(handle) && handle.class_name == CLASS_NAME {
+        if crate::is_handle_valid(handle) && handle.class_name.is(CLASS_IDENTITY) {
             if let Ok(id) = map_id(handle, BUILTIN_CONSTRUCTOR) {
                 return MAP_REGISTRY.with(|registry| {
                     registry
@@ -2894,7 +2917,9 @@ pub(crate) mod tests {
     }
 
     fn containers_map_subsref(map: Value, kind: String, payload: Value) -> BuiltinResult<Value> {
-        block_on(super::containers_map_subsref(map, kind, payload))
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        block_on(super::containers_map_subsref(map, subscript))
     }
 
     fn containers_map_subsasgn(
@@ -2903,7 +2928,9 @@ pub(crate) mod tests {
         payload: Value,
         rhs: Value,
     ) -> BuiltinResult<Value> {
-        block_on(super::containers_map_subsasgn(map, kind, payload, rhs))
+        let subscript =
+            crate::object::indexing::standard_substruct_fixture_from_parts(&kind, payload)?;
+        block_on(super::containers_map_subsasgn(map, subscript, rhs))
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -3296,11 +3323,11 @@ pub(crate) mod tests {
             Value::Num(f64::INFINITY),
             Value::Num(u64::MAX as f64),
         ] {
-            let mut storage = ObjectInstance::new(CLASS_NAME.to_string());
+            let mut storage = ObjectInstance::new(CLASS_IDENTITY);
             storage.properties.insert("id".to_string(), id_value);
             let target = runmat_gc::gc_allocate(Value::Object(storage)).expect("storage");
             let handle = HandleRef {
-                class_name: CLASS_NAME.to_string(),
+                class_name: CLASS_IDENTITY.owned(),
                 target,
                 valid: true,
             };
@@ -3710,18 +3737,18 @@ pub(crate) mod tests {
                 vec![crate::make_cell(vec![resident.clone()], 1, 1).unwrap()],
             ))
             .unwrap_err(),
-            block_on(super::containers_map_subsref(
+            containers_map_subsref(
                 char_map.clone(),
                 "()".to_string(),
                 crate::make_cell(vec![resident.clone()], 1, 1).unwrap(),
-            ))
+            )
             .unwrap_err(),
-            block_on(super::containers_map_subsasgn(
+            containers_map_subsasgn(
                 char_map,
                 "()".to_string(),
                 crate::make_cell(vec![Value::from("x")], 1, 1).unwrap(),
                 resident,
-            ))
+            )
             .unwrap_err(),
         ];
         for error in checks {

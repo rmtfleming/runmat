@@ -91,9 +91,9 @@ mod int_value_tests {
 #[cfg(test)]
 mod integer_storage_tests {
     use crate::{
-        ComplexStorage, ComplexTensor, IntValue, IntegerComplexStorage, IntegerStorage,
-        NumericDType, NumericScalar, NumericStorage, NumericStorageView, NumericStorageViewMut,
-        Tensor,
+        ComplexElement, ComplexStorage, ComplexTensor, IntValue, IntegerComplexStorage,
+        IntegerStorage, NumericDType, NumericScalar, NumericStorage, NumericStorageView,
+        NumericStorageViewMut, Tensor,
     };
 
     #[test]
@@ -124,6 +124,10 @@ mod integer_storage_tests {
         for (storage, dtype) in cases {
             let tensor = Tensor::new_integer(storage, vec![1, 1]).expect("integer tensor");
             assert_eq!(tensor.numeric_dtype(), dtype);
+            assert_eq!(
+                tensor.integer_storage().unwrap().integer_class(),
+                dtype.integer_class().unwrap()
+            );
             assert_eq!(
                 tensor.numeric_dtype().class_name(),
                 tensor.integer_storage().unwrap().class_name()
@@ -587,6 +591,23 @@ mod integer_storage_tests {
     }
 
     #[test]
+    fn tensor_clone_shares_until_safe_mutation_detaches() {
+        let original = Tensor::new(vec![1.0, 2.0], vec![2, 1]).unwrap();
+        let mut changed = original.clone();
+        assert!(original
+            .host_buffer()
+            .shares_allocation_with(changed.host_buffer()));
+
+        changed.set2(0, 0, 9.0).unwrap();
+
+        assert!(!original
+            .host_buffer()
+            .shares_allocation_with(changed.host_buffer()));
+        assert_eq!(original.get2(0, 0), Ok(1.0));
+        assert_eq!(changed.get2(0, 0), Ok(9.0));
+    }
+
+    #[test]
     fn integer_tensor_rejects_shape_length_mismatches() {
         let err = Tensor::new_integer(IntegerStorage::I16(vec![1, 2]), vec![3, 1])
             .expect_err("shape mismatch");
@@ -664,7 +685,16 @@ mod integer_storage_tests {
             ComplexTensor::from_f32(values.clone(), vec![1, 2]).expect("single complex tensor");
 
         assert_eq!(tensor.numeric_dtype(), NumericDType::F32);
-        assert_eq!(tensor.as_f32_slice(), Some(values.as_slice()));
+        assert_eq!(
+            tensor.as_f32_slice(),
+            Some(
+                [
+                    ComplexElement::from(values[0]),
+                    ComplexElement::from(values[1]),
+                ]
+                .as_slice()
+            )
+        );
         assert!(tensor.as_f64_slice().is_none());
         assert!(tensor.integer_storage().is_none());
 
@@ -673,16 +703,16 @@ mod integer_storage_tests {
             .expect("single complex assignment");
         assert_eq!(
             tensor.complex_storage(),
-            &ComplexStorage::F32(vec![(3.75_f32, -4.5_f32), values[1]])
+            &ComplexStorage::F32(vec![(3.75_f32, -4.5_f32), values[1]].into())
         );
     }
 
     #[test]
     fn complex_storage_gather_preserves_native_component_class() {
-        let single = ComplexStorage::F32(vec![(1.0, -1.0), (2.0, -2.0), (3.0, -3.0)]);
+        let single = ComplexStorage::F32(vec![(1.0, -1.0), (2.0, -2.0), (3.0, -3.0)].into());
         assert_eq!(
             single.gather(&[2, 0]),
-            Ok(ComplexStorage::F32(vec![(3.0, -3.0), (1.0, -1.0)]))
+            Ok(ComplexStorage::F32(vec![(3.0, -3.0), (1.0, -1.0)].into()))
         );
 
         let integer = ComplexStorage::Integer(
@@ -724,7 +754,16 @@ mod integer_storage_tests {
         assert_eq!(single.numeric_dtype(), NumericDType::F32);
         assert_eq!(single.materialize_f64(), values);
         assert_eq!(double.numeric_dtype(), NumericDType::F64);
-        assert_eq!(double.as_f64_slice(), Some(values.as_slice()));
+        assert_eq!(
+            double.as_f64_slice(),
+            Some(
+                [
+                    ComplexElement::from(values[0]),
+                    ComplexElement::from(values[1]),
+                ]
+                .as_slice()
+            )
+        );
     }
 
     #[test]

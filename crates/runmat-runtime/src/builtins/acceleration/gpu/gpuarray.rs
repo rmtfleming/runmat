@@ -3,7 +3,6 @@
 //! Direct `gpuArray(X)` upload follows MATLAB semantics. Optional size arguments,
 //! `'like'` prototypes, and explicit dtype toggles are RunMat-mode extensions.
 
-use crate::builtins::acceleration::gpu::type_resolvers::gpuarray_type;
 use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ProviderHook, ReductionNaN, ResidencyPolicy, ScalarType, ShapeRequirements,
@@ -13,12 +12,13 @@ use runmat_accelerate_api::{GpuTensorHandle, ProviderPrecision};
 #[cfg(test)]
 use runmat_accelerate_api::{HostIntegerDataView, HostIntegerTensorView};
 use runmat_builtins::{
-    BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinExtensionDescriptor,
-    BuiltinExtensionMode, BuiltinIntegerBackendRule, BuiltinIntegerCapabilityDescriptor,
-    BuiltinIntegerComputationDomain, BuiltinIntegerInputAvailability,
-    BuiltinIntegerInputCapability, BuiltinIntegerOutputClassRule, BuiltinIntegerOverflowRule,
-    BuiltinIntegerOverloadKind, BuiltinIntegerScalarDoubleRule, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamDescriptor, BuiltinParamType, BuiltinSignatureDescriptor,
+    BuiltinErrorDescriptor, GPUARRAY_DTYPE_EXTENSION, GPUARRAY_ERROR_CODISTRIBUTED_UNSUPPORTED,
+    GPUARRAY_ERROR_CONFLICTING_TYPE, GPUARRAY_ERROR_CONVERSION, GPUARRAY_ERROR_INPUT_TYPE,
+    GPUARRAY_ERROR_INTERNAL, GPUARRAY_ERROR_LIKE_DUPLICATE, GPUARRAY_ERROR_LIKE_MISSING,
+    GPUARRAY_ERROR_LIKE_PROTOTYPE, GPUARRAY_ERROR_NO_PROVIDER, GPUARRAY_ERROR_OPTION_ARGUMENT,
+    GPUARRAY_ERROR_PROVIDER_IO, GPUARRAY_ERROR_RESHAPE, GPUARRAY_ERROR_SIZE_ARGUMENT,
+    GPUARRAY_ERROR_TYPED_INTEGER, GPUARRAY_ERROR_UNKNOWN_OPTION, GPUARRAY_LIKE_EXTENSION,
+    GPUARRAY_SIZE_EXTENSION, GPUARRAY_TEXT_UPLOAD_EXTENSION,
 };
 use runmat_macros::runtime_builtin;
 use runmat_value::ComplexStorage;
@@ -30,339 +30,6 @@ use runmat_value::{
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const BUILTIN_NAME: &str = "gpuArray";
-
-const GPUARRAY_SIZE_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
-    id: "gpuarray-size-arguments",
-    mode: BuiltinExtensionMode::RunMatOnly,
-    description: "gpuArray size arguments are a RunMat extension",
-    error_identifier: Some("RunMat:compatibility:GpuArraySizeExtension"),
-};
-
-const GPUARRAY_DTYPE_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
-    id: "gpuarray-dtype-selector",
-    mode: BuiltinExtensionMode::RunMatOnly,
-    description: "gpuArray dtype selectors are a RunMat extension",
-    error_identifier: Some("RunMat:compatibility:GpuArrayDtypeExtension"),
-};
-
-const GPUARRAY_LIKE_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
-    id: "gpuarray-like",
-    mode: BuiltinExtensionMode::RunMatOnly,
-    description: "the gpuArray \"like\" prototype selector is a RunMat extension",
-    error_identifier: Some("RunMat:compatibility:GpuArrayLikeExtension"),
-};
-
-const GPUARRAY_TEXT_UPLOAD_EXTENSION: BuiltinExtensionDescriptor = BuiltinExtensionDescriptor {
-    id: "gpuarray-text-upload",
-    mode: BuiltinExtensionMode::RunMatOnly,
-    description:
-        "uploading character vectors or string scalars with gpuArray is a RunMat extension",
-    error_identifier: Some("RunMat:compatibility:GpuArrayTextUploadExtension"),
-};
-
-pub const GPUARRAY_EXTENSIONS: [BuiltinExtensionDescriptor; 4] = [
-    GPUARRAY_SIZE_EXTENSION,
-    GPUARRAY_DTYPE_EXTENSION,
-    GPUARRAY_LIKE_EXTENSION,
-    GPUARRAY_TEXT_UPLOAD_EXTENSION,
-];
-
-const GPUARRAY_INTEGER_INPUTS: [BuiltinIntegerInputCapability; 1] =
-    [BuiltinIntegerInputCapability {
-        name: "X",
-        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
-        availability: BuiltinIntegerInputAvailability::Documented,
-        scalar_double: BuiltinIntegerScalarDoubleRule::NotApplicable,
-        notes: "All eight integer classes upload as exact same-class real or paired-complex gpuArray storage with the original shape.",
-    }];
-
-const GPUARRAY_INTEGER_DTYPE_INPUTS: [BuiltinIntegerInputCapability; 1] =
-    [BuiltinIntegerInputCapability {
-        name: "X",
-        classes: &crate::builtins::common::integer_capability::ALL_INTEGER_CLASSES,
-        availability: BuiltinIntegerInputAvailability::RunMatOnly,
-        scalar_double: BuiltinIntegerScalarDoubleRule::Allowed,
-        notes: "RunMat-only dtype selectors may explicitly convert X to any supported integer gpuArray class.",
-    }];
-
-pub const GPUARRAY_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 2] = [
-    BuiltinIntegerCapabilityDescriptor {
-        form: "G = gpuArray(integer_X)",
-        inputs: &GPUARRAY_INTEGER_INPUTS,
-        computation_domain: BuiltinIntegerComputationDomain::Structural,
-        output_class: BuiltinIntegerOutputClassRule::PreserveInput,
-        overflow: BuiltinIntegerOverflowRule::NotApplicable,
-        backend: BuiltinIntegerBackendRule::HostAndGpu,
-        overload: BuiltinIntegerOverloadKind::ElementwiseShapePreserving,
-        notes: "The transfer preserves exact values, class, shape, and supported complexity. An existing gpuArray input is returned unchanged and remains valid.",
-    },
-    BuiltinIntegerCapabilityDescriptor {
-        form: "G = gpuArray(X, integer_dtype)",
-        inputs: &GPUARRAY_INTEGER_DTYPE_INPUTS,
-        computation_domain: BuiltinIntegerComputationDomain::Structural,
-        output_class: BuiltinIntegerOutputClassRule::OptionDependent,
-        overflow: BuiltinIntegerOverflowRule::Saturate,
-        backend: BuiltinIntegerBackendRule::HostAndGpu,
-        overload: BuiltinIntegerOverloadKind::ElementwiseShapePreserving,
-        notes: "RunMat-only conversion uses the requested native integer class and never consumes or invalidates a gpuArray input.",
-    },
-];
-
-const GPUARRAY_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "G",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "GPU-resident handle containing uploaded/converted data.",
-}];
-
-const GPUARRAY_INPUTS_BASE: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "X",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Input value to upload or recast on GPU.",
-}];
-
-const GPUARRAY_INPUTS_DIMS: [BuiltinParamDescriptor; 2] = [
-    BuiltinParamDescriptor {
-        name: "X",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Input value to upload or recast on GPU.",
-    },
-    BuiltinParamDescriptor {
-        name: "dim",
-        ty: BuiltinParamType::SizeArg,
-        arity: BuiltinParamArity::Variadic,
-        default: None,
-        description: "Reshape dimensions (scalar dims or a single size vector tensor).",
-    },
-];
-
-const GPUARRAY_INPUTS_DTYPE: [BuiltinParamDescriptor; 2] = [
-    BuiltinParamDescriptor {
-        name: "X",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Input value to upload or recast on GPU.",
-    },
-    BuiltinParamDescriptor {
-        name: "dtype",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: Some("\"double\""),
-        description: "Class tag such as `single`, `int32`, `uint8`, `logical`, or `double`.",
-    },
-];
-
-const GPUARRAY_INPUTS_LIKE: [BuiltinParamDescriptor; 3] = [
-    BuiltinParamDescriptor {
-        name: "X",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Input value to upload or recast on GPU.",
-    },
-    BuiltinParamDescriptor {
-        name: "like",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Literal keyword `\"like\"`.",
-    },
-    BuiltinParamDescriptor {
-        name: "prototype",
-        ty: BuiltinParamType::LikePrototype,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Prototype value whose class drives output conversion.",
-    },
-];
-
-const GPUARRAY_INPUTS_DIMS_OPTIONS: [BuiltinParamDescriptor; 3] = [
-    BuiltinParamDescriptor {
-        name: "X",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Input value to upload or recast on GPU.",
-    },
-    BuiltinParamDescriptor {
-        name: "dim",
-        ty: BuiltinParamType::SizeArg,
-        arity: BuiltinParamArity::Variadic,
-        default: None,
-        description: "Reshape dimensions (scalar dims or a single size vector tensor).",
-    },
-    BuiltinParamDescriptor {
-        name: "option",
-        ty: BuiltinParamType::Any,
-        arity: BuiltinParamArity::Variadic,
-        default: None,
-        description: "Class tags and/or `\"like\", prototype` qualifiers.",
-    },
-];
-
-const GPUARRAY_SIGNATURES: [BuiltinSignatureDescriptor; 5] = [
-    BuiltinSignatureDescriptor {
-        label: "G = gpuArray(X)",
-        inputs: &GPUARRAY_INPUTS_BASE,
-        outputs: &GPUARRAY_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "G = gpuArray(X, dim, ...)",
-        inputs: &GPUARRAY_INPUTS_DIMS,
-        outputs: &GPUARRAY_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "G = gpuArray(X, dtype)",
-        inputs: &GPUARRAY_INPUTS_DTYPE,
-        outputs: &GPUARRAY_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "G = gpuArray(X, \"like\", prototype)",
-        inputs: &GPUARRAY_INPUTS_LIKE,
-        outputs: &GPUARRAY_OUTPUT,
-    },
-    BuiltinSignatureDescriptor {
-        label: "G = gpuArray(X, dim, ..., option, ...)",
-        inputs: &GPUARRAY_INPUTS_DIMS_OPTIONS,
-        outputs: &GPUARRAY_OUTPUT,
-    },
-];
-
-const GPUARRAY_ERROR_NO_PROVIDER: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.NO_PROVIDER",
-    identifier: Some("RunMat:gpuArray:NoProvider"),
-    when: "No acceleration provider is registered for host/device transfers.",
-    message: "gpuArray: no acceleration provider registered",
-};
-
-const GPUARRAY_ERROR_OPTION_ARGUMENT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.OPTION_ARGUMENT",
-    identifier: Some("RunMat:gpuArray:OptionArgument"),
-    when: "Option tail contains non-text values where class tags/keywords are expected.",
-    message: "gpuArray: invalid option argument",
-};
-
-const GPUARRAY_ERROR_LIKE_MISSING: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.LIKE_MISSING",
-    identifier: Some("RunMat:gpuArray:LikeMissingPrototype"),
-    when: "Keyword `like` is supplied without a following prototype value.",
-    message: "gpuArray: expected a prototype value after 'like'",
-};
-
-const GPUARRAY_ERROR_LIKE_DUPLICATE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.LIKE_DUPLICATE",
-    identifier: Some("RunMat:gpuArray:LikeDuplicate"),
-    when: "Keyword `like` appears more than once.",
-    message: "gpuArray: duplicate 'like' qualifier",
-};
-
-const GPUARRAY_ERROR_CODISTRIBUTED_UNSUPPORTED: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.CODISTRIBUTED_UNSUPPORTED",
-    identifier: Some("RunMat:gpuArray:CodistributedUnsupported"),
-    when: "Distributed/codistributed qualifiers are requested.",
-    message: "gpuArray: codistributed arrays are not supported yet",
-};
-
-const GPUARRAY_ERROR_CONFLICTING_TYPE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.CONFLICTING_TYPE",
-    identifier: Some("RunMat:gpuArray:ConflictingTypeQualifiers"),
-    when: "Multiple incompatible class qualifiers are supplied.",
-    message: "gpuArray: conflicting type qualifiers supplied",
-};
-
-const GPUARRAY_ERROR_UNKNOWN_OPTION: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.UNKNOWN_OPTION",
-    identifier: Some("RunMat:gpuArray:UnknownOption"),
-    when: "Text option is not a recognized class/keyword token.",
-    message: "gpuArray: unrecognised option",
-};
-
-const GPUARRAY_ERROR_SIZE_ARGUMENT: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.SIZE_ARGUMENT",
-    identifier: Some("RunMat:gpuArray:InvalidSizeArgument"),
-    when: "Size arguments are malformed (not finite integers, negative, or invalid combinations).",
-    message: "gpuArray: invalid size argument",
-};
-
-const GPUARRAY_ERROR_LIKE_PROTOTYPE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.LIKE_PROTOTYPE",
-    identifier: Some("RunMat:gpuArray:InvalidLikePrototype"),
-    when: "`like` prototype is unsupported for type inference.",
-    message: "gpuArray: invalid 'like' prototype",
-};
-
-const GPUARRAY_ERROR_INPUT_TYPE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.INPUT_TYPE",
-    identifier: Some("RunMat:gpuArray:UnsupportedInputType"),
-    when: "Input value type cannot be uploaded/coerced to supported gpuArray storage.",
-    message: "gpuArray: unsupported input type",
-};
-
-const GPUARRAY_ERROR_TYPED_INTEGER: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.TYPED_INTEGER",
-    identifier: Some("RunMat:gpuArray:TypedIntegerUnsupported"),
-    when: "A native integer value or integer GPU class is requested without matching provider storage.",
-    message: "gpuArray: native integer storage is not supported by the active acceleration provider",
-};
-
-const GPUARRAY_ERROR_CONVERSION: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.CONVERSION",
-    identifier: Some("RunMat:gpuArray:ConversionFailed"),
-    when: "Requested dtype conversion cannot be performed (for example NaN->logical).",
-    message: "gpuArray: conversion failed",
-};
-
-const GPUARRAY_ERROR_RESHAPE: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.RESHAPE",
-    identifier: Some("RunMat:gpuArray:ReshapeMismatch"),
-    when: "Requested shape does not preserve the element count.",
-    message: "gpuArray: cannot reshape gpuArray into requested size",
-};
-
-const GPUARRAY_ERROR_PROVIDER_IO: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.PROVIDER_IO",
-    identifier: Some("RunMat:gpuArray:ProviderIO"),
-    when: "Provider upload/download interaction fails.",
-    message: "gpuArray: provider I/O failed",
-};
-
-const GPUARRAY_ERROR_INTERNAL: BuiltinErrorDescriptor = BuiltinErrorDescriptor {
-    code: "RM.GPUARRAY.INTERNAL",
-    identifier: Some("RunMat:gpuArray:InternalError"),
-    when: "Internal tensor/container conversion fails.",
-    message: "gpuArray: internal error",
-};
-
-const GPUARRAY_ERRORS: [BuiltinErrorDescriptor; 15] = [
-    GPUARRAY_ERROR_NO_PROVIDER,
-    GPUARRAY_ERROR_OPTION_ARGUMENT,
-    GPUARRAY_ERROR_LIKE_MISSING,
-    GPUARRAY_ERROR_LIKE_DUPLICATE,
-    GPUARRAY_ERROR_CODISTRIBUTED_UNSUPPORTED,
-    GPUARRAY_ERROR_CONFLICTING_TYPE,
-    GPUARRAY_ERROR_UNKNOWN_OPTION,
-    GPUARRAY_ERROR_SIZE_ARGUMENT,
-    GPUARRAY_ERROR_LIKE_PROTOTYPE,
-    GPUARRAY_ERROR_INPUT_TYPE,
-    GPUARRAY_ERROR_TYPED_INTEGER,
-    GPUARRAY_ERROR_CONVERSION,
-    GPUARRAY_ERROR_RESHAPE,
-    GPUARRAY_ERROR_PROVIDER_IO,
-    GPUARRAY_ERROR_INTERNAL,
-];
-
-pub const GPUARRAY_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &GPUARRAY_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &GPUARRAY_ERRORS,
-};
 
 fn gpu_array_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
     gpu_array_error_with_message(error.message, error)
@@ -418,17 +85,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "gpuArray",
-    category = "acceleration/gpu",
-    summary = "Move data to the GPU as gpuArray values.",
-    keywords = "gpuArray,gpu,accelerate,upload,dtype,like",
-    examples = "G = gpuArray([1 2 3], 'single');",
-    accel = "array_construct",
-    type_resolver(gpuarray_type),
-    descriptor(crate::builtins::acceleration::gpu::gpuarray::GPUARRAY_DESCRIPTOR),
-    extensions(crate::builtins::acceleration::gpu::gpuarray::GPUARRAY_EXTENSIONS),
-    integer_capabilities(
-        crate::builtins::acceleration::gpu::gpuarray::GPUARRAY_INTEGER_CAPABILITIES
-    ),
+    binding_variant = "default",
     builtin_path = "crate::builtins::acceleration::gpu::gpuarray"
 )]
 async fn gpu_array_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResult<Value> {
@@ -497,7 +154,7 @@ async fn gpu_array_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResu
         return Err(error);
     }
     runmat_accelerate_api::set_handle_logical(&handle, prepared.logical);
-    runmat_accelerate_api::set_handle_class_name(&handle, dtype.class_name());
+    runmat_accelerate_api::set_handle_class_identity(&handle, dtype.class_name());
     handle.descriptor.provenance = Some(runmat_accelerate_api::GpuHandleProvenance::Explicit);
 
     Ok(Value::GpuTensor(handle))
@@ -560,6 +217,43 @@ impl DataClass {
             "uint64" => Some(Self::UInt64),
             "gpuarray" => None, // compatibility no-op
             _ => None,
+        }
+    }
+
+    fn from_class_identity(identity: &runmat_types::ClassIdentity) -> Option<Self> {
+        use runmat_types::standard;
+
+        if identity.is(standard::DOUBLE) {
+            Some(Self::Double)
+        } else if identity.is(standard::SINGLE) {
+            Some(Self::Single)
+        } else if identity.is(standard::LOGICAL) {
+            Some(Self::Logical)
+        } else if identity.is(standard::INT8) {
+            Some(Self::Int8)
+        } else if identity.is(standard::INT16) {
+            Some(Self::Int16)
+        } else if identity.is(standard::INT32) {
+            Some(Self::Int32)
+        } else if identity.is(standard::INT64) {
+            Some(Self::Int64)
+        } else if identity.is(standard::UINT8) {
+            Some(Self::UInt8)
+        } else if identity.is(standard::UINT16) {
+            Some(Self::UInt16)
+        } else if identity.is(standard::UINT32) {
+            Some(Self::UInt32)
+        } else if identity.is(standard::UINT64) {
+            Some(Self::UInt64)
+        } else {
+            None
+        }
+    }
+
+    fn class_identity(self) -> runmat_types::ClassIdentity {
+        match self {
+            Self::Logical => runmat_types::standard::LOGICAL.owned(),
+            _ => self.numeric_dtype().class_identity(),
         }
     }
 
@@ -866,8 +560,8 @@ fn dtype_from_gpu_handle(handle: &GpuTensorHandle) -> BuiltinResult<DataClass> {
     if runmat_accelerate_api::handle_is_logical(handle) {
         return Ok(DataClass::Logical);
     }
-    if let Some(class_name) = runmat_accelerate_api::handle_class_name(handle) {
-        if let Some(dtype) = DataClass::from_tag(class_name.trim().to_ascii_lowercase().as_str()) {
+    if let Some(class_name) = runmat_accelerate_api::handle_class_identity(handle) {
+        if let Some(dtype) = DataClass::from_class_identity(&class_name) {
             return Ok(dtype);
         }
     }
@@ -1027,7 +721,7 @@ fn upload_complex_host_value(
     let storage = match dtype {
         DataClass::Double => match storage {
             storage @ ComplexStorage::F64(_) => storage,
-            storage => ComplexStorage::F64(storage.materialize_f64()),
+            storage => ComplexStorage::F64(storage.materialize_f64().into()),
         },
         DataClass::Single => match storage {
             storage @ ComplexStorage::F32(_) => storage,
@@ -1250,11 +944,9 @@ fn validate_prepared_handle(
             &GPUARRAY_ERROR_PROVIDER_IO,
         ));
     }
-    let existing_class = runmat_accelerate_api::handle_class_name(handle);
+    let existing_class = runmat_accelerate_api::handle_class_identity(handle);
     if (runmat_accelerate_api::handle_is_logical(handle) && !logical)
-        || existing_class
-            .as_deref()
-            .is_some_and(|class_name| class_name != dtype.class_name())
+        || existing_class.is_some_and(|class_identity| class_identity != dtype.class_identity())
     {
         return Err(gpu_array_error_with_message(
             "gpuArray: provider returned contradictory class metadata",
@@ -1458,7 +1150,6 @@ pub(crate) mod tests {
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
     use runmat_accelerate_api::{GpuTensorStorage, HostTensorView};
-    use runmat_builtins::{ResolveContext, Type};
     use runmat_value::{ComplexTensor, IntegerComplexStorage, IntegerStorage, LogicalArray};
 
     fn call(value: Value, rest: Vec<Value>) -> crate::BuiltinResult<Value> {
@@ -1624,8 +1315,8 @@ pub(crate) mod tests {
                 panic!("expected gpu tensor");
             };
             assert_eq!(
-                runmat_accelerate_api::handle_class_name(&handle).as_deref(),
-                Some("single")
+                runmat_accelerate_api::handle_class_identity(&handle),
+                Some(runmat_types::standard::SINGLE.owned())
             );
             assert_eq!(
                 runmat_accelerate_api::handle_precision(&handle),
@@ -1651,8 +1342,8 @@ pub(crate) mod tests {
                 panic!("expected like gpu tensor");
             };
             assert_eq!(
-                runmat_accelerate_api::handle_class_name(&like_handle).as_deref(),
-                Some("single")
+                runmat_accelerate_api::handle_class_identity(&like_handle),
+                Some(runmat_types::standard::SINGLE.owned())
             );
             assert_eq!(
                 runmat_accelerate_api::handle_precision(&like_handle),
@@ -1739,8 +1430,8 @@ pub(crate) mod tests {
             };
             assert_eq!(rewrapped.buffer_id, handle.buffer_id);
             assert_eq!(
-                runmat_accelerate_api::handle_class_name(&rewrapped).as_deref(),
-                Some("uint64")
+                runmat_accelerate_api::handle_class_identity(&rewrapped),
+                Some(runmat_types::standard::UINT64.owned())
             );
 
             let gathered =
@@ -1814,8 +1505,8 @@ pub(crate) mod tests {
                 panic!("expected converted gpu tensor");
             };
             assert_eq!(
-                runmat_accelerate_api::handle_class_name(&converted).as_deref(),
-                Some("int16")
+                runmat_accelerate_api::handle_class_identity(&converted),
+                Some(runmat_types::standard::INT16.owned())
             );
             let gathered =
                 test_support::gather(Value::GpuTensor(converted)).expect("gather converted");
@@ -2487,8 +2178,8 @@ pub(crate) mod tests {
                     Some(element_type)
                 );
                 assert_eq!(
-                    runmat_accelerate_api::handle_class_name(&handle).as_deref(),
-                    Some(class_name)
+                    runmat_accelerate_api::handle_class_identity(&handle),
+                    Some(class_name.into())
                 );
                 let gathered = test_support::gather(Value::GpuTensor(handle)).expect("gather");
                 assert_eq!(gathered.integer_storage(), Some(&expected));
@@ -2528,8 +2219,8 @@ pub(crate) mod tests {
                 Some(runmat_accelerate_api::IntegerElementType::U64)
             );
             assert_eq!(
-                runmat_accelerate_api::handle_class_name(&handle).as_deref(),
-                Some("uint64")
+                runmat_accelerate_api::handle_class_identity(&handle),
+                Some(runmat_types::standard::UINT64.owned())
             );
             let gathered = test_support::gather(Value::GpuTensor(handle)).expect("gather");
             assert_eq!(
@@ -2537,13 +2228,5 @@ pub(crate) mod tests {
                 Some(&IntegerStorage::U64(vec![7]))
             );
         });
-    }
-
-    #[test]
-    fn gpuarray_type_for_logical_is_logical() {
-        assert_eq!(
-            gpuarray_type(&[Type::logical()], &ResolveContext::new(Vec::new())),
-            Type::logical()
-        );
     }
 }

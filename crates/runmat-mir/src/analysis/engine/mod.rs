@@ -81,6 +81,7 @@ pub fn analyze_assembly(assembly: &MirAssembly) -> AnalysisStore {
             function: program_function,
             callable: CallableFact {
                 identity: Some(CallableIdentity::BoundFunction(*function)),
+                capabilities: summary.capabilities.clone(),
                 parameters: program
                     .parameters
                     .get(function)
@@ -153,6 +154,9 @@ pub fn analyze_assembly(assembly: &MirAssembly) -> AnalysisStore {
     }
     regions.sort_by_key(|region| region.contract.id);
     store.regions = regions;
+    let (parallel, diagnostics) = super::parallel::analyze_parallel_contracts(assembly, &store);
+    store.parallel = parallel;
+    store.diagnostics.extend(diagnostics);
     store
 }
 

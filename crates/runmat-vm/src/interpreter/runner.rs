@@ -22,7 +22,7 @@ use runmat_runtime::{
 };
 use runmat_value::{CellArray, Value};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Once;
 use tracing::{debug, info_span};
@@ -113,7 +113,7 @@ pub async fn invoke_semantic_function_value(
     args: &[Value],
     requested_outputs: usize,
     function_registry: &FunctionRegistry,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     let runtime = active_or_standalone_runtime_context();
     let (value, _) = invoke_semantic_function_value_with_input_residency(
         function,
@@ -133,7 +133,7 @@ pub async fn invoke_semantic_function_value_in_context(
     requested_outputs: usize,
     function_registry: &FunctionRegistry,
     runtime: runmat_runtime::context::RuntimeContext,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     let (value, _) = invoke_semantic_function_value_with_input_residency(
         function,
         args,
@@ -152,7 +152,7 @@ pub(crate) async fn invoke_semantic_function_value_with_capture_updates(
     requested_outputs: usize,
     function_registry: &FunctionRegistry,
     runtime: runmat_runtime::context::RuntimeContext,
-) -> Result<(Value, Vec<Value>), RuntimeError> {
+) -> Result<(runmat_value::ValueSequence, Vec<Value>), RuntimeError> {
     invoke_semantic_function_value_with_input_residency(
         function,
         args,
@@ -180,7 +180,7 @@ async fn invoke_semantic_function_value_with_input_residency(
     function_registry: &FunctionRegistry,
     input_residency: InputResidency,
     runtime: runmat_runtime::context::RuntimeContext,
-) -> Result<(Value, Vec<Value>), RuntimeError> {
+) -> Result<(runmat_value::ValueSequence, Vec<Value>), RuntimeError> {
     runtime
         .scope(invoke_semantic_function_value_with_input_residency_inner(
             function,
@@ -200,7 +200,7 @@ async fn invoke_semantic_function_value_with_input_residency_inner(
     function_registry: &FunctionRegistry,
     input_residency: InputResidency,
     runtime: runmat_runtime::context::RuntimeContext,
-) -> Result<(Value, Vec<Value>), RuntimeError> {
+) -> Result<(runmat_value::ValueSequence, Vec<Value>), RuntimeError> {
     let function_id = runmat_hir::FunctionId(function);
     let func = function_registry.get(function_id).ok_or_else(|| {
         let message = format!("Undefined semantic function: {function}");
@@ -281,12 +281,7 @@ async fn invoke_semantic_function_value_with_input_residency_inner(
 
     let _active_semantic_function_guard =
         user_functions::push_active_semantic_function(function_id.0);
-    let mut bytecode = Bytecode::with_instructions(func.instructions.clone(), func.var_count);
-    bytecode.instr_spans = func.instr_spans.clone();
-    bytecode.call_arg_spans = func.call_arg_spans.clone();
-    bytecode.coverage_sites = func.coverage_sites.clone();
-    bytecode.source_id = func.source_id;
-    bytecode.var_names = func.var_names.clone();
+    let mut bytecode = func.execution_bytecode(function_registry);
     let mut initially_unassigned_slots = func.initially_unassigned_slots.clone();
     for slot in &func.capture_slots {
         initially_unassigned_slots.remove(slot);
@@ -309,9 +304,9 @@ async fn invoke_semantic_function_value_with_input_residency_inner(
         initially_unassigned_slots.remove(&slot);
     }
     bytecode.initially_unassigned_slots = initially_unassigned_slots;
-    bytecode.bound_functions = function_registry.functions.clone();
-    bytecode.function_registry = function_registry.clone();
     let result_vars = {
+        #[cfg(not(target_arch = "wasm32"))]
+        let execution_runtime = runtime.clone();
         let future = interpret_function_with_counts_in_context(
             &bytecode,
             vars,
@@ -328,18 +323,29 @@ async fn invoke_semantic_function_value_with_input_residency_inner(
         #[cfg(not(target_arch = "wasm32"))]
         {
             // A semantic call recursively drives another async interpreter.
-            // Polling it on the caller's small executor/test-thread stack makes
-            // ordinary class method chains consume the full native stack long
-            // before reaching a meaningful language recursion depth. Grow the
-            // stack only while polling the nested interpreter; values remain on
-            // the same thread and therefore retain their thread-confined GC
-            // semantics.
+            // Pure RunMat call chains use a large segmented stack so ordinary
+            // nesting does not consume a small executor or test-thread stack.
+            // Functions that may reach an in-process foreign runtime stay on
+            // the native OS stack, which those runtimes may register or inspect.
             const SEMANTIC_CALL_STACK_BYTES: usize = 16 * 1024 * 1024;
-            let mut future = Box::pin(future);
-            futures::future::poll_fn(move |context| {
-                stacker::grow(SEMANTIC_CALL_STACK_BYTES, || future.as_mut().poll(context))
-            })
-            .await?
+            let execution_stack = function_registry.execution_stack(function_id);
+            if execution_stack == runmat_types::ExecutionStackRequirement::Process {
+                // The async interpreter state is substantially larger than a
+                // call frame. Heap-allocate it so nested dispatch does not
+                // consume the native stack needed by the foreign runtime.
+                Box::pin(future).await?
+            } else {
+                let mut future = Box::pin(future);
+                futures::future::poll_fn(move |context| {
+                    stacker::grow(SEMANTIC_CALL_STACK_BYTES, || {
+                        let _stack = execution_runtime.enter_execution_stack(
+                            runmat_runtime::context::RuntimeExecutionStack::Segmented,
+                        );
+                        future.as_mut().poll(context)
+                    })
+                })
+                .await?
+            }
         }
     };
     let fixed_outputs = func
@@ -368,16 +374,25 @@ async fn invoke_semantic_function_value_with_input_residency_inner(
         input_residency,
     );
     Ok((
-        output_value(output_values, requested_outputs),
+        output_sequence(output_values, requested_outputs)?,
         updated_captures,
     ))
 }
 
-fn output_value(output_values: Vec<Value>, requested_outputs: usize) -> Value {
+fn output_sequence(
+    output_values: Vec<Value>,
+    requested_outputs: usize,
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     match requested_outputs {
-        0 => Value::OutputList(Vec::new()),
-        1 => output_values.into_iter().next().unwrap_or(Value::Num(0.0)),
-        _ => Value::OutputList(output_values.into_iter().take(requested_outputs).collect()),
+        0 => Ok(runmat_value::ValueSequence::empty()),
+        1 => runmat_value::ValueSequence::single(
+            output_values.into_iter().next().unwrap_or(Value::Num(0.0)),
+        )
+        .map_err(runmat_runtime::sequence::sequence_error_to_runtime),
+        _ => runmat_value::ValueSequence::comma_separated(
+            output_values.into_iter().take(requested_outputs).collect(),
+        )
+        .map_err(runmat_runtime::sequence::sequence_error_to_runtime),
     }
 }
 
@@ -398,9 +413,8 @@ fn clear_semantic_function_temp_residency(
     }
     keep_values.extend(updated_captures.iter().cloned());
     keep_values.extend(runtime_globals::collect_thread_roots());
-    let keep = Value::OutputList(keep_values);
     for value in result_vars {
-        if let Err(err) = accel_residency::clear_value_excluding(value, &keep) {
+        if let Err(err) = accel_residency::clear_value_excluding_values(value, &keep_values) {
             log::warn!("failed to clear temporary semantic function GPU residency: {err}");
         }
     }
@@ -491,6 +505,15 @@ async fn interpret_resume_inner(
             "interpreter resume PC is outside the immutable bytecode product",
         ));
     }
+    if resume
+        .completion_boundary
+        .is_some_and(|boundary| boundary.pc() > bytecode.instructions.len())
+    {
+        return Err(mex(
+            "NativeResumeBoundary",
+            "interpreter completion boundary is outside the immutable bytecode product",
+        ));
+    }
     if resume.vars.len() != bytecode.var_count {
         return Err(mex(
             "NativeResumeFrame",
@@ -500,9 +523,13 @@ async fn interpret_resume_inner(
     let mut resumed_bytecode = bytecode.clone();
     resumed_bytecode.initially_unassigned_slots.clear();
     let mut vars = Vec::with_capacity(resume.vars.len());
+    let mut assigned_slots = HashSet::new();
     for (slot, value) in resume.vars.into_iter().enumerate() {
         match value {
-            Some(value) => vars.push(value),
+            Some(value) => {
+                assigned_slots.insert(slot);
+                vars.push(value);
+            }
             None => {
                 vars.push(Value::Num(0.0));
                 resumed_bytecode.initially_unassigned_slots.insert(slot);
@@ -520,6 +547,8 @@ async fn interpret_resume_inner(
         runtime,
     );
     state.pc = resume.pc;
+    state.completion_boundary = resume.completion_boundary;
+    state.completion_assigned_slots = Some(assigned_slots);
     state.missing_input_slots = resume.missing_input_slots;
     state.global_aliases = resume.global_aliases;
     state.persistent_aliases = resume.persistent_aliases;
@@ -557,6 +586,8 @@ async fn interpret_with_vars_inner(
     current_function_name: Option<&str>,
     runtime: runmat_runtime::context::RuntimeContext,
 ) -> VmResult<InterpreterOutcome> {
+    crate::bytecode::validate_sequence_register_flow(&bytecode.instructions)
+        .map_err(RuntimeError::new)?;
     let _debug_frame_guard = runmat_runtime::debug_context::push_frame(
         current_function_name.unwrap_or("<main>"),
         bytecode.source_id,
@@ -614,6 +645,8 @@ async fn run_interpreter_inner(
         mut stack,
         mut vars,
         mut pc,
+        completion_boundary,
+        mut completion_assigned_slots,
         mut context,
         mut try_stack,
         mut last_exception,
@@ -719,7 +752,11 @@ async fn run_interpreter_inner(
     let mut _gc_context = interp_engine::create_gc_context(&stack, &vars, thread_roots)?;
     let debug_stack = interp_engine::debug_stack_enabled();
     let mut interpreter_timing = InterpreterTiming::new();
+    let mut sequence_register = interp_dispatch::SequenceState::default();
     while pc < bytecode.instructions.len() {
+        if completion_boundary.is_some_and(|boundary| boundary.pc() == pc) {
+            break;
+        }
         if let Some(sites) = bytecode.coverage_sites.get(pc) {
             runmat_runtime::coverage::hit_sites(sites);
         }
@@ -856,6 +893,9 @@ async fn run_interpreter_inner(
         };
         let mut store_var_before_overwrite = |_current: &Value, _incoming: &Value| {};
         let mut store_var_after_store = |stored_index: usize, stored_value: &Value| {
+            if let Some(assigned_slots) = completion_assigned_slots.as_mut() {
+                assigned_slots.insert(stored_index);
+            }
             if let Some(ref aliases) = store_var_global_aliases {
                 runtime_globals::update_global_store(stored_index, stored_value, aliases);
             }
@@ -881,6 +921,7 @@ async fn run_interpreter_inner(
         let dispatch_result = interp_dispatch::dispatch_instruction(
             interp_dispatch::DispatchMeta {
                 instr: &bytecode.instructions[pc],
+                bytecode: &bytecode,
                 var_names: &bytecode.var_names,
                 function_registry: &function_registry,
                 source_id: bytecode.source_id,
@@ -891,6 +932,7 @@ async fn run_interpreter_inner(
             interp_dispatch::DispatchState {
                 stack: &mut stack,
                 vars: &mut vars,
+                sequence_register: &mut sequence_register,
                 context: &mut context,
                 try_stack: &mut try_stack,
                 last_exception: &mut last_exception,
@@ -913,19 +955,22 @@ async fn run_interpreter_inner(
         .await;
         let dispatch_result = match dispatch_result {
             Ok(result) => result,
-            Err(err) => match interp_dispatch::redirect_exception_to_catch(
-                err,
-                &mut try_stack,
-                &mut vars,
-                &mut last_exception,
-                &mut pc,
-                refresh_workspace_state,
-            ) {
-                interp_dispatch::ExceptionHandling::Caught => {
-                    continue;
+            Err(err) => {
+                sequence_register.clear(&mut stack);
+                match interp_dispatch::redirect_exception_to_catch(
+                    err,
+                    &mut try_stack,
+                    &mut vars,
+                    &mut last_exception,
+                    &mut pc,
+                    refresh_workspace_state,
+                ) {
+                    interp_dispatch::ExceptionHandling::Caught => {
+                        continue;
+                    }
+                    interp_dispatch::ExceptionHandling::Uncaught(err) => return Err(*err),
                 }
-                interp_dispatch::ExceptionHandling::Uncaught(err) => return Err(*err),
-            },
+            }
         };
         if let Some(decision) = dispatch_result {
             match decision {
@@ -988,13 +1033,53 @@ async fn run_interpreter_inner(
             | Instr::LoadMemberOrInit(_)
             | Instr::LoadMemberDynamic
             | Instr::LoadMemberDynamicOrInit
+            | Instr::LoadMemberSequence { .. }
+            | Instr::LoadMemberDynamicSequence { .. }
+            | Instr::MemberSequenceCardinality
+            | Instr::LoadMemberSequenceUsingOutputSlot { .. }
+            | Instr::LoadMemberDynamicSequenceUsingOutputSlot { .. }
+            | Instr::CaptureCallOutputSequence
+            | Instr::CaptureScalarSequence
+            | Instr::CaptureMemberSequence { .. }
+            | Instr::CaptureMemberDynamicSequence { .. }
+            | Instr::CaptureCellContentsSequence { .. }
+            | Instr::CaptureReturnedOutputsSequence { .. }
+            | Instr::ReadSubscriptPath { .. }
+            | Instr::CaptureSubscriptPath { .. }
+            | Instr::BeginSubscriptEndReceiver { .. }
+            | Instr::LoadSubscriptEnd { .. }
+            | Instr::FinishSubscriptEndReceiver { .. }
+            | Instr::BeginOutputAssignment { .. }
+            | Instr::PrepareFixedOutputTarget
+            | Instr::PrepareDiscardOutputTarget
+            | Instr::PrepareMemberSequenceOutputTarget { .. }
+            | Instr::PrepareMemberDynamicSequenceOutputTarget { .. }
+            | Instr::PrepareIndexedMemberSequenceOutputTarget { .. }
+            | Instr::PrepareIndexedMemberDynamicSequenceOutputTarget { .. }
+            | Instr::PrepareCellContentsSequenceOutputTarget { .. }
+            | Instr::BeginSequenceOutputTarget { .. }
+            | Instr::PrepareMemberPathStep(_)
+            | Instr::PrepareDynamicMemberPathStep
+            | Instr::BeginPreparedIndexSelectors { .. }
+            | Instr::LoadPreparedIndexEnd { .. }
+            | Instr::BeginContextualIndexSelectors { .. }
+            | Instr::LoadContextualIndexEnd { .. }
+            | Instr::FinishContextualIndexSelectors { .. }
+            | Instr::PrepareParenthesesPathStep { .. }
+            | Instr::PrepareBracesPathStep { .. }
+            | Instr::FinishMemberSequenceOutputTarget(_)
+            | Instr::FinishDynamicMemberSequenceOutputTarget
+            | Instr::FinishCellContentsSequenceOutputTarget { .. }
+            | Instr::LoadPreparedOutputCardinality
+            | Instr::CommitPreparedOutputTargets { .. }
             | Instr::StoreMember(_)
             | Instr::StoreMemberOrInit(_)
             | Instr::StoreMemberDynamic
             | Instr::StoreMemberDynamicOrInit
+            | Instr::StoreMemberSequence(_)
+            | Instr::StoreMemberDynamicSequence
             | Instr::Index(_)
             | Instr::IndexSlice(_, _, _, _)
-            | Instr::IndexSliceExpr { .. }
             | Instr::IndexCell { .. }
             | Instr::IndexCellExpand { .. }
             | Instr::IndexCellList { .. }
@@ -1004,8 +1089,6 @@ async fn run_interpreter_inner(
             | Instr::StoreIndexCellDelete { .. }
             | Instr::StoreSlice(_, _, _, _)
             | Instr::StoreSliceDelete(_, _, _, _)
-            | Instr::StoreSliceExpr { .. }
-            | Instr::StoreSliceExprDelete { .. }
             | Instr::CallMethodOrMemberIndexMulti { .. }
             | Instr::CallMethodOrMemberIndexExpandMultiOutput { .. }
             | Instr::LoadMethod(_)
@@ -1025,8 +1108,14 @@ async fn run_interpreter_inner(
             | Instr::CallFevalExpandMultiOutputUsingOutputSlot(_, _)
             | Instr::CreateSemanticFuture(_, _, _)
             | Instr::CreateSemanticFutureExpandMultiOutput(_, _, _)
+            | Instr::ScheduleFeval { .. }
             | Instr::Spawn
+            | Instr::SpawnOn
             | Instr::Await
+            | Instr::FetchOutputs { .. }
+            | Instr::FetchNext { .. }
+            | Instr::EnsurePool(_)
+            | Instr::CurrentPool(_)
             | Instr::CallBuiltinMulti(_, _, _)
             | Instr::CallBuiltinMultiUsingOutputSlot(_, _, _)
             | Instr::CallSuperConstructorMulti { .. }
@@ -1054,6 +1143,7 @@ async fn run_interpreter_inner(
             | Instr::DeclarePersistent(_)
             | Instr::DeclarePersistentNamed(_, _)
             | Instr::CreateCell2D(_, _)
+            | Instr::CreateCellFromSequences { .. }
             | Instr::CreateStructLiteral(_)
             | Instr::CreateObjectLiteral { .. }
             | Instr::Add
@@ -1079,8 +1169,13 @@ async fn run_interpreter_inner(
             | Instr::LogicalNot
             | Instr::LogicalAnd
             | Instr::LogicalOr
+            | Instr::ExecuteParfor { .. }
+            | Instr::ExecuteSpmd { .. }
+            | Instr::Distributed(_)
+            | Instr::Collective { .. }
             | Instr::Unpack(_)
             | Instr::CreateMatrix(_, _)
+            | Instr::CreateMatrixFromSequences { .. }
             | Instr::CreateMatrixDynamic(_)
             | Instr::CreateRange(_)
             | Instr::PackToRow(_)
@@ -1121,23 +1216,219 @@ async fn run_interpreter_inner(
         live_values.extend(vars.iter().cloned());
         live_values.extend(context.locals.iter().cloned());
         live_values.extend(runtime_globals::collect_thread_roots());
-        let live_values = Value::OutputList(live_values);
         for value in &stack {
-            if let Err(err) = accel_residency::clear_value_excluding(value, &live_values) {
+            if let Err(err) = accel_residency::clear_value_excluding_values(value, &live_values) {
                 log::warn!("failed to clear stack GPU residency: {err}");
             }
         }
     }
     sync_initial_vars(initial_vars, &vars);
-    Ok(InterpreterOutcome::Completed(vars))
+    Ok(InterpreterOutcome::Completed(
+        crate::interpreter::state::InterpreterCompletion {
+            assigned_slots: completion_assigned_slots
+                .unwrap_or_else(crate::runtime::workspace::current_workspace_assigned_slots),
+            values: vars,
+        },
+    ))
 }
 
 pub async fn interpret(bytecode: &Bytecode) -> Result<Vec<Value>, RuntimeError> {
     let mut vars = vec![Value::Num(0.0); bytecode.var_count];
     match interpret_with_vars(bytecode, &mut vars, Some("<main>")).await {
-        Ok(InterpreterOutcome::Completed(values)) => Ok(values),
+        Ok(InterpreterOutcome::Completed(completion)) => Ok(completion.values),
         Err(e) => Err(e),
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ParforTaskMode {
+    Sequential,
+    IndependentIterations,
+}
+
+pub(crate) struct ParforTaskExecution<'a> {
+    pub bytecode: &'a Bytecode,
+    pub region: &'a crate::BytecodeParforRegion,
+    pub inputs: Vec<Value>,
+    pub iterations: Vec<Value>,
+    pub randomness: runmat_execution::ParallelRandomnessContext,
+    pub mode: ParforTaskMode,
+    pub current_function_name: &'a str,
+    pub runtime: runmat_runtime::context::RuntimeContext,
+}
+
+pub(crate) async fn interpret_parfor_task_in_context(
+    execution: ParforTaskExecution<'_>,
+) -> Result<Vec<Value>, RuntimeError> {
+    let ParforTaskExecution {
+        bytecode,
+        region,
+        inputs,
+        iterations,
+        randomness,
+        mode,
+        current_function_name,
+        runtime,
+    } = execution;
+    randomness
+        .validate_for_iterations(iterations.len())
+        .map_err(|error| mex("ParallelRandomness", &error.to_string()))?;
+    let deterministic_streams = match randomness {
+        runmat_execution::ParallelRandomnessContext::Deterministic { streams } => Some(streams),
+        runmat_execution::ParallelRandomnessContext::Inherit
+        | runmat_execution::ParallelRandomnessContext::Nondeterministic => None,
+    };
+    let input_variables = region.input_variables().collect::<Vec<_>>();
+    if inputs.len() != input_variables.len() {
+        return Err(mex(
+            "ParallelTaskInput",
+            "parallel task inputs do not match the compiler-owned region layout",
+        ));
+    }
+    let mut frame = vec![None; bytecode.var_count];
+    for (variable, value) in input_variables.into_iter().zip(inputs) {
+        let Some(slot) = frame.get_mut(variable.slot) else {
+            return Err(mex(
+                "ParallelFrame",
+                "parallel task input is outside its compiled VM frame",
+            ));
+        };
+        *slot = Some(value);
+    }
+    if region.loop_slot >= frame.len() {
+        return Err(mex(
+            "ParallelFrame",
+            "parallel loop value is outside its compiled VM frame",
+        ));
+    }
+    let reduction_inputs = region
+        .variables
+        .iter()
+        .filter(|variable| {
+            matches!(
+                variable.contract.role,
+                runmat_types::ParallelVariableRole::Reduction { .. }
+            )
+        })
+        .map(|variable| {
+            frame
+                .get(variable.slot)
+                .and_then(Clone::clone)
+                .map(|value| (variable.slot, value))
+                .ok_or_else(|| {
+                    mex(
+                        "ParallelTaskInput",
+                        "parallel reduction is missing its typed identity value",
+                    )
+                })
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    let mut reduction_outputs = reduction_inputs
+        .keys()
+        .copied()
+        .map(|slot| (slot, Vec::new()))
+        .collect::<HashMap<_, _>>();
+
+    for (iteration_index, iteration) in iterations.into_iter().enumerate() {
+        for variable in &region.variables {
+            if matches!(
+                variable.contract.role,
+                runmat_types::ParallelVariableRole::Temporary
+                    | runmat_types::ParallelVariableRole::Private
+            ) {
+                let Some(slot) = frame.get_mut(variable.slot) else {
+                    return Err(mex(
+                        "ParallelFrame",
+                        "parallel private value is outside its compiled VM frame",
+                    ));
+                };
+                *slot = None;
+            }
+        }
+        if mode == ParforTaskMode::IndependentIterations {
+            for (slot, identity) in &reduction_inputs {
+                frame[*slot] = Some(identity.clone());
+            }
+        }
+        frame[region.loop_slot] = Some(iteration);
+        let _random_stream = deterministic_streams
+            .as_ref()
+            .and_then(|streams| streams.get(iteration_index).copied())
+            .map(|stream| {
+                runmat_runtime::builtins::common::random::enter_parallel_random_stream(
+                    &runtime, stream,
+                )
+            })
+            .transpose()?;
+        let resume = InterpreterResumeState {
+            pc: region.body.pc,
+            completion_boundary: Some(
+                crate::interpreter::state::InterpreterCompletionBoundary::before(region.header.pc),
+            ),
+            vars: frame,
+            supplied_inputs: 0,
+            requested_outputs: 0,
+            missing_input_slots: HashSet::new(),
+            global_aliases: HashMap::new(),
+            persistent_aliases: HashMap::new(),
+            side_effect_epoch: 0,
+        };
+        frame = match Box::pin(interpret_resume_in_context(
+            bytecode,
+            resume,
+            Some(current_function_name),
+            runtime.clone(),
+        ))
+        .await?
+        {
+            InterpreterOutcome::Completed(completion) => {
+                completion.values.into_iter().map(Some).collect()
+            }
+        };
+        if mode == ParforTaskMode::IndependentIterations {
+            for (slot, values) in &mut reduction_outputs {
+                let value = frame.get(*slot).and_then(Clone::clone).ok_or_else(|| {
+                    mex(
+                        "ParallelTaskOutput",
+                        "parallel task did not assign a declared reduction output",
+                    )
+                })?;
+                values.push(value);
+            }
+        }
+    }
+
+    region
+        .output_variables()
+        .map(|variable| {
+            if mode == ParforTaskMode::IndependentIterations
+                && matches!(
+                    variable.contract.role,
+                    runmat_types::ParallelVariableRole::Reduction { .. }
+                )
+            {
+                let values = reduction_outputs.remove(&variable.slot).ok_or_else(|| {
+                    mex(
+                        "ParallelTaskOutput",
+                        "parallel task lost a declared reduction output",
+                    )
+                })?;
+                let length = values.len();
+                return runmat_value::CellArray::new(values, 1, length)
+                    .map(Value::Cell)
+                    .map_err(|error| mex("ParallelTaskOutput", &error));
+            }
+            frame
+                .get(variable.slot)
+                .and_then(Clone::clone)
+                .ok_or_else(|| {
+                    mex(
+                        "ParallelTaskOutput",
+                        "parallel task did not assign a declared output",
+                    )
+                })
+        })
+        .collect()
 }
 
 pub async fn interpret_function(
@@ -1222,7 +1513,7 @@ async fn interpret_function_with_counts_in_context_inner(
         cc.borrow_mut().pop();
     });
     let res = match res {
-        Ok(InterpreterOutcome::Completed(values)) => Ok(values),
+        Ok(InterpreterOutcome::Completed(completion)) => Ok(completion.values),
         Err(e) => Err(e),
     }?;
     runtime_globals::persist_declared_for_bytecode(bytecode, name, &vars);
@@ -1232,7 +1523,7 @@ async fn interpret_function_with_counts_in_context_inner(
 #[cfg(test)]
 mod tests {
     use super::{
-        interpret_resume_in_context, interpret_with_vars, output_value, run_interpreter_inner,
+        interpret_resume_in_context, interpret_with_vars, output_sequence, run_interpreter_inner,
     };
     use crate::bytecode::program::Bytecode;
     use crate::bytecode::Instr;
@@ -1270,17 +1561,17 @@ mod tests {
     }
 
     #[test]
-    fn output_value_zero_requested_is_empty_output_list() {
-        let value = output_value(vec![Value::Num(1.0)], 0);
-        assert_eq!(value, Value::OutputList(Vec::new()));
+    fn output_sequence_zero_requested_is_empty() {
+        let sequence = output_sequence(vec![Value::Num(1.0)], 0).unwrap();
+        assert!(sequence.is_empty());
     }
 
     #[test]
-    fn output_value_multi_requested_returns_output_list() {
-        let value = output_value(vec![Value::Num(1.0), Value::Num(2.0)], 2);
+    fn output_sequence_multi_requested_remains_transient() {
+        let sequence = output_sequence(vec![Value::Num(1.0), Value::Num(2.0)], 2).unwrap();
         assert_eq!(
-            value,
-            Value::OutputList(vec![Value::Num(1.0), Value::Num(2.0)])
+            sequence.into_values(),
+            vec![Value::Num(1.0), Value::Num(2.0)]
         );
     }
 
@@ -1295,11 +1586,12 @@ mod tests {
                 Instr::StoreVar(1),
                 Instr::Return,
             ],
-            2,
+            3,
         );
         let resume = InterpreterResumeState {
             pc: 2,
-            vars: vec![Some(Value::Num(41.0)), None],
+            completion_boundary: None,
+            vars: vec![Some(Value::Num(41.0)), None, None],
             supplied_inputs: 1,
             requested_outputs: 1,
             missing_input_slots: Default::default(),
@@ -1310,15 +1602,58 @@ mod tests {
         let runtime = runmat_runtime::context::RuntimeContext::new(std::rc::Rc::new(
             runmat_runtime::execution::RuntimeExecutionService::new(),
         ));
-        let super::InterpreterOutcome::Completed(values) = block_on(interpret_resume_in_context(
-            &bytecode,
-            resume,
-            Some("resume_test"),
-            runtime,
-        ))
+        let super::InterpreterOutcome::Completed(completion) = block_on(
+            interpret_resume_in_context(&bytecode, resume, Some("resume_test"), runtime),
+        )
         .unwrap();
-        assert_eq!(values[0], Value::Num(41.0));
-        assert_eq!(values[1], Value::Num(2.0));
+        assert_eq!(completion.values[0], Value::Num(41.0));
+        assert_eq!(completion.values[1], Value::Num(2.0));
+        assert_eq!(completion.values[2], Value::Num(0.0));
+        assert_eq!(
+            completion.assigned_slots,
+            std::collections::HashSet::from([0, 1])
+        );
+        super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
+    }
+
+    #[test]
+    fn interpreter_resume_stops_before_the_declared_completion_boundary() {
+        super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
+        let bytecode = Bytecode::with_instructions(
+            vec![
+                Instr::LoadConst(7.0),
+                Instr::StoreVar(0),
+                Instr::LoadConst(99.0),
+                Instr::StoreVar(1),
+                Instr::Return,
+            ],
+            2,
+        );
+        let resume = InterpreterResumeState {
+            pc: 0,
+            completion_boundary: Some(
+                crate::interpreter::state::InterpreterCompletionBoundary::before(2),
+            ),
+            vars: vec![None, None],
+            supplied_inputs: 0,
+            requested_outputs: 0,
+            missing_input_slots: Default::default(),
+            global_aliases: Default::default(),
+            persistent_aliases: Default::default(),
+            side_effect_epoch: 0,
+        };
+        let runtime = runmat_runtime::context::RuntimeContext::new(std::rc::Rc::new(
+            runmat_runtime::execution::RuntimeExecutionService::new(),
+        ));
+        let super::InterpreterOutcome::Completed(completion) = block_on(
+            interpret_resume_in_context(&bytecode, resume, Some("bounded_resume_test"), runtime),
+        )
+        .unwrap();
+        assert_eq!(completion.values, vec![Value::Num(7.0), Value::Num(0.0)]);
+        assert_eq!(
+            completion.assigned_slots,
+            std::collections::HashSet::from([0])
+        );
         super::CALL_COUNTS.with(|counts| assert!(counts.borrow().is_empty()));
     }
 
@@ -1712,7 +2047,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         state.context.locals.push(Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         }));
@@ -1750,7 +2085,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let local_value = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -1860,7 +2195,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         state.vars = vec![Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         })];
@@ -1899,7 +2234,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let nested = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -1940,7 +2275,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let nested = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -1982,7 +2317,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
@@ -2024,7 +2359,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 2,
@@ -2067,7 +2402,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
@@ -2112,14 +2447,14 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
                 expected_outputs: 0,
             });
         state.context.locals.push(Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         }));
@@ -2156,7 +2491,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let local_value = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2166,7 +2501,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 1,
@@ -2208,7 +2543,7 @@ mod tests {
             .insert("nested".to_string(), Value::GpuTensor(handle.clone()));
         let target = runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let nested = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target,
             valid: true,
         });
@@ -2218,7 +2553,7 @@ mod tests {
             .context
             .call_stack
             .push(crate::bytecode::program::CallFrame {
-                function_name: "<local>".to_string(),
+                function_name: "<local>".into(),
                 return_address: 0,
                 locals_start: 0,
                 locals_count: 2,

@@ -112,7 +112,7 @@ pub(crate) mod tests {
     fn handle_object(class_name: &str) -> Value {
         let target = runmat_gc::gc_allocate(Value::Num(0.0)).expect("gc allocation");
         Value::HandleObject(HandleRef {
-            class_name: class_name.to_string(),
+            class_name: class_name.into(),
             target,
             valid: true,
         })

@@ -18,6 +18,9 @@ pub enum RuntimeCapability {
     Native,
     Foreign,
     Parallel,
+    Spmd,
+    Distributed,
+    Collective,
 }
 
 impl RuntimeCapability {
@@ -35,6 +38,9 @@ impl RuntimeCapability {
             Self::Native => "native",
             Self::Foreign => "foreign",
             Self::Parallel => "parallel",
+            Self::Spmd => "spmd",
+            Self::Distributed => "distributed",
+            Self::Collective => "collective",
         }
     }
 }

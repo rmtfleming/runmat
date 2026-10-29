@@ -2,13 +2,79 @@ use super::{ContextFuture, RuntimeContextGuard, RuntimeContextState, RuntimeServ
 use crate::execution::RuntimeExecutionServices;
 use std::future::Future;
 use std::rc::Rc;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
+
+static NEXT_RUNTIME_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Process-local identity for one runtime context state allocation.
+///
+/// This identity lets compatibility adapters partition ambient state while
+/// independently polled async sessions share an OS thread. It is not a
+/// durable, serialized, or cross-process execution identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeContextLocalId(u64);
+
+impl RuntimeContextLocalId {
+    fn next() -> Self {
+        let id = NEXT_RUNTIME_CONTEXT_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("runtime context identity space exhausted");
+        Self(id)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeLanguageMode {
     Matlab,
     RunMat,
     Strict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeExecutionStack {
+    Process,
+    Segmented,
+}
+
+#[must_use]
+pub struct RuntimeExecutionStackGuard {
+    state: Rc<RuntimeContextState>,
+    previous: RuntimeExecutionStack,
+}
+
+/// Restores the invocation assignment that was active before a nested program
+/// execution entered this runtime context.
+#[must_use]
+pub struct ProgramExecutionAssignmentGuard {
+    state: Rc<RuntimeContextState>,
+    previous: Option<runmat_execution::ProgramExecutionAssignment>,
+}
+
+#[must_use]
+pub struct ProgramExecutionJobGuard {
+    state: Rc<RuntimeContextState>,
+    previous: Option<runmat_execution::JobId>,
+}
+
+impl Drop for ProgramExecutionJobGuard {
+    fn drop(&mut self) {
+        *self.state.execution_job.borrow_mut() = self.previous.take();
+    }
+}
+
+impl Drop for ProgramExecutionAssignmentGuard {
+    fn drop(&mut self) {
+        *self.state.execution_assignment.borrow_mut() = self.previous.take();
+    }
+}
+
+impl Drop for RuntimeExecutionStackGuard {
+    fn drop(&mut self) {
+        self.state.execution_stack.set(self.previous);
+    }
 }
 
 pub const DEFAULT_CALLSTACK_LIMIT: usize = 200;
@@ -44,7 +110,13 @@ impl RuntimeContext {
         execution: Rc<dyn RuntimeExecutionServices>,
         cancellation: Arc<AtomicBool>,
     ) -> Self {
-        let state = Rc::new(RuntimeContextState::new(cancellation));
+        runmat_accelerate_api::register_execution_provider_authorizer(
+            super::scope::execution_provider_authorization,
+        );
+        let state = Rc::new(RuntimeContextState::new(
+            RuntimeContextLocalId::next(),
+            cancellation,
+        ));
         crate::class_registry::register_context_state(&state);
         Self {
             execution,
@@ -69,6 +141,10 @@ impl RuntimeContext {
 
     pub(super) fn state_identity(&self) -> *const RuntimeContextState {
         Rc::as_ptr(&self.state)
+    }
+
+    pub fn local_identity(&self) -> RuntimeContextLocalId {
+        self.state.local_identity
     }
 
     pub fn cancellation(&self) -> Arc<AtomicBool> {
@@ -115,9 +191,16 @@ impl RuntimeContext {
 
     pub fn set_dynamic_function_loader(
         &self,
-        loader: Option<Arc<crate::user_functions::DynamicFunctionLoader>>,
+        loader: Option<Rc<crate::user_functions::DynamicFunctionLoader>>,
     ) {
         self.state.call.borrow_mut().dynamic_loader = loader;
+    }
+
+    pub fn set_dynamic_function_clearer(
+        &self,
+        clearer: Option<Rc<crate::user_functions::DynamicFunctionClearer>>,
+    ) {
+        self.state.call.borrow_mut().dynamic_clearer = clearer;
     }
 
     pub fn runmat_extensions_enabled(&self) -> bool {
@@ -146,6 +229,55 @@ impl RuntimeContext {
 
     pub fn dynamic_eval_enabled(&self) -> bool {
         self.state.dynamic_eval_enabled.get()
+    }
+
+    pub fn execution_stack(&self) -> RuntimeExecutionStack {
+        self.state.execution_stack.get()
+    }
+
+    pub fn enter_execution_stack(
+        &self,
+        stack: RuntimeExecutionStack,
+    ) -> RuntimeExecutionStackGuard {
+        let previous = self.state.execution_stack.replace(stack);
+        RuntimeExecutionStackGuard {
+            state: Rc::clone(&self.state),
+            previous,
+        }
+    }
+
+    pub fn execution_assignment(&self) -> Option<runmat_execution::ProgramExecutionAssignment> {
+        self.state.execution_assignment.borrow().clone()
+    }
+
+    /// Installs scheduler-owned invocation identity for one execution extent.
+    /// Dropping the returned guard restores the previous identity, which keeps
+    /// nested and cancelled executions from leaking worker state into their
+    /// caller's runtime context.
+    pub fn enter_execution_assignment(
+        &self,
+        assignment: Option<runmat_execution::ProgramExecutionAssignment>,
+    ) -> ProgramExecutionAssignmentGuard {
+        let previous = self.state.execution_assignment.replace(assignment);
+        ProgramExecutionAssignmentGuard {
+            state: Rc::clone(&self.state),
+            previous,
+        }
+    }
+
+    pub fn execution_job(&self) -> Option<runmat_execution::JobId> {
+        *self.state.execution_job.borrow()
+    }
+
+    pub fn enter_execution_job(
+        &self,
+        job_id: Option<runmat_execution::JobId>,
+    ) -> ProgramExecutionJobGuard {
+        let previous = self.state.execution_job.replace(job_id);
+        ProgramExecutionJobGuard {
+            state: Rc::clone(&self.state),
+            previous,
+        }
     }
 
     pub fn set_dynamic_eval_enabled(&self, enabled: bool) {
@@ -177,6 +309,49 @@ impl RuntimeContext {
     pub fn with_service_ports(mut self, services: RuntimeServicePorts) -> Self {
         self.services = services;
         self
+    }
+
+    /// Create an isolated worker runtime that retains immutable resolution and
+    /// host capabilities while owning independent mutable language state.
+    pub fn fork_parallel_lab(&self, services: RuntimeServicePorts) -> Self {
+        let child = Self::with_cancellation(self.execution.clone(), self.cancellation())
+            .with_program_revision(self.program_revision.clone())
+            .with_service_ports(services);
+        let child = if let Some(search_path) = &self.search_path {
+            child.with_search_path(Arc::clone(search_path))
+        } else {
+            child
+        };
+        *child.state.source.borrow_mut() = self.state.source.borrow().clone();
+        *child.state.call.borrow_mut() = self.state.call.borrow().clone();
+        *child.state.classes.borrow_mut() = self.state.classes.borrow().clone();
+        *child.state.session_variables.borrow_mut() = self.state.session_variables.borrow().clone();
+        child
+            .state
+            .runmat_extensions_enabled
+            .set(self.state.runmat_extensions_enabled.get());
+        child
+            .state
+            .language_mode
+            .set(self.state.language_mode.get());
+        child
+            .state
+            .top_level_await_enabled
+            .set(self.state.top_level_await_enabled.get());
+        child
+            .state
+            .dynamic_eval_enabled
+            .set(self.state.dynamic_eval_enabled.get());
+        child
+            .state
+            .execution_stack
+            .set(self.state.execution_stack.get());
+        child
+            .state
+            .callstack_limit
+            .set(self.state.callstack_limit.get());
+        *child.state.error_namespace.borrow_mut() = self.state.error_namespace.borrow().clone();
+        child
     }
 
     /// Scope every poll of `future` to this context. This is the supported

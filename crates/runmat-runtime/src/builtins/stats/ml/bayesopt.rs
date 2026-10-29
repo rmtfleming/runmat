@@ -23,7 +23,10 @@ use crate::builtins::math::optim::common::{call_function, value_to_scalar};
 use crate::{build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError};
 
 const NAME: &str = "bayesopt";
-const RESULT_CLASS: &str = "BayesianOptimization";
+const RESULT_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("BayesianOptimization");
+const OPTIMIZABLE_VARIABLE_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("optimizableVariable");
 const DEFAULT_MAX_EVALS: usize = 30;
 const DEFAULT_SEED_POINTS: usize = 4;
 const MAX_CANDIDATES: usize = 2048;
@@ -142,6 +145,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "bayesopt",
+    execution_stack = "process",
     category = "stats/ml",
     summary = "Run deterministic Bayesian optimization over optimizableVariable metadata.",
     keywords = "bayesopt,Bayesian optimization,optimizableVariable,expected improvement",
@@ -217,7 +221,7 @@ enum Transform {
 
 fn parse_variables(value: Value) -> BuiltinResult<Vec<Variable>> {
     let raw = match value {
-        Value::Object(object) if object.class_name == "optimizableVariable" => {
+        Value::Object(object) if object.class_name.is(OPTIMIZABLE_VARIABLE_CLASS) => {
             vec![Value::Object(object)]
         }
         Value::Cell(cell) => cell.data,
@@ -244,7 +248,7 @@ fn parse_variables(value: Value) -> BuiltinResult<Vec<Variable>> {
                 &ERROR_INVALID_ARGUMENT,
             ));
         };
-        if object.class_name != "optimizableVariable" {
+        if !object.class_name.is(OPTIMIZABLE_VARIABLE_CLASS) {
             return Err(bayesopt_error(
                 format!(
                     "bayesopt: expected optimizableVariable, got {}",
@@ -1451,7 +1455,7 @@ fn variable_descriptions(variables: &[Variable]) -> BuiltinResult<Value> {
     let values = variables
         .iter()
         .map(|var| {
-            let mut object = ObjectInstance::new("optimizableVariable".into());
+            let mut object = ObjectInstance::new("optimizableVariable");
             object
                 .properties
                 .insert("Name".into(), Value::String(var.name.clone()));
@@ -1676,7 +1680,7 @@ mod tests {
     use std::sync::Arc;
 
     fn variable(name: &str, range: Vec<f64>, var_type: Option<&str>) -> Value {
-        let mut object = ObjectInstance::new("optimizableVariable".into());
+        let mut object = ObjectInstance::new("optimizableVariable");
         object
             .properties
             .insert("Name".into(), Value::String(name.into()));
@@ -1698,7 +1702,7 @@ mod tests {
     }
 
     fn variable_with_range(name: &str, range: Value, var_type: Option<&str>) -> Value {
-        let mut object = ObjectInstance::new("optimizableVariable".into());
+        let mut object = ObjectInstance::new("optimizableVariable");
         object
             .properties
             .insert("Name".into(), Value::String(name.into()));
@@ -1745,7 +1749,7 @@ mod tests {
     }
 
     fn categorical_variable(name: &str, categories: Vec<&str>) -> Value {
-        let mut object = ObjectInstance::new("optimizableVariable".into());
+        let mut object = ObjectInstance::new("optimizableVariable");
         object
             .properties
             .insert("Name".into(), Value::String(name.into()));
@@ -1808,7 +1812,11 @@ mod tests {
                 assert_eq!(requested_outputs, 1);
                 let x = table_scalar_arg(args, "x");
                 let y = table_scalar_arg(args, "y");
-                Box::pin(async move { Ok(Value::Num((x - 0.25).powi(2) + (y + 0.5).powi(2))) })
+                Box::pin(async move {
+                    crate::sequence::single_value_sequence(Value::Num(
+                        (x - 0.25).powi(2) + (y + 0.5).powi(2),
+                    ))
+                })
             },
         )));
         let result = block_on(bayesopt_builtin(
@@ -1831,14 +1839,14 @@ mod tests {
         let Value::Object(object) = result else {
             panic!("expected BayesianOptimization object");
         };
-        assert_eq!(object.class_name, RESULT_CLASS);
+        assert!(object.class_name.is(RESULT_CLASS));
         let Some(Value::Num(minimum)) = object.properties.get("MinObjective") else {
             panic!("expected minimum");
         };
         assert!(*minimum < 0.08, "minimum was {minimum}");
         assert!(matches!(
             object.properties.get("XTrace"),
-            Some(Value::Object(table)) if table.class_name == "table"
+            Some(Value::Object(table)) if table.class_name.is(runmat_types::standard::TABLE)
         ));
     }
 
@@ -1858,7 +1866,7 @@ mod tests {
         let _guard = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
             |function, args, _requested_outputs| {
                 let x = table_scalar_arg(args, "x");
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     if function == 2 {
                         Ok(Value::Bool(x >= 0.0))
                     } else {
@@ -1899,7 +1907,7 @@ mod tests {
             |_function, args, _requested_outputs| {
                 let n = table_scalar_arg(args, "n");
                 let family = table_string_arg(args, "family");
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     let mut out = StructValue::new();
                     let family_penalty = if family == "rbf" { 0.0 } else { 1.0 };
                     out.insert("Objective", Value::Num((n - 2.0).powi(2) + family_penalty));
@@ -1943,7 +1951,7 @@ mod tests {
         let _guard = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
             |function, args, _requested_outputs| {
                 let x = table_scalar_arg(args, "x");
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     if function == 11 {
                         return Ok(poisoned_int_tensor(IntegerStorage::I8(vec![1]), vec![1, 1]));
                     }

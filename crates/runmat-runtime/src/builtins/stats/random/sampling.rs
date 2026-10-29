@@ -11,7 +11,8 @@ use runmat_builtins::{
 };
 use runmat_macros::runtime_builtin;
 use runmat_value::{
-    CellArray, CharArray, IntValue, LogicalArray, NumericStorage, StringArray, Tensor, Value,
+    CellArray, CharArray, IntValue, LogicalArray, NumericDType, NumericStorage, StringArray,
+    Tensor, Value,
 };
 
 use crate::builtins::common::random;
@@ -1626,7 +1627,7 @@ pub mod randsample {
                         "randsample: resident population owner is unavailable",
                     )
                 })?;
-            return crate::builtins::math::trigonometry::inverse_helpers::upload_value_like(
+            return crate::builtins::common::provider_restore::upload_value_like(
                 provider,
                 output,
                 "randsample",
@@ -2246,6 +2247,12 @@ enum BootstatRow {
     Logical(Vec<u8>),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BootstatClass {
+    Numeric(NumericDType),
+    Logical,
+}
+
 impl BootstatRow {
     fn len(&self) -> usize {
         match self {
@@ -2254,10 +2261,10 @@ impl BootstatRow {
         }
     }
 
-    fn class_name(&self) -> &'static str {
+    fn class(&self) -> BootstatClass {
         match self {
-            Self::Numeric(storage) => storage.class_name(),
-            Self::Logical(_) => "logical",
+            Self::Numeric(storage) => BootstatClass::Numeric(storage.numeric_dtype()),
+            Self::Logical(_) => BootstatClass::Logical,
         }
     }
 }
@@ -2292,7 +2299,7 @@ async fn bootstat_row(value: Value) -> BuiltinResult<BootstatRow> {
             .into_numeric_storage()
             .map(BootstatRow::Numeric)
             .map_err(|err| sampling_error("bootstrp", format!("bootstrp: {err}"))),
-        Value::LogicalArray(a) => Ok(BootstatRow::Logical(a.data)),
+        Value::LogicalArray(a) => Ok(BootstatRow::Logical(a.data.into_vec())),
         other => Err(sampling_error(
             "bootstrp",
             format!("bootstrp: bootfun must return numeric or logical values, got {other:?}"),
@@ -2327,10 +2334,10 @@ fn assemble_bootstat(rows: Vec<BootstatRow>, nboot: usize) -> BuiltinResult<Valu
         return empty_bootstat(nboot);
     };
     let width = first.len();
-    let class_name = first.class_name();
+    let class = first.class();
     if rows
         .iter()
-        .any(|row| row.len() != width || row.class_name() != class_name)
+        .any(|row| row.len() != width || row.class() != class)
     {
         return Err(sampling_error(
             "bootstrp",
@@ -2453,6 +2460,7 @@ pub mod bootstrp {
 
     #[runtime_builtin(
         name = "bootstrp",
+        execution_stack = "process",
         category = "stats/random",
         summary = "Bootstrap samples and evaluate a statistic.",
         keywords = "bootstrp,bootstrap,resampling,statistics,weights",
@@ -2824,7 +2832,7 @@ mod tests {
 
     #[test]
     fn randsample_restores_exact_integer_population_to_its_owner() {
-        let _lock = random::test_lock().lock().unwrap();
+        let _guard = random::test_guard();
         let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
         random::reset_rng();
         crate::builtins::common::test_support::with_test_provider(|provider| {
@@ -2961,7 +2969,7 @@ mod tests {
 
     #[test]
     fn unidrnd_typed_integer_roles_are_gated_and_wide_limits_must_be_exact() {
-        let _lock = random::test_lock().lock().unwrap();
+        let _guard = random::test_guard();
         random::reset_rng();
         let compatibility = crate::compatibility::push_runmat_extensions_enabled(false);
         let limit_error = block_on(unidrnd::unidrnd_builtin(vec![Value::Int(IntValue::U16(3))]))

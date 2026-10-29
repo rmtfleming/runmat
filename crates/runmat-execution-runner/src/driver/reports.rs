@@ -41,7 +41,16 @@ impl Driver {
         match report.report {
             AttemptReport::Started => self.start_attempt(&report)?,
             AttemptReport::Succeeded { result } => {
-                let uncommitted_objects = result.result_objects.clone();
+                if result.validate_for_portable_transport().is_err() {
+                    self.fail_attempt(
+                        &attempt,
+                        report.task_id,
+                        report.attempt_id,
+                        AttemptFailureKind::Rejected,
+                    )?;
+                    return Ok(());
+                }
+                let uncommitted_objects = result.result_objects().to_vec();
                 self.finish_attempt(&attempt, AttemptState::Completed)?;
                 let decision = self.commit_result(&attempt, result)?;
                 if let CommitDecision::Accepted(commit) = decision {
@@ -65,6 +74,14 @@ impl Driver {
             }
             AttemptReport::Failed { kind, .. } => {
                 self.fail_attempt(&attempt, report.task_id, report.attempt_id, kind)?;
+            }
+            AttemptReport::RuntimeFailed { .. } => {
+                self.fail_attempt(
+                    &attempt,
+                    report.task_id,
+                    report.attempt_id,
+                    AttemptFailureKind::Execution,
+                )?;
             }
             AttemptReport::Lost { .. } => {
                 self.finish_attempt(&attempt, AttemptState::Lost)?;
@@ -146,9 +163,13 @@ impl Driver {
             .workers
             .get_mut(&attempt.request.worker_id)
             .ok_or(RunnerError::UnknownWorker(attempt.request.worker_id))?;
-        scheduler::release(&mut worker.allocated, &attempt.request.task.resources);
+        scheduler::release(
+            &mut worker.allocated,
+            &attempt.request.task.resources,
+            &attempt.request.resource_assignment,
+        );
         worker.active_attempts = worker.active_attempts.saturating_sub(1);
-        scheduler::release(&mut pool.allocated, &attempt.request.task.resources);
+        scheduler::release_scalar(&mut pool.allocated, &attempt.request.task.resources);
         pool.active_attempts = pool.active_attempts.saturating_sub(1);
         Ok(())
     }
@@ -213,7 +234,7 @@ impl Driver {
         if let AttemptReport::Succeeded { result } = report.report {
             actions.push(DriverAction::GarbageCollectResults {
                 task_id: report.task_id,
-                objects: result.result_objects,
+                objects: result.result_objects().to_vec(),
             });
         }
         self.emit(DriverEventKind::ReportDiscarded {

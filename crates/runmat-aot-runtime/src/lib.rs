@@ -3,8 +3,14 @@
 mod builtin;
 mod execute;
 mod input;
+mod java_artifacts;
+mod materialize;
+mod mex;
+mod mex_artifacts;
+mod native_interfaces;
 mod output;
 mod program;
+mod python_artifacts;
 
 pub use input::AotProcessInput;
 
@@ -39,8 +45,42 @@ pub unsafe extern "C" fn runmat_aot_main(
     program_len: u64,
     resume_points: *const u8,
     resume_points_len: u64,
+    native_interfaces: *const u8,
+    native_interfaces_len: u64,
+    mex_artifacts: *const u8,
+    mex_artifacts_len: u64,
+    java_artifacts: *const u8,
+    java_artifacts_len: u64,
+    python_artifacts: *const u8,
+    python_artifacts_len: u64,
 ) -> i32 {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: the generated launcher forwards the process argument vector
+        // received by its C `main` entrypoint.
+        let arguments = unsafe { input::copy_process_arguments(argc, argv) }?;
+        match runmat_process_host::HiddenModeRegistry::standard()
+            .detect(arguments)
+            .map_err(|error| error.to_string())?
+        {
+            Some(runmat_process_host::HiddenMode::ExtensionHost) => {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|error| {
+                        format!("standalone extension-host runtime failed to start: {error}")
+                    })?;
+                return runtime
+                    .block_on(runmat_runtime::foreign::run_extension_host())
+                    .map_err(|error| format!("standalone extension host failed: {error}"));
+            }
+            Some(mode) => {
+                return Err(format!(
+                    "standalone executable does not provide private host mode '{}'",
+                    mode.marker()
+                ));
+            }
+            None => {}
+        }
         // SAFETY: validation and bounded copies happen before any payload is
         // decoded or retained. The generated launcher supplies these symbols.
         let linked = input::LinkedProcessImage {
@@ -54,6 +94,14 @@ pub unsafe extern "C" fn runmat_aot_main(
             program_len,
             resume_points,
             resume_points_len,
+            native_interfaces,
+            native_interfaces_len,
+            mex_artifacts,
+            mex_artifacts_len,
+            java_artifacts,
+            java_artifacts_len,
+            python_artifacts,
+            python_artifacts_len,
         };
         // SAFETY: the raw pointers were checked and converted to bounded borrows
         // above; both resolver contracts are documented on this entry.

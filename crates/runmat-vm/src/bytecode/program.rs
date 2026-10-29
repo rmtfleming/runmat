@@ -14,8 +14,12 @@ use runmat_types::{FunctionArgDefaultValue, FunctionArgSizeSpec, FunctionArgVali
 use runmat_value::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
-use super::region::BytecodeRegion;
+use super::{
+    parallel::{BytecodeParforRegion, BytecodeSpmdRegion},
+    region::BytecodeRegion,
+};
 
 #[derive(Debug, Clone)]
 pub struct CallFrame {
@@ -51,10 +55,15 @@ impl Default for ExecutionContext {
 pub struct FunctionBytecode {
     pub function: FunctionId,
     pub display_name: String,
+    pub class_method_owner: Option<runmat_types::ClassMethodOwner>,
     #[serde(default)]
     pub private_owner_scope: String,
     #[serde(default)]
     pub source_id: Option<runmat_hir::SourceId>,
+    /// Whole-function semantic requirements, including reachable static
+    /// callees, captured by MIR analysis before bytecode serialization.
+    #[serde(default)]
+    pub capabilities: runmat_types::CapabilitySet,
     pub instructions: Vec<Instr>,
     #[serde(default)]
     pub instr_spans: Vec<runmat_hir::Span>,
@@ -84,6 +93,14 @@ pub struct FunctionBytecode {
     pub resume_points: std::collections::BTreeMap<runmat_types::ProgramPointId, usize>,
     #[serde(default)]
     pub regions: Vec<BytecodeRegion>,
+    #[serde(default)]
+    pub parfor_regions: Vec<BytecodeParforRegion>,
+    #[serde(default)]
+    pub spmd_regions: Vec<BytecodeSpmdRegion>,
+    #[serde(default)]
+    pub distributed_values: Vec<runmat_types::DistributedValueContract>,
+    #[serde(default)]
+    pub collective_contracts: Vec<runmat_types::CollectiveContract>,
 }
 
 impl Default for FunctionBytecode {
@@ -91,8 +108,10 @@ impl Default for FunctionBytecode {
         Self {
             function: FunctionId(0),
             display_name: String::new(),
+            class_method_owner: None,
             private_owner_scope: String::new(),
             source_id: None,
+            capabilities: Default::default(),
             instructions: Vec::new(),
             instr_spans: Vec::new(),
             call_arg_spans: Vec::new(),
@@ -110,6 +129,82 @@ impl Default for FunctionBytecode {
             argument_validations: Vec::new(),
             resume_points: std::collections::BTreeMap::new(),
             regions: Vec::new(),
+            parfor_regions: Vec::new(),
+            spmd_regions: Vec::new(),
+            distributed_values: Vec::new(),
+            collective_contracts: Vec::new(),
+        }
+    }
+}
+
+impl FunctionBytecode {
+    /// Materializes the function-local executable view consumed by the VM.
+    /// All compiler-owned metadata travels with the instruction stream here so
+    /// function dispatch cannot accidentally discard executable contracts.
+    pub(crate) fn execution_bytecode(&self, registry: &FunctionRegistry) -> Bytecode {
+        let mut bytecode = Bytecode::with_instructions(self.instructions.clone(), self.var_count);
+        bytecode.instr_spans = self.instr_spans.clone();
+        bytecode.call_arg_spans = self.call_arg_spans.clone();
+        bytecode.coverage_sites = self.coverage_sites.clone();
+        bytecode.source_id = self.source_id;
+        bytecode.active_function = Some(self.function);
+        bytecode.active_class_method_owner = self.class_method_owner.clone();
+        bytecode.var_names = self.var_names.clone();
+        bytecode.initially_unassigned_slots = self.initially_unassigned_slots.clone();
+        bytecode.regions = self.regions.clone();
+        bytecode.parfor_regions = self.parfor_regions.clone();
+        bytecode.spmd_regions = self.spmd_regions.clone();
+        bytecode.distributed_values = self.distributed_values.clone();
+        bytecode.collective_contracts = self.collective_contracts.clone();
+        bytecode.bound_functions = registry.functions.clone();
+        bytecode.function_registry = registry.clone();
+        bytecode
+    }
+
+    /// Rebinds every compiler-owned identity when a unit-local function is
+    /// installed into a session registry. Control-flow and parallel metadata
+    /// must move atomically with the function instruction stream.
+    pub fn rebind_identity(
+        &mut self,
+        function: FunctionId,
+        program_function: runmat_types::ProgramFunctionId,
+    ) {
+        self.function = function;
+        self.resume_points = std::mem::take(&mut self.resume_points)
+            .into_iter()
+            .map(|(mut point, pc)| {
+                point.function = program_function;
+                (point, pc)
+            })
+            .collect();
+        for region in &mut self.regions {
+            region.rebind_owner(program_function);
+        }
+        for region in &mut self.parfor_regions {
+            region.rebind_owner(program_function);
+        }
+        for region in &mut self.spmd_regions {
+            region.rebind_owner(program_function);
+        }
+        for distributed in &mut self.distributed_values {
+            distributed.id.function = program_function;
+            match &mut distributed.owner {
+                runmat_types::DistributedOwner::Client(function) => *function = program_function,
+                runmat_types::DistributedOwner::Region(region) => {
+                    region.0.function = program_function
+                }
+            }
+        }
+        for collective in &mut self.collective_contracts {
+            collective.id.region.0.function = program_function;
+        }
+        for instruction in &mut self.instructions {
+            match instruction {
+                Instr::ExecuteParfor { region, .. } | Instr::ExecuteSpmd { region, .. } => {
+                    region.0.function = program_function;
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -132,6 +227,8 @@ pub struct FunctionRegistry {
     pub names: HashMap<String, FunctionId>,
     #[serde(default)]
     pub source_functions: HashMap<runmat_hir::SourceId, Vec<FunctionId>>,
+    #[serde(skip)]
+    execution_stacks: OnceLock<HashMap<FunctionId, runmat_types::ExecutionStackRequirement>>,
 }
 
 impl FunctionRegistry {
@@ -152,6 +249,7 @@ impl FunctionRegistry {
             functions,
             names,
             source_functions,
+            execution_stacks: OnceLock::new(),
         }
     }
 
@@ -176,6 +274,7 @@ impl FunctionRegistry {
     }
 
     pub fn insert_replacing_name(&mut self, function: FunctionBytecode) {
+        self.execution_stacks.take();
         if let Some(previous) = self
             .names
             .insert(function.display_name.clone(), function.function)
@@ -193,6 +292,7 @@ impl FunctionRegistry {
     }
 
     pub fn remove(&mut self, function: FunctionId) -> Option<FunctionBytecode> {
+        self.execution_stacks.take();
         let removed = self.functions.remove(&function)?;
         if self.names.get(&removed.display_name) == Some(&function) {
             self.names.remove(&removed.display_name);
@@ -209,6 +309,7 @@ impl FunctionRegistry {
     }
 
     pub fn remove_source(&mut self, source: runmat_hir::SourceId) -> Vec<FunctionBytecode> {
+        self.execution_stacks.take();
         let ids = self.source_functions.remove(&source).unwrap_or_default();
         let mut removed = Vec::new();
         for id in ids {
@@ -228,6 +329,397 @@ impl FunctionRegistry {
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
+
+    /// Returns the stack required by this function and its reachable callees.
+    pub fn execution_stack(&self, function: FunctionId) -> runmat_types::ExecutionStackRequirement {
+        *self
+            .execution_stacks
+            .get_or_init(|| {
+                self.functions
+                    .keys()
+                    .copied()
+                    .map(|function| {
+                        (
+                            function,
+                            self.execution_stack_inner(function, &mut HashSet::new()),
+                        )
+                    })
+                    .collect()
+            })
+            .get(&function)
+            .unwrap_or(&runmat_types::ExecutionStackRequirement::Process)
+    }
+
+    fn execution_stack_inner(
+        &self,
+        function: FunctionId,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> runmat_types::ExecutionStackRequirement {
+        if !visiting.insert(function) {
+            return runmat_types::ExecutionStackRequirement::Any;
+        }
+        let required = self
+            .functions
+            .get(&function)
+            .map(|bytecode| {
+                bytecode
+                    .instructions
+                    .iter()
+                    .map(|instruction| self.instruction_execution_stack(instruction, visiting))
+                    .max()
+                    .unwrap_or(runmat_types::ExecutionStackRequirement::Any)
+            })
+            .unwrap_or(runmat_types::ExecutionStackRequirement::Process);
+        visiting.remove(&function);
+        required
+    }
+
+    fn instruction_execution_stack(
+        &self,
+        instruction: &Instr,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> runmat_types::ExecutionStackRequirement {
+        use runmat_types::CallableIdentity;
+
+        let identity_stack =
+            |identity: &CallableIdentity, registry: &Self, visiting: &mut HashSet<FunctionId>| {
+                match identity {
+                    CallableIdentity::BoundFunction(function)
+                    | CallableIdentity::AnonymousFunction(function)
+                    | CallableIdentity::ExternalFunction { function, .. } => {
+                        registry.execution_stack_inner(*function, visiting)
+                    }
+                    CallableIdentity::Builtin(builtin) => builtin_execution_stack(&builtin.0),
+                    CallableIdentity::DynamicName(name) => {
+                        if runmat_builtins::builtin_name_is_known(&name.0) {
+                            builtin_execution_stack(&name.0)
+                        } else {
+                            runmat_types::ExecutionStackRequirement::Process
+                        }
+                    }
+                    CallableIdentity::Method(method) => registry
+                        .registered_named_method_execution_stack(
+                            &runmat_types::MethodName::from(method.0.as_str()),
+                            visiting,
+                        )
+                        .unwrap_or(runmat_types::ExecutionStackRequirement::Process),
+                    CallableIdentity::ExternalName(_) | CallableIdentity::Imported(_) => {
+                        runmat_types::ExecutionStackRequirement::Process
+                    }
+                }
+            };
+
+        match instruction {
+            Instr::CallBuiltinMulti(name, ..)
+            | Instr::CallBuiltinMultiUsingOutputSlot(name, ..)
+            | Instr::CallBuiltinExpandMultiOutput(name, ..) => builtin_execution_stack(name),
+            Instr::CallFunctionMulti { identity, .. }
+            | Instr::CallFunctionMultiUsingOutputSlot { identity, .. }
+            | Instr::CallWorkspaceFirstMulti { identity, .. }
+            | Instr::CallWorkspaceFirstMultiUsingOutputSlot { identity, .. }
+            | Instr::CallFunctionExpandMultiOutput { identity, .. }
+            | Instr::CallWorkspaceFirstExpandMultiOutput { identity, .. }
+            | Instr::CallWorkspaceFirstExpandMultiOutputUsingOutputSlot { identity, .. } => {
+                identity_stack(identity, self, visiting)
+            }
+            Instr::CallSemanticFunctionMulti(function, ..)
+            | Instr::CallSemanticFunctionMultiUsingOutputSlot(function, ..)
+            | Instr::CallSemanticFunctionExpandMultiOutput(function, ..)
+            | Instr::CreateSemanticFuture(function, ..)
+            | Instr::CreateSemanticFutureExpandMultiOutput(function, ..) => {
+                self.execution_stack_inner(*function, visiting)
+            }
+            Instr::CallSemanticNestedFunctionMulti { function, .. }
+            | Instr::CallSemanticNestedFunctionMultiUsingOutputSlot { function, .. }
+            | Instr::CallSemanticNestedFunctionExpandMultiOutput { function, .. } => {
+                self.execution_stack_inner(*function, visiting)
+            }
+            Instr::CallMethodOrMemberIndexMulti { identity, .. }
+            | Instr::CallMethodOrMemberIndexExpandMultiOutput { identity, .. } => identity
+                .display_name()
+                .and_then(|name| self.registered_member_or_method_execution_stack(&name, visiting))
+                .unwrap_or_else(|| identity_stack(identity, self, visiting)),
+            Instr::CallFevalMulti(..)
+            | Instr::CallFevalMultiUsingOutputSlot(..)
+            | Instr::CallFevalExpandMultiOutput(..)
+            | Instr::CallFevalExpandMultiOutputUsingOutputSlot(..)
+            | Instr::CallSuperConstructorMulti { .. }
+            | Instr::CallSuperMethodMulti { .. } => {
+                runmat_types::ExecutionStackRequirement::Process
+            }
+            instruction => self.registered_method_execution_stack(instruction, visiting),
+        }
+    }
+
+    fn registered_method_execution_stack(
+        &self,
+        instruction: &Instr,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> runmat_types::ExecutionStackRequirement {
+        if !instruction_has_dynamic_dispatch(instruction) {
+            return runmat_types::ExecutionStackRequirement::Any;
+        }
+        let mut targets = HashSet::new();
+        for function in self.functions.values() {
+            for candidate in &function.instructions {
+                let Instr::RegisterClass { methods, .. } = candidate else {
+                    continue;
+                };
+                for method in methods {
+                    if instruction_may_dispatch_method(instruction, &method.name) {
+                        targets.insert(method.function_name.as_str());
+                    }
+                }
+            }
+        }
+        self.registered_targets_execution_stack(targets, visiting)
+            .unwrap_or(runmat_types::ExecutionStackRequirement::Any)
+    }
+
+    fn registered_named_method_execution_stack(
+        &self,
+        requested_name: &runmat_types::MethodName,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> Option<runmat_types::ExecutionStackRequirement> {
+        let mut targets = HashSet::new();
+        for function in self.functions.values() {
+            for candidate in &function.instructions {
+                let Instr::RegisterClass { methods, .. } = candidate else {
+                    continue;
+                };
+                for method in methods {
+                    if &method.name == requested_name {
+                        targets.insert(method.function_name.as_str());
+                    }
+                }
+            }
+        }
+        self.registered_targets_execution_stack(targets, visiting)
+    }
+
+    fn registered_member_or_method_execution_stack(
+        &self,
+        requested_name: &str,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> Option<runmat_types::ExecutionStackRequirement> {
+        if let Some(requirement) = self.registered_named_method_execution_stack(
+            &runmat_types::MethodName::from(requested_name),
+            visiting,
+        ) {
+            return Some(requirement);
+        }
+        let mut property_is_registered = false;
+        let mut targets = HashSet::new();
+        for function in self.functions.values() {
+            for candidate in &function.instructions {
+                let Instr::RegisterClass {
+                    properties,
+                    methods,
+                    ..
+                } = candidate
+                else {
+                    continue;
+                };
+                if !properties
+                    .iter()
+                    .any(|property| property.name.display_name() == requested_name)
+                {
+                    continue;
+                }
+                property_is_registered = true;
+                let getter = runmat_types::MethodName::property_getter(&runmat_types::MemberName(
+                    requested_name.to_owned(),
+                ));
+                for method in methods {
+                    if runmat_runtime::OBJECT_SUBSREF_METHOD.is(&method.name)
+                        || method.name == getter
+                    {
+                        targets.insert(method.function_name.as_str());
+                    }
+                }
+            }
+        }
+        property_is_registered.then(|| {
+            self.registered_targets_execution_stack(targets, visiting)
+                .unwrap_or(runmat_types::ExecutionStackRequirement::Any)
+        })
+    }
+
+    fn registered_targets_execution_stack(
+        &self,
+        targets: HashSet<&str>,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> Option<runmat_types::ExecutionStackRequirement> {
+        targets
+            .into_iter()
+            .map(|target| {
+                self.resolve_name(target)
+                    .map(|function| self.execution_stack_inner(function, visiting))
+                    .unwrap_or_else(|| {
+                        if runmat_builtins::builtin_name_is_known(target) {
+                            builtin_execution_stack(target)
+                        } else {
+                            runmat_types::ExecutionStackRequirement::Process
+                        }
+                    })
+            })
+            .max()
+    }
+}
+
+fn instruction_has_dynamic_dispatch(instruction: &Instr) -> bool {
+    !dynamic_dispatch_method_names(instruction).is_empty()
+        || matches!(
+            instruction,
+            Instr::Index(_)
+                | Instr::IndexSlice(..)
+                | Instr::IndexCell { .. }
+                | Instr::IndexCellExpand { .. }
+                | Instr::IndexCellList { .. }
+                | Instr::StoreIndex(_)
+                | Instr::StoreIndexCell { .. }
+                | Instr::StoreIndexDelete(_)
+                | Instr::StoreIndexCellDelete { .. }
+                | Instr::StoreSlice(..)
+                | Instr::StoreSliceDelete(..)
+                | Instr::LoadMember(_)
+                | Instr::LoadMemberOrInit(_)
+                | Instr::LoadMemberDynamic
+                | Instr::LoadMemberDynamicOrInit
+                | Instr::LoadMemberSequence { .. }
+                | Instr::LoadMemberDynamicSequence { .. }
+                | Instr::StoreMember(_)
+                | Instr::StoreMemberOrInit(_)
+                | Instr::StoreMemberDynamic
+                | Instr::StoreMemberDynamicOrInit
+        )
+}
+
+fn instruction_may_dispatch_method(
+    instruction: &Instr,
+    method_name: &runmat_types::MethodName,
+) -> bool {
+    if dynamic_dispatch_method_names(instruction)
+        .iter()
+        .any(|candidate| candidate.is(method_name))
+    {
+        return true;
+    }
+    match instruction {
+        Instr::Index(_)
+        | Instr::IndexSlice(..)
+        | Instr::IndexCell { .. }
+        | Instr::IndexCellExpand { .. }
+        | Instr::IndexCellList { .. } => runmat_runtime::OBJECT_SUBSREF_METHOD.is(method_name),
+        Instr::StoreIndex(_)
+        | Instr::StoreIndexCell { .. }
+        | Instr::StoreIndexDelete(_)
+        | Instr::StoreIndexCellDelete { .. }
+        | Instr::StoreSlice(..)
+        | Instr::StoreSliceDelete(..) => runmat_runtime::OBJECT_SUBSASGN_METHOD.is(method_name),
+        Instr::LoadMember(name)
+        | Instr::LoadMemberOrInit(name)
+        | Instr::LoadMemberSequence { member: name, .. } => {
+            runmat_runtime::OBJECT_SUBSREF_METHOD.is(method_name)
+                || method_name == &runmat_types::MethodName::property_getter(name)
+        }
+        Instr::LoadMemberDynamic
+        | Instr::LoadMemberDynamicOrInit
+        | Instr::LoadMemberDynamicSequence { .. } => {
+            runmat_runtime::OBJECT_SUBSREF_METHOD.is(method_name)
+                || method_name.is_property_getter()
+        }
+        Instr::StoreMember(name) | Instr::StoreMemberOrInit(name) => {
+            runmat_runtime::OBJECT_SUBSASGN_METHOD.is(method_name)
+                || method_name == &runmat_types::MethodName::property_setter(name)
+        }
+        Instr::StoreMemberDynamic | Instr::StoreMemberDynamicOrInit => {
+            runmat_runtime::OBJECT_SUBSASGN_METHOD.is(method_name)
+                || method_name.is_property_setter()
+        }
+        _ => false,
+    }
+}
+
+fn dynamic_dispatch_method_names(instruction: &Instr) -> &'static [runmat_types::StaticMethodName] {
+    use runmat_types::StaticMethodName;
+
+    const PLUS: &[StaticMethodName] = &[StaticMethodName::new("plus")];
+    const MINUS: &[StaticMethodName] = &[StaticMethodName::new("minus")];
+    const MTIMES: &[StaticMethodName] = &[StaticMethodName::new("mtimes")];
+    const RIGHT_DIVIDE: &[StaticMethodName] = &[
+        StaticMethodName::new("mrdivide"),
+        StaticMethodName::new("rdivide"),
+    ];
+    const LEFT_DIVIDE: &[StaticMethodName] = &[
+        StaticMethodName::new("mldivide"),
+        StaticMethodName::new("ldivide"),
+    ];
+    const POWER: &[StaticMethodName] = &[
+        StaticMethodName::new("mpower"),
+        StaticMethodName::new("power"),
+    ];
+    const NEGATE: &[StaticMethodName] = &[
+        StaticMethodName::new("uminus"),
+        StaticMethodName::new("times"),
+    ];
+    const UPLUS: &[StaticMethodName] = &[StaticMethodName::new("uplus")];
+    const TRANSPOSE: &[StaticMethodName] = &[StaticMethodName::new("transpose")];
+    const CONJUGATE_TRANSPOSE: &[StaticMethodName] = &[StaticMethodName::new("ctranspose")];
+    const TIMES: &[StaticMethodName] = &[StaticMethodName::new("times")];
+    const RDIVIDE: &[StaticMethodName] = &[StaticMethodName::new("rdivide")];
+    const ELEMENTWISE_POWER: &[StaticMethodName] = &[StaticMethodName::new("power")];
+    const LDIVIDE: &[StaticMethodName] = &[StaticMethodName::new("ldivide")];
+    const LESS_EQUAL: &[StaticMethodName] = &[
+        StaticMethodName::new("le"),
+        StaticMethodName::new("gt"),
+        StaticMethodName::new("ge"),
+        StaticMethodName::new("lt"),
+    ];
+    const LESS: &[StaticMethodName] = &[StaticMethodName::new("lt"), StaticMethodName::new("gt")];
+    const GREATER: &[StaticMethodName] =
+        &[StaticMethodName::new("gt"), StaticMethodName::new("lt")];
+    const GREATER_EQUAL: &[StaticMethodName] = &[
+        StaticMethodName::new("ge"),
+        StaticMethodName::new("lt"),
+        StaticMethodName::new("le"),
+        StaticMethodName::new("gt"),
+    ];
+    const EQUAL: &[StaticMethodName] = &[StaticMethodName::new("eq")];
+    const NOT_EQUAL: &[StaticMethodName] = &[StaticMethodName::new("ne")];
+    const NOT: &[StaticMethodName] = &[StaticMethodName::new("not")];
+    const AND: &[StaticMethodName] = &[StaticMethodName::new("and")];
+    const OR: &[StaticMethodName] = &[StaticMethodName::new("or")];
+
+    match instruction {
+        Instr::Add => PLUS,
+        Instr::Sub => MINUS,
+        Instr::Mul => MTIMES,
+        Instr::RightDiv => RIGHT_DIVIDE,
+        Instr::LeftDiv => LEFT_DIVIDE,
+        Instr::Pow => POWER,
+        Instr::Neg => NEGATE,
+        Instr::UPlus => UPLUS,
+        Instr::Transpose => TRANSPOSE,
+        Instr::ConjugateTranspose => CONJUGATE_TRANSPOSE,
+        Instr::ElemMul => TIMES,
+        Instr::ElemDiv => RDIVIDE,
+        Instr::ElemPow => ELEMENTWISE_POWER,
+        Instr::ElemLeftDiv => LDIVIDE,
+        Instr::LessEqual => LESS_EQUAL,
+        Instr::Less => LESS,
+        Instr::Greater => GREATER,
+        Instr::GreaterEqual => GREATER_EQUAL,
+        Instr::Equal => EQUAL,
+        Instr::NotEqual => NOT_EQUAL,
+        Instr::LogicalNot => NOT,
+        Instr::LogicalAnd => AND,
+        Instr::LogicalOr => OR,
+        _ => &[],
+    }
+}
+fn builtin_execution_stack(name: &str) -> runmat_types::ExecutionStackRequirement {
+    runmat_builtins::builtin_execution_stack_requirement(name)
 }
 
 impl runmat_runtime::call::descriptor::FunctionNameResolver for FunctionRegistry {
@@ -239,6 +731,10 @@ impl runmat_runtime::call::descriptor::FunctionNameResolver for FunctionRegistry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bytecode {
     pub instructions: Vec<Instr>,
+    #[serde(skip)]
+    pub active_function: Option<FunctionId>,
+    #[serde(skip)]
+    pub active_class_method_owner: Option<runmat_types::ClassMethodOwner>,
     #[serde(default)]
     pub instr_spans: Vec<runmat_hir::Span>,
     #[serde(default)]
@@ -265,6 +761,16 @@ pub struct Bytecode {
     /// Canonical region identities mapped onto function-local bytecode PCs.
     #[serde(default)]
     pub regions: Vec<BytecodeRegion>,
+    /// Compiler-bound executable records for analyzed `parfor` regions.
+    #[serde(default)]
+    pub parfor_regions: Vec<BytecodeParforRegion>,
+    /// Compiler-bound executable records for analyzed SPMD regions.
+    #[serde(default)]
+    pub spmd_regions: Vec<BytecodeSpmdRegion>,
+    #[serde(default)]
+    pub distributed_values: Vec<runmat_types::DistributedValueContract>,
+    #[serde(default)]
+    pub collective_contracts: Vec<runmat_types::CollectiveContract>,
     #[cfg(feature = "native-accel")]
     #[serde(default)]
     pub accel_graph: Option<AccelGraph>,
@@ -379,6 +885,8 @@ impl Bytecode {
     pub fn empty() -> Self {
         Self {
             instructions: Vec::new(),
+            active_function: None,
+            active_class_method_owner: None,
             instr_spans: Vec::new(),
             call_arg_spans: Vec::new(),
             coverage_sites: Vec::new(),
@@ -392,6 +900,10 @@ impl Bytecode {
             layout: None,
             async_metadata: AsyncMetadata::default(),
             regions: Vec::new(),
+            parfor_regions: Vec::new(),
+            spmd_regions: Vec::new(),
+            distributed_values: Vec::new(),
+            collective_contracts: Vec::new(),
             #[cfg(feature = "native-accel")]
             accel_graph: None,
             #[cfg(feature = "native-accel")]
@@ -427,28 +939,10 @@ impl Bytecode {
         registry: FunctionRegistry,
         layout: VmAssemblyLayout,
     ) -> Self {
-        Self {
-            instructions: function.instructions.clone(),
-            instr_spans: function.instr_spans.clone(),
-            call_arg_spans: function.call_arg_spans.clone(),
-            coverage_sites: function.coverage_sites.clone(),
-            source_id: function.source_id,
-            var_count: function.var_count,
-            bound_functions: registry.functions.clone(),
-            function_registry: registry,
-            var_types: vec![Type::Unknown; function.var_count],
-            var_names: function.var_names.clone(),
-            initially_unassigned_slots: function.initially_unassigned_slots.clone(),
-            layout: Some(layout),
-            async_metadata: AsyncMetadata::default(),
-            regions: function.regions.clone(),
-            #[cfg(feature = "native-accel")]
-            accel_graph: None,
-            #[cfg(feature = "native-accel")]
-            fusion_groups: Vec::new(),
-            #[cfg(feature = "native-accel")]
-            fusion_metadata: FusionMetadata::default(),
-        }
+        let mut bytecode = function.execution_bytecode(&registry);
+        bytecode.var_types = vec![Type::Unknown; function.var_count];
+        bytecode.layout = Some(layout);
+        bytecode
     }
 
     #[cfg(feature = "native-accel")]
@@ -544,9 +1038,11 @@ mod function_registry_tests {
     fn test_function(id: usize, display_name: &str, private_owner_scope: &str) -> FunctionBytecode {
         FunctionBytecode {
             function: FunctionId(id),
-            display_name: display_name.to_string(),
+            display_name: display_name.into(),
+            class_method_owner: None,
             private_owner_scope: private_owner_scope.to_string(),
             source_id: None,
+            capabilities: Default::default(),
             instructions: vec![Instr::Return],
             instr_spans: Vec::new(),
             call_arg_spans: Vec::new(),
@@ -564,6 +1060,10 @@ mod function_registry_tests {
             argument_validations: Vec::new(),
             resume_points: std::collections::BTreeMap::new(),
             regions: Vec::new(),
+            parfor_regions: Vec::new(),
+            spmd_regions: Vec::new(),
+            distributed_values: Vec::new(),
+            collective_contracts: Vec::new(),
         }
     }
 
@@ -593,6 +1093,197 @@ mod function_registry_tests {
             registry.resolve_name_in_private_scope("C", "pkg.helper"),
             None,
             "qualified names should not be rewritten as private-folder aliases"
+        );
+    }
+
+    #[test]
+    fn execution_stack_requirement_propagates_through_static_calls_and_cycles() {
+        let mut entry = test_function(1, "entry", "");
+        entry.instructions = vec![Instr::CallSemanticFunctionMulti(FunctionId(2), 0, 1)];
+        let mut helper = test_function(2, "helper", "");
+        helper.instructions = vec![
+            Instr::CallSemanticFunctionMulti(FunctionId(1), 0, 1),
+            Instr::CallBuiltinMulti("javaObject".into(), 1, 1),
+        ];
+        let registry = FunctionRegistry::new(HashMap::from([
+            (FunctionId(1), entry),
+            (FunctionId(2), helper),
+        ]));
+
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Process
+        );
+        assert_eq!(
+            registry.execution_stack(FunctionId(2)),
+            runmat_types::ExecutionStackRequirement::Process
+        );
+    }
+
+    #[test]
+    fn execution_stack_requirement_keeps_pure_functions_segmentable() {
+        let registry = FunctionRegistry::new(HashMap::from([(
+            FunctionId(1),
+            test_function(1, "pure_helper", ""),
+        )]));
+
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Any
+        );
+    }
+
+    #[test]
+    fn execution_stack_requirement_is_conservative_at_dynamic_boundaries() {
+        let mut callback = test_function(1, "callback", "");
+        callback.instructions = vec![Instr::CallFevalMulti(1, 1)];
+        let registry = FunctionRegistry::new(HashMap::from([(FunctionId(1), callback)]));
+
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Process
+        );
+    }
+
+    #[test]
+    fn execution_stack_requirement_follows_registered_operator_overloads() {
+        let mut caller = test_function(1, "caller", "");
+        caller.instructions = vec![
+            Instr::RegisterClass {
+                name: "Example".into(),
+                super_class: None,
+                is_sealed: false,
+                is_abstract: false,
+                properties: Vec::new(),
+                methods: vec![crate::bytecode::instr::BytecodeClassMethod {
+                    name: "plus".into(),
+                    function_name: "Example.plus".into(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_sealed: false,
+                    access: runmat_types::MemberAccess::Public,
+                }],
+                enumerations: Vec::new(),
+            },
+            Instr::Add,
+        ];
+        let mut operator = test_function(2, "Example.plus", "");
+        operator.instructions = vec![Instr::CallBuiltinMulti("javaObject".into(), 1, 1)];
+        let registry = FunctionRegistry::new(HashMap::from([
+            (FunctionId(1), caller),
+            (FunctionId(2), operator),
+        ]));
+
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Process
+        );
+    }
+
+    fn property_dispatch_registry(property_body: Vec<Instr>) -> (FunctionRegistry, FunctionId) {
+        let mut caller = test_function(1, "caller", "");
+        caller.instructions = vec![
+            Instr::RegisterClass {
+                name: "Example".into(),
+                super_class: None,
+                is_sealed: false,
+                is_abstract: false,
+                properties: vec![crate::bytecode::instr::BytecodeClassProperty {
+                    name: "data".into(),
+                    is_static: false,
+                    is_constant: false,
+                    is_dependent: false,
+                    default_literal: None,
+                    get_access: runmat_types::MemberAccess::Public,
+                    set_access: runmat_types::MemberAccess::Public,
+                }],
+                methods: vec![crate::bytecode::instr::BytecodeClassMethod {
+                    name: "get.data".into(),
+                    function_name: "Example.get.data".into(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_sealed: false,
+                    access: runmat_types::MemberAccess::Public,
+                }],
+                enumerations: Vec::new(),
+            },
+            Instr::CallMethodOrMemberIndexMulti {
+                identity: runmat_types::CallableIdentity::DynamicName(runmat_types::SymbolName(
+                    "data".into(),
+                )),
+                fallback_policy: runmat_types::CallableFallbackPolicy::ObjectDispatch,
+                arg_count: 1,
+                out_count: 1,
+            },
+        ];
+        let mut getter = test_function(2, "Example.get.data", "");
+        getter.instructions = property_body;
+        (
+            FunctionRegistry::new(HashMap::from([
+                (FunctionId(1), caller),
+                (FunctionId(2), getter),
+            ])),
+            FunctionId(1),
+        )
+    }
+
+    #[test]
+    fn execution_stack_requirement_resolves_registered_property_dispatch() {
+        let (registry, caller) = property_dispatch_registry(vec![Instr::Return]);
+
+        assert_eq!(
+            registry.execution_stack(caller),
+            runmat_types::ExecutionStackRequirement::Any
+        );
+    }
+
+    #[test]
+    fn execution_stack_requirement_follows_registered_property_accessors() {
+        let (registry, caller) =
+            property_dispatch_registry(vec![Instr::CallBuiltinMulti("javaObject".into(), 1, 1)]);
+
+        assert_eq!(
+            registry.execution_stack(caller),
+            runmat_types::ExecutionStackRequirement::Process
+        );
+    }
+
+    #[test]
+    fn execution_stack_requirement_keeps_unresolved_member_dispatch_conservative() {
+        let mut caller = test_function(1, "caller", "");
+        caller.instructions = vec![Instr::CallMethodOrMemberIndexMulti {
+            identity: runmat_types::CallableIdentity::DynamicName(runmat_types::SymbolName(
+                "unknown_member".into(),
+            )),
+            fallback_policy: runmat_types::CallableFallbackPolicy::ObjectDispatch,
+            arg_count: 1,
+            out_count: 1,
+        }];
+        let registry = FunctionRegistry::new(HashMap::from([(FunctionId(1), caller)]));
+
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Process
+        );
+    }
+
+    #[test]
+    fn execution_stack_cache_is_invalidated_when_functions_change() {
+        let mut registry = FunctionRegistry::new(HashMap::from([(
+            FunctionId(1),
+            test_function(1, "replaceable", ""),
+        )]));
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Any
+        );
+
+        let mut replacement = test_function(1, "replaceable", "");
+        replacement.instructions = vec![Instr::CallBuiltinMulti("javaObject".into(), 1, 1)];
+        registry.insert_replacing_name(replacement);
+        assert_eq!(
+            registry.execution_stack(FunctionId(1)),
+            runmat_types::ExecutionStackRequirement::Process
         );
     }
 

@@ -17,7 +17,6 @@ use crate::builtins::common::spec::{
     BroadcastSemantics, BuiltinFusionSpec, BuiltinGpuSpec, ConstantStrategy, GpuOpKind,
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
-use crate::builtins::structs::type_resolvers::fieldnames_type;
 use crate::BuiltinResult;
 
 #[runmat_macros::register_gpu_spec(builtin_path = "crate::builtins::structs::core::fields")]
@@ -91,7 +90,6 @@ pub const FIELDS_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     category = "structs/core",
     summary = "Return struct field names as a cell array of character vectors (legacy equivalent of fieldnames).",
     keywords = "fields,fieldnames,struct,introspection",
-    type_resolver(fieldnames_type),
     descriptor(crate::builtins::structs::core::fields::FIELDS_DESCRIPTOR),
     builtin_path = "crate::builtins::structs::core::fields"
 )]
@@ -103,7 +101,7 @@ async fn fields_builtin(value: Value) -> BuiltinResult<Value> {
 pub(crate) mod tests {
     use super::*;
     use futures::executor::block_on;
-    use runmat_value::{CellArray, StructValue};
+    use runmat_value::{CellArray, StructArray, StructValue};
 
     fn run_fields(value: Value) -> BuiltinResult<Value> {
         block_on(super::fields_builtin(value))
@@ -169,21 +167,29 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
     fn unresolved_choice_struct_array_matches_fieldnames() {
+        // Struct arrays share one schema (upstream `StructArray`); a cell of
+        // structs is not a struct array.
         let mut first = StructValue::new();
         first.insert("name", Value::Num(1.0));
+        first.insert("id", Value::Num(2.0));
         let mut second = StructValue::new();
-        second.insert("id", Value::Num(2.0));
-        let array =
-            CellArray::new(vec![Value::Struct(first), Value::Struct(second)], 1, 2).unwrap();
-        let Value::Cell(cell) = run_fields(Value::Cell(array)).expect("fields") else {
+        second.insert("name", Value::Num(3.0));
+        second.insert("id", Value::Num(4.0));
+        let array = StructArray::new(vec![first, second], vec![1, 2]).expect("struct array");
+        let Value::Cell(cell) = run_fields(Value::StructArray(array.clone())).expect("fields")
+        else {
             panic!("expected cell array result");
+        };
+        let Value::Cell(expected) = block_on(crate::call_builtin_async(
+            "fieldnames",
+            &[Value::StructArray(array)],
+        ))
+        .expect("fieldnames") else {
+            panic!("expected cell array result from fieldnames");
         };
         assert_eq!(cell.rows, 2);
         assert_eq!(cell.cols, 1);
-        assert_eq!(
-            cell_strings(&cell),
-            vec!["id".to_string(), "name".to_string()]
-        );
+        assert_eq!(cell_strings(&cell), cell_strings(&expected));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

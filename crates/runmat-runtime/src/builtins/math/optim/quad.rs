@@ -325,6 +325,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "quad",
+    execution_stack = "process",
     category = "math/optim",
     summary = "Approximate finite scalar definite integrals using legacy adaptive Simpson quadrature.",
     keywords = "quad,numerical integration,adaptive simpson,quadrature,function handle",
@@ -769,13 +770,13 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected x, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(x * x)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(x * x)) })
             },
         )));
 
         let result = block_on(quad_builtin(
             Value::BoundFunctionHandle {
-                name: "square".to_string(),
+                name: "square".into(),
                 function: 7,
             },
             Value::Num(0.0),
@@ -934,7 +935,7 @@ mod tests {
                 let Value::Num(x) = args[0] else {
                     panic!("expected scalar quadrature point")
                 };
-                Box::pin(async move { Ok(Value::Num(x)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(x)) })
             },
         )));
         let parameter =
@@ -942,7 +943,7 @@ mod tests {
 
         let result = block_on(quad_builtin(
             Value::BoundFunctionHandle {
-                name: "parameterized".to_string(),
+                name: "parameterized".into(),
                 function: 902,
             },
             Value::Num(0.0),
@@ -1018,13 +1019,15 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected scale, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(scale * x)) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(scale * x)) },
+                )
             },
         )));
 
         let result = block_on(quad_builtin(
             Value::BoundFunctionHandle {
-                name: "scaled_line".to_string(),
+                name: "scaled_line".into(),
                 function: 42,
             },
             Value::Num(0.0),
@@ -1065,13 +1068,15 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected x, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(x.sqrt())) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(x.sqrt())) },
+                )
             },
         )));
 
         let result = block_on(quad_builtin(
             Value::BoundFunctionHandle {
-                name: "sqrt_fn".to_string(),
+                name: "sqrt_fn".into(),
                 function: 9,
             },
             Value::Num(0.0),

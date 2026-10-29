@@ -379,6 +379,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "fsurf",
+    execution_stack = "process",
     category = "plotting",
     summary = "Plot a function surface over a 2-D domain.",
     keywords = "fsurf,function surface,parametric surface,plotting,3d",
@@ -729,7 +730,7 @@ fn numeric_vector(value: &Value) -> BuiltinResult<Vec<f64>> {
 }
 
 fn checked_integer_f64(value: &IntValue, role: &str) -> BuiltinResult<f64> {
-    if crate::builtins::math::trigonometry::cos::integer_is_exact_f64(value) {
+    if crate::builtins::common::validation::integer_is_exact_f64(value) {
         Ok(value.to_f64())
     } else {
         Err(fsurf_invalid(format!(
@@ -942,7 +943,7 @@ fn checked_integer_callback_f64(value: &IntValue) -> BuiltinResult<f64> {
         &INTEGER_CALLBACK_OUTPUT_EXTENSION,
         BUILTIN_NAME,
     )?;
-    if crate::builtins::math::trigonometry::cos::integer_is_exact_f64(value) {
+    if crate::builtins::common::validation::integer_is_exact_f64(value) {
         Ok(value.to_f64())
     } else {
         Err(fsurf_error_with_detail(
@@ -1067,7 +1068,7 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected second scalar argument, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(f(a, b))) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(f(a, b))) })
             },
         )))
     }
@@ -1242,7 +1243,7 @@ mod tests {
     fn fsurf_resident_integer_callback_is_gated_before_provider_access() {
         let _invoker = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
             |_function, _args, _requested_outputs| {
-                Box::pin(async {
+                crate::sequence::single_value_future(async {
                     let handle = runmat_accelerate_api::GpuTensorHandle {
                         shape: vec![1, 1],
                         device_id: 999_992,
@@ -1388,7 +1389,7 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected second scalar argument, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(match _function {
                         11 => Value::Num(u),
                         12 => Value::Num(v),

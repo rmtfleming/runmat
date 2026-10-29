@@ -24,9 +24,11 @@ pub enum Value {
     /// Dense symbolic array with column-major shape semantics.
     SymbolicArray(SymbolicArray),
     Cell(CellArray),
-    // Struct (scalar or nested). Struct arrays are represented in higher layers;
-    // this variant holds a single struct's fields.
+    /// Scalar structure value. Empty and nonscalar structure arrays use
+    /// [`Value::StructArray`].
     Struct(StructValue),
+    /// Empty or nonscalar structure array with an explicit homogeneous schema.
+    StructArray(StructArray),
     // GPU-resident tensor handle (opaque; buffer managed by backend)
     GpuTensor(runmat_accelerate_api::GpuTensorHandle),
     // Simple object instance until full class system lands
@@ -51,7 +53,7 @@ pub enum Value {
         function: usize,
     },
     Closure(Closure),
-    ClassRef(String),
+    ClassRef(runmat_types::ClassIdentity),
     MException(MException),
     /// Lazy executable work owned by the active runtime execution service.
     Future(runmat_execution::FutureHandle),
@@ -61,6 +63,12 @@ pub enum Value {
     Pool(runmat_execution::PoolHandle),
     /// Durable batch execution capability.
     Job(runmat_execution::JobHandle),
+    /// A distributed array whose partitions remain owned by an execution
+    /// service. The handle carries identity and fencing, never array payloads.
+    Distributed(Box<runmat_execution::DistributedValueHandle>),
+    /// Per-rank values retained by an SPMD gang. Entries are resolved through
+    /// the owning execution service rather than embedded in the language value.
+    Composite(Box<runmat_execution::CompositeHandle>),
     /// Opaque resource owned by a foreign runtime host and fenced by generation.
     Foreign(ForeignRef),
 }

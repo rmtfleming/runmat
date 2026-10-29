@@ -18,13 +18,12 @@ use runmat_builtins::{
 use runmat_filesystem as vfs;
 use runmat_macros::runtime_builtin;
 use runmat_value::{
-    CellArray, CharArray, IntegerStorage, LogicalArray, NumericDType, NumericScalar,
-    ObjectInstance, StructValue, Tensor, Value,
+    CellArray, CharArray, IntegerStorage, NumericDType, NumericScalar, ObjectInstance, StructValue,
+    Tensor, Value,
 };
 
-use crate::builtins::common::env as runtime_env;
 use crate::builtins::common::fs::{expand_user_path, home_directory, path_to_string};
-use crate::builtins::common::path_state::{set_path_string, PATH_LIST_SEPARATOR};
+use crate::builtins::common::path_state::set_path_string;
 use crate::output_count;
 use crate::{build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeError};
 
@@ -87,29 +86,6 @@ const OUTPUT_VALUE: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     default: None,
     description: "Result value.",
 }];
-const OUTPUT_THREE_TEXT: [BuiltinParamDescriptor; 3] = [
-    BuiltinParamDescriptor {
-        name: "folder",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Folder component.",
-    },
-    BuiltinParamDescriptor {
-        name: "name",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Base filename component.",
-    },
-    BuiltinParamDescriptor {
-        name: "extension",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Extension component including the leading dot.",
-    },
-];
 const OUTPUT_STATUS_MESSAGE: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "status",
@@ -158,35 +134,6 @@ macro_rules! simple_descriptor {
         };
     };
 }
-
-simple_descriptor!(
-    FILEPARTS_SIGNATURES,
-    FILEPARTS_DESCRIPTOR,
-    "[folder, name, extension] = fileparts(filename)",
-    &INPUTS_ONE,
-    &OUTPUT_THREE_TEXT,
-    BuiltinOutputMode::ByRequestedOutputCount
-);
-pub const ISFILE_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
-    kind: BuiltinIntegerAuditKind::NotApplicable,
-    canonical_builtin: None,
-    notes: "isfile is a host-text filesystem predicate; integer and resident numeric paths reject before provider or filesystem access.",
-};
-
-pub const FILEPARTS_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor =
-    BuiltinIntegerAuditDescriptor {
-        kind: BuiltinIntegerAuditKind::NotApplicable,
-        canonical_builtin: None,
-        notes: "fileparts is a structural host-text parser with no numeric role; numeric and provider-resident values are rejected as invalid text before any gather or provider access.",
-    };
-simple_descriptor!(
-    ISFILE_SIGNATURES,
-    ISFILE_DESCRIPTOR,
-    "tf = isfile(path)",
-    &INPUTS_ONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
 
 const MEMMAPFILE_INTEGER_CONTROLS_EXTENSION: BuiltinExtensionDescriptor =
     BuiltinExtensionDescriptor {
@@ -259,61 +206,6 @@ pub const MEMMAPFILE_INTEGER_CAPABILITIES: [BuiltinIntegerCapabilityDescriptor; 
         notes: "This compatibility-gated extension parses typed controls exactly. Automatic residency gathers through its owner; explicit residency is separately gated before provider access.",
     },
 ];
-pub const ISFOLDER_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
-    kind: BuiltinIntegerAuditKind::NotApplicable,
-    canonical_builtin: None,
-    notes: "isfolder is a host-text filesystem predicate; integer and resident numeric paths reject before provider or filesystem access.",
-};
-simple_descriptor!(
-    ISFOLDER_SIGNATURES,
-    ISFOLDER_DESCRIPTOR,
-    "tf = isfolder(path)",
-    &INPUTS_ONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
-pub const ISENV_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
-    kind: BuiltinIntegerAuditKind::NotApplicable,
-    canonical_builtin: None,
-    notes: "isenv accepts host-text environment names; integer and resident numeric paths reject before provider or environment access.",
-};
-simple_descriptor!(
-    ISENV_SIGNATURES,
-    ISENV_DESCRIPTOR,
-    "tf = isenv(name)",
-    &INPUTS_ONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
-simple_descriptor!(
-    UNSETENV_SIGNATURES,
-    UNSETENV_DESCRIPTOR,
-    "status = unsetenv(name)",
-    &INPUTS_ONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
-pub const UNSETENV_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
-    kind: BuiltinIntegerAuditKind::NotApplicable,
-    canonical_builtin: None,
-    notes: "unsetenv accepts a host text environment-variable name; integer and resident numeric values reject before provider or environment access.",
-};
-simple_descriptor!(
-    MATLABROOT_SIGNATURES,
-    MATLABROOT_DESCRIPTOR,
-    "root = matlabroot()",
-    &INPUTS_NONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
-simple_descriptor!(
-    PATHSEP_SIGNATURES,
-    PATHSEP_DESCRIPTOR,
-    "sep = pathsep()",
-    &INPUTS_NONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
 const SYSTEM_INPUTS_COMMAND: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "command",
     ty: BuiltinParamType::StringScalar,
@@ -359,19 +251,6 @@ pub const SYSTEM_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAu
     kind: BuiltinIntegerAuditKind::NotApplicable,
     canonical_builtin: None,
     notes: "system accepts a host character vector or string command, not numeric input; integer and resident numeric values reject before provider or process access.",
-};
-simple_descriptor!(
-    WHAT_SIGNATURES,
-    WHAT_DESCRIPTOR,
-    "info = what(folder)",
-    &INPUTS_ONE,
-    &OUTPUT_VALUE,
-    BuiltinOutputMode::Fixed
-);
-pub const WHAT_INTEGER_AUDIT: BuiltinIntegerAuditDescriptor = BuiltinIntegerAuditDescriptor {
-    kind: BuiltinIntegerAuditKind::NotApplicable,
-    canonical_builtin: None,
-    notes: "what accepts no input or one host text folder name; integer and resident numeric values reject before provider or filesystem access.",
 };
 simple_descriptor!(
     FILEATTRIB_SIGNATURES,
@@ -637,13 +516,6 @@ pub(super) fn char_value(text: &str) -> Value {
     Value::CharArray(CharArray::new_row(text))
 }
 
-fn logical_array(values: Vec<bool>, shape: Vec<usize>, name: &str) -> BuiltinResult<Value> {
-    Ok(Value::LogicalArray(
-        LogicalArray::new(values.into_iter().map(u8::from).collect(), shape)
-            .map_err(|err| compat_error(name, err))?,
-    ))
-}
-
 fn expand_path_for_builtin(text: &str, name: &str) -> BuiltinResult<PathBuf> {
     let expanded = expand_user_path(text.trim(), name).map_err(|err| compat_error(name, err))?;
     Ok(PathBuf::from(expanded))
@@ -665,168 +537,6 @@ fn output_list_for_count(default: Vec<Value>) -> Value {
     }
 }
 
-#[runtime_builtin(
-    name = "fileparts",
-    category = "io/repl_fs",
-    summary = "Split a file path into folder, base name, and extension.",
-    keywords = "fileparts,path,filename,extension",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::fileparts_type),
-    descriptor(crate::builtins::io::repl_fs::compat::FILEPARTS_DESCRIPTOR),
-    integer_audit(crate::builtins::io::repl_fs::compat::FILEPARTS_INTEGER_AUDIT),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn fileparts_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    if args.len() != 1 {
-        return Err(compat_error(
-            "fileparts",
-            "fileparts: expected exactly one input argument",
-        ));
-    }
-    let input = scalar_text(&args[0], "fileparts", "filename")?;
-    let path = Path::new(&input);
-    let folder = path.parent().map(path_to_string).unwrap_or_default();
-    let filename = path.file_name().and_then(|v| v.to_str()).unwrap_or("");
-    let (name, ext) = match filename.rfind('.') {
-        Some(0) | None => (filename.to_string(), String::new()),
-        Some(idx) => (filename[..idx].to_string(), filename[idx..].to_string()),
-    };
-    Ok(output_list_for_count(vec![
-        char_value(&folder),
-        char_value(&name),
-        char_value(&ext),
-    ]))
-}
-
-#[runtime_builtin(
-    name = "isfile",
-    category = "io/repl_fs",
-    summary = "Return true for paths that name existing files.",
-    keywords = "isfile,file,exists,predicate",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::bool_type),
-    descriptor(crate::builtins::io::repl_fs::compat::ISFILE_DESCRIPTOR),
-    integer_audit(crate::builtins::io::repl_fs::compat::ISFILE_INTEGER_AUDIT),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn isfile_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    path_predicate_builtin("isfile", args, |meta| meta.is_file()).await
-}
-
-#[runtime_builtin(
-    name = "isfolder",
-    category = "io/repl_fs",
-    summary = "Return true for paths that name existing folders.",
-    keywords = "isfolder,folder,directory,exists,predicate",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::bool_type),
-    descriptor(crate::builtins::io::repl_fs::compat::ISFOLDER_DESCRIPTOR),
-    integer_audit(crate::builtins::io::repl_fs::compat::ISFOLDER_INTEGER_AUDIT),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn isfolder_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    path_predicate_builtin("isfolder", args, |meta| meta.is_dir()).await
-}
-
-async fn path_predicate_builtin(
-    name: &str,
-    args: Vec<Value>,
-    predicate: fn(&vfs::FsMetadata) -> bool,
-) -> BuiltinResult<Value> {
-    if args.iter().any(value_contains_resident) {
-        return Err(compat_error(
-            name,
-            format!("{name}: path must be text; provider-resident numeric values are invalid"),
-        ));
-    }
-    let args = gather_args(name, &args).await?;
-    if args.len() != 1 {
-        return Err(compat_error(
-            name,
-            format!("{name}: expected exactly one input argument"),
-        ));
-    }
-    match &args[0] {
-        Value::StringArray(array) => {
-            let mut values = Vec::with_capacity(array.data.len());
-            for text in &array.data {
-                let path = expand_path_for_builtin(text, name)?;
-                values.push(
-                    vfs::metadata_async(&path)
-                        .await
-                        .is_ok_and(|m| predicate(&m)),
-                );
-            }
-            logical_array(values, array.shape.clone(), name)
-        }
-        Value::Cell(array) => {
-            let mut values = Vec::with_capacity(array.data.len());
-            for value in &array.data {
-                let path = value_to_path(value, name, "path")?;
-                values.push(
-                    vfs::metadata_async(&path)
-                        .await
-                        .is_ok_and(|m| predicate(&m)),
-                );
-            }
-            logical_array(values, array.shape.clone(), name)
-        }
-        value => {
-            let path = value_to_path(value, name, "path")?;
-            Ok(Value::Bool(
-                vfs::metadata_async(&path)
-                    .await
-                    .is_ok_and(|m| predicate(&m)),
-            ))
-        }
-    }
-}
-
-#[runtime_builtin(
-    name = "isenv",
-    category = "io/repl_fs",
-    summary = "Return true when environment variables are defined.",
-    keywords = "isenv,environment,variable,predicate",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::bool_type),
-    descriptor(crate::builtins::io::repl_fs::compat::ISENV_DESCRIPTOR),
-    integer_audit(crate::builtins::io::repl_fs::compat::ISENV_INTEGER_AUDIT),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn isenv_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    if args.iter().any(value_contains_resident) {
-        return Err(compat_error(
-            "isenv",
-            "isenv: name must be text; provider-resident numeric values are invalid",
-        ));
-    }
-    let args = gather_args("isenv", &args).await?;
-    if args.len() != 1 {
-        return Err(compat_error("isenv", "isenv: expected exactly one input"));
-    }
-    match &args[0] {
-        Value::StringArray(array) => logical_array(
-            array
-                .data
-                .iter()
-                .map(|name| runtime_env::var(name).is_ok())
-                .collect(),
-            array.shape.clone(),
-            "isenv",
-        ),
-        Value::Cell(array) => {
-            let mut out = Vec::with_capacity(array.data.len());
-            for value in &array.data {
-                out.push(runtime_env::var(&scalar_text(value, "isenv", "name")?).is_ok());
-            }
-            logical_array(out, array.shape.clone(), "isenv")
-        }
-        value => Ok(Value::Bool(
-            runtime_env::var(&scalar_text(value, "isenv", "name")?).is_ok(),
-        )),
-    }
-}
-
 fn value_contains_resident(value: &Value) -> bool {
     match value {
         Value::GpuTensor(_) => true,
@@ -837,86 +547,6 @@ fn value_contains_resident(value: &Value) -> bool {
         Value::OutputList(values) => values.iter().any(value_contains_resident),
         _ => false,
     }
-}
-
-#[runtime_builtin(
-    name = "unsetenv",
-    category = "io/repl_fs",
-    summary = "Remove an environment variable.",
-    keywords = "unsetenv,environment,variable,remove",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::num_type),
-    descriptor(crate::builtins::io::repl_fs::compat::UNSETENV_DESCRIPTOR),
-    integer_audit(crate::builtins::io::repl_fs::compat::UNSETENV_INTEGER_AUDIT),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn unsetenv_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    if args.iter().any(value_contains_resident) {
-        return Err(compat_error(
-            "unsetenv",
-            "unsetenv: name must be text; provider-resident numeric values are invalid",
-        ));
-    }
-    let args = gather_args("unsetenv", &args).await?;
-    if args.len() != 1 {
-        return Err(compat_error(
-            "unsetenv",
-            "unsetenv: expected exactly one input",
-        ));
-    }
-    let name = scalar_text(&args[0], "unsetenv", "name")?;
-    if name.is_empty() || name.contains('=') || name.contains('\0') {
-        return Ok(Value::Num(1.0));
-    }
-    runtime_env::remove_var(&name);
-    Ok(Value::Num(0.0))
-}
-
-#[runtime_builtin(
-    name = "matlabroot",
-    category = "io/repl_fs",
-    summary = "Return the RunMat installation root as MATLAB-root compatibility text.",
-    keywords = "matlabroot,root,installation,path",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::string_type),
-    descriptor(crate::builtins::io::repl_fs::compat::MATLABROOT_DESCRIPTOR),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn matlabroot_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    if !args.is_empty() {
-        return Err(compat_error(
-            "matlabroot",
-            "matlabroot: too many input arguments",
-        ));
-    }
-    let root = runtime_env::var("RUNMAT_ROOT")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(Path::to_path_buf))
-        })
-        .or_else(|| vfs::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
-    Ok(char_value(&path_to_string(&root)))
-}
-
-#[runtime_builtin(
-    name = "pathsep",
-    category = "io/repl_fs",
-    summary = "Return the platform path-list separator.",
-    keywords = "pathsep,path,separator",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::string_type),
-    descriptor(crate::builtins::io::repl_fs::compat::PATHSEP_DESCRIPTOR),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn pathsep_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    if !args.is_empty() {
-        return Err(compat_error("pathsep", "pathsep: too many input arguments"));
-    }
-    Ok(char_value(&PATH_LIST_SEPARATOR.to_string()))
 }
 
 #[runtime_builtin(
@@ -998,72 +628,7 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-#[runtime_builtin(
-    name = "what",
-    category = "io/repl_fs",
-    summary = "Summarize MATLAB-related files in a folder.",
-    keywords = "what,folder,files,classes,packages",
-    accel = "cpu",
-    type_resolver(crate::builtins::io::type_resolvers::struct_type),
-    descriptor(crate::builtins::io::repl_fs::compat::WHAT_DESCRIPTOR),
-    integer_audit(crate::builtins::io::repl_fs::compat::WHAT_INTEGER_AUDIT),
-    builtin_path = "crate::builtins::io::repl_fs::compat"
-)]
-async fn what_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
-    if args.iter().any(|value| {
-        crate::builtins::common::validation::value_contains_native_integer_class(value)
-            || value_contains_resident(value)
-    }) {
-        return Err(compat_error(
-            "what",
-            "what: folder must be a host string scalar or character vector",
-        ));
-    }
-    let args = gather_args("what", &args).await?;
-    if args.len() > 1 {
-        return Err(compat_error("what", "what: too many input arguments"));
-    }
-    let folder = if let Some(value) = args.first() {
-        value_to_path(value, "what", "folder")?
-    } else {
-        vfs::current_dir().map_err(|err| compat_error("what", format!("what: {err}")))?
-    };
-    let entries = vfs::read_dir_async(&folder)
-        .await
-        .map_err(|err| compat_error("what", format!("what: {err}")))?;
-    let mut m = Vec::new();
-    let mut mat = Vec::new();
-    let mut mex = Vec::new();
-    let mut classes = Vec::new();
-    let mut packages = Vec::new();
-    for entry in entries {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.is_dir() {
-            if let Some(stripped) = name.strip_prefix('@') {
-                classes.push(stripped.to_string());
-            } else if let Some(stripped) = name.strip_prefix('+') {
-                packages.push(stripped.to_string());
-            }
-            continue;
-        }
-        if name.ends_with(".m") {
-            m.push(name);
-        } else if name.ends_with(".mat") {
-            mat.push(name);
-        } else if name.contains(".mex") {
-            mex.push(name);
-        }
-    }
-    let mut st = StructValue::new();
-    st.insert("path", char_value(&path_to_string(&folder)));
-    st.insert("m", cellstr(m)?);
-    st.insert("mat", cellstr(mat)?);
-    st.insert("mex", cellstr(mex)?);
-    st.insert("classes", cellstr(classes)?);
-    st.insert("packages", cellstr(packages)?);
-    Ok(Value::Struct(st))
-}
-
+#[cfg(windows)]
 fn cellstr(values: Vec<String>) -> BuiltinResult<Value> {
     let len = values.len();
     Ok(Value::Cell(
@@ -1510,10 +1075,7 @@ async fn restoredefaultpath_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
             "restoredefaultpath: too many input arguments",
         ));
     }
-    let root = match matlabroot_builtin(Vec::new()).await? {
-        Value::CharArray(ca) => char_row_to_string(&ca),
-        _ => String::new(),
-    };
+    let root = path_to_string(&super::installation_path::root());
     set_path_string(&root);
     Ok(char_value(&root))
 }
@@ -2086,15 +1648,6 @@ mod tests {
     }
 
     #[test]
-    fn what_rejects_integer_folder_before_filesystem_access() {
-        let error = run(what_builtin(vec![Value::Int(runmat_value::IntValue::U64(
-            u64::MAX,
-        ))]))
-        .expect_err("integer folder must reject");
-        assert!(error.message().contains("host string scalar"));
-    }
-
-    #[test]
     fn winqueryreg_decodes_dword_as_exact_int32() {
         let positive = parse_registry_query_value(
             "HKEY_CURRENT_USER\\Software\\RunMat\n    Count    REG_DWORD    0x7fffffff\n",
@@ -2120,10 +1673,6 @@ mod tests {
 
     #[test]
     fn textual_filesystem_apis_are_integer_inapplicable() {
-        assert_eq!(
-            FILEPARTS_INTEGER_AUDIT.kind,
-            BuiltinIntegerAuditKind::NotApplicable
-        );
         assert_eq!(
             FILEATTRIB_INTEGER_AUDIT.kind,
             BuiltinIntegerAuditKind::NotApplicable
@@ -2161,83 +1710,6 @@ mod tests {
             assert!(run(ispref_builtin(vec![Value::Int(integer)])).is_err());
         }
         assert!(run(ispref_builtin(vec![unowned_resident_value()])).is_err());
-    }
-
-    #[test]
-    fn fileparts_splits_folder_name_and_extension() {
-        let value = run(fileparts_builtin(vec![Value::String(
-            "/tmp/example.test.m".to_string(),
-        )]))
-        .unwrap();
-        match value {
-            Value::OutputList(values) => {
-                assert_eq!(values[1], char_value("example.test"));
-                assert_eq!(values[2], char_value(".m"));
-            }
-            other => panic!("unexpected value {other:?}"),
-        }
-    }
-
-    #[test]
-    fn fileparts_rejects_numeric_and_resident_inputs_before_provider_access() {
-        for invalid in [Value::Num(1.0), unowned_resident_value()] {
-            let error = run(fileparts_builtin(vec![invalid])).expect_err("invalid text input");
-            assert!(error.message().contains("filename must be"));
-            assert!(!error.message().to_ascii_lowercase().contains("provider"));
-        }
-    }
-
-    #[test]
-    fn fileparts_preserves_scalar_string_array_text_input() {
-        let input =
-            runmat_value::StringArray::new(vec!["folder/example.m".to_string()], vec![1, 1])
-                .expect("scalar string array");
-        let value = run(fileparts_builtin(vec![Value::StringArray(input)])).expect("fileparts");
-        let Value::OutputList(values) = value else {
-            panic!("expected output list");
-        };
-        assert_eq!(values[1], char_value("example"));
-        assert_eq!(values[2], char_value(".m"));
-    }
-
-    #[test]
-    fn environment_predicates_and_unsetenv_share_runtime_env() {
-        let _guard = REPL_FS_TEST_LOCK.lock().unwrap();
-        runtime_env::set_var("RUNMAT_COMPAT_ENV_TEST", "1");
-        assert_eq!(
-            run(isenv_builtin(vec![Value::String(
-                "RUNMAT_COMPAT_ENV_TEST".to_string()
-            )]))
-            .unwrap(),
-            Value::Bool(true)
-        );
-        assert_eq!(
-            run(unsetenv_builtin(vec![Value::String(
-                "RUNMAT_COMPAT_ENV_TEST".to_string()
-            )]))
-            .unwrap(),
-            Value::Num(0.0)
-        );
-        assert_eq!(
-            run(isenv_builtin(vec![Value::String(
-                "RUNMAT_COMPAT_ENV_TEST".to_string()
-            )]))
-            .unwrap(),
-            Value::Bool(false)
-        );
-    }
-
-    #[test]
-    fn path_and_environment_predicates_reject_resident_numeric_inputs_before_access() {
-        for result in [
-            run(isfile_builtin(vec![unowned_resident_value()])),
-            run(isfolder_builtin(vec![unowned_resident_value()])),
-            run(isenv_builtin(vec![unowned_resident_value()])),
-        ] {
-            let error = result.expect_err("resident numeric input must be invalid text");
-            assert!(error.message().contains("provider-resident numeric"));
-            assert!(!error.message().contains("no acceleration provider"));
-        }
     }
 
     #[test]

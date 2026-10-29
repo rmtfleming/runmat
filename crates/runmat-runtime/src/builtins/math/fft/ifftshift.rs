@@ -334,6 +334,7 @@ async fn ifftshift_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResu
             Err(ifftshift_error(&IFFTSHIFT_ERROR_INVALID_INPUT))
         }
         Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -350,6 +351,8 @@ async fn ifftshift_builtin(value: Value, rest: Vec<Value>) -> crate::BuiltinResu
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(ifftshift_error(&IFFTSHIFT_ERROR_UNSUPPORTED_INPUT)),
     }
@@ -395,18 +398,12 @@ fn ifftshift_complex_tensor(tensor: ComplexTensor, dims: &[usize]) -> BuiltinRes
         });
     }
     let rotated = match storage {
-        ComplexStorage::F64(values) => ComplexStorage::F64(apply_shift(
-            BUILTIN_NAME,
-            &values,
-            &plan.ext_shape,
-            &plan.positive,
-        )?),
-        ComplexStorage::F32(values) => ComplexStorage::F32(apply_shift(
-            BUILTIN_NAME,
-            &values,
-            &plan.ext_shape,
-            &plan.positive,
-        )?),
+        ComplexStorage::F64(values) => ComplexStorage::F64(
+            apply_shift(BUILTIN_NAME, &values, &plan.ext_shape, &plan.positive)?.into(),
+        ),
+        ComplexStorage::F32(values) => ComplexStorage::F32(
+            apply_shift(BUILTIN_NAME, &values, &plan.ext_shape, &plan.positive)?.into(),
+        ),
         ComplexStorage::Integer(storage) => ComplexStorage::Integer(
             storage
                 .reorder(|values| {
@@ -433,7 +430,7 @@ fn ifftshift_logical(array: LogicalArray, dims: &[usize]) -> BuiltinResult<Logic
     let LogicalArray { data, shape } = array;
     let plan = build_shift_plan(&shape, dims, ShiftKind::Ifft);
     if data.is_empty() || plan.is_noop() {
-        return LogicalArray::new(data, shape).map_err(|source| {
+        return LogicalArray::from_host_buffer(data, shape).map_err(|source| {
             ifftshift_error_with_detail(
                 &IFFTSHIFT_ERROR_INTERNAL,
                 format!("logical array reconstruction failed: {source}"),

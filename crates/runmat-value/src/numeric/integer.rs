@@ -33,6 +33,12 @@ impl IntegerStorage {
         }
     }
 
+    pub fn integer_class(&self) -> runmat_types::IntegerClass {
+        self.numeric_dtype()
+            .integer_class()
+            .expect("IntegerStorage always has an integer dtype")
+    }
+
     /// Construct a one-element buffer preserving the scalar's MATLAB integer
     /// class.
     pub fn from_scalar(value: IntValue) -> Self {
@@ -66,16 +72,7 @@ impl IntegerStorage {
     }
 
     pub fn class_name(&self) -> &'static str {
-        match self {
-            Self::I8(_) => "int8",
-            Self::I16(_) => "int16",
-            Self::I32(_) => "int32",
-            Self::I64(_) => "int64",
-            Self::U8(_) => "uint8",
-            Self::U16(_) => "uint16",
-            Self::U32(_) => "uint32",
-            Self::U64(_) => "uint64",
-        }
+        self.numeric_dtype().class_name()
     }
 
     pub fn to_f64_vec(&self) -> Vec<f64> {

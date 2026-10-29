@@ -1,8 +1,11 @@
+mod attempt_reply;
 mod bundle_cache;
 mod channel;
+mod collective;
 mod config;
 mod crypto;
 mod driver;
+mod gang;
 mod object_transfer;
 mod pool;
 mod pool_execution;
@@ -12,6 +15,7 @@ mod pool_reconcile;
 mod pool_resources;
 mod pool_values;
 mod protocol;
+mod protocol_schema;
 mod quic_channel;
 mod relay_channel;
 mod route;
@@ -28,6 +32,7 @@ pub use channel::{
     RemoteWorkerChannel,
 };
 pub use driver::run_remote_driver_from_env;
+pub use gang::{RemoteSpmdGangCompletion, RemoteSpmdGangProgram};
 pub use pool::RemotePoolDriver;
 pub use pool_progress::RemoteTaskCompletion;
 pub use quic_channel::{QuicRemoteWorkerChannel, RemoteWorkerChannelConfig};

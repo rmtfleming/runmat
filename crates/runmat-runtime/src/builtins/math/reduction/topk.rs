@@ -622,7 +622,7 @@ fn evaluate_logical(
     args: &TopKArgs,
 ) -> BuiltinResult<TopKEvaluation> {
     let shape = logical.shape.clone();
-    let tensor = Tensor::new_integer(IntegerStorage::U8(logical.data), shape)
+    let tensor = Tensor::new_integer(IntegerStorage::U8(logical.data.into_vec()), shape)
         .map_err(|message| topk_internal(kind, message))?;
     let evaluation = evaluate_real(kind, tensor, args)?;
     let values = match evaluation.values {
@@ -1421,7 +1421,7 @@ mod tests {
         };
         assert_eq!(
             values.into_complex_storage(),
-            runmat_value::ComplexStorage::F32(vec![(3.0, -1.0), (2.0, 0.0)])
+            runmat_value::ComplexStorage::F32(vec![(3.0, -1.0), (2.0, 0.0)].into())
         );
 
         let logical = Value::LogicalArray(

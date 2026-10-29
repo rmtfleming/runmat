@@ -1346,6 +1346,7 @@ fn find_symbol_range(
 
 fn completion_from_semantic(semantic: &AnalysisModel, offset: usize) -> Vec<CompletionItem> {
     let mut items = Vec::new();
+    let mut builtin_names = std::collections::BTreeSet::new();
     for var in semantic.globals.values() {
         items.push(variable_completion(var, semantic, offset));
     }
@@ -1359,12 +1360,29 @@ fn completion_from_semantic(semantic: &AnalysisModel, offset: usize) -> Vec<Comp
         if entry.descriptor.completion_policy == BuiltinCompletionPolicy::HiddenInternal {
             continue;
         }
+        builtin_names.insert(entry.identity.name.to_ascii_lowercase());
         items.push(catalog_completion(entry));
+    }
+    for alias in runmat_builtins::builtin_catalog_aliases() {
+        let Some(entry) =
+            runmat_builtins::builtin_catalog_primary_entry_by_name(alias.canonical.name)
+        else {
+            continue;
+        };
+        if entry.descriptor.completion_policy == BuiltinCompletionPolicy::HiddenInternal
+            || !builtin_names.insert(alias.alias.name.to_ascii_lowercase())
+        {
+            continue;
+        }
+        items.push(catalog_alias_completion(alias.alias.name, entry));
     }
     for func in runmat_builtins::builtin_functions() {
         if func.descriptor.is_some_and(|descriptor| {
             descriptor.completion_policy == BuiltinCompletionPolicy::HiddenInternal
         }) {
+            continue;
+        }
+        if !builtin_names.insert(func.name.to_ascii_lowercase()) {
             continue;
         }
         items.push(builtin_completion(func));
@@ -1373,6 +1391,18 @@ fn completion_from_semantic(semantic: &AnalysisModel, offset: usize) -> Vec<Comp
         items.push(constant_completion(constant));
     }
     items
+}
+
+fn catalog_alias_completion(
+    alias: &str,
+    entry: &runmat_builtins::BuiltinCatalogEntry,
+) -> CompletionItem {
+    let mut completion = catalog_completion(entry);
+    completion.label = alias.to_string();
+    completion.detail = completion
+        .detail
+        .map(|detail| format!("{detail} (alias of {})", entry.identity.name));
+    completion
 }
 
 fn catalog_completion(entry: &runmat_builtins::BuiltinCatalogEntry) -> CompletionItem {
@@ -1674,6 +1704,7 @@ mod tests {
                 "normrnd(0, 1, 3, 4);",
                 "r = normrnd(mu, sigma, sz1, sz2, ...)",
             ),
+            ("gamrnd(2, 3, 3, 4);", "r = gamrnd(a, b, sz1, sz2, ...)"),
             ("unifrnd(0, 1, [3 4]);", "r = unifrnd(a, b, sz)"),
             ("rng();", "s = rng()"),
         ];
@@ -2040,13 +2071,17 @@ mod tests {
     fn signature_help_uses_introspection_descriptors() {
         let cases = [
             ("isempty([]);", "tf = isempty(A)"),
+            ("iscolumn([1; 2]);", "tf = iscolumn(A)"),
             ("ismatrix([1 2; 3 4]);", "tf = ismatrix(A)"),
+            ("isrow([1 2]);", "tf = isrow(A)"),
             ("isscalar(1);", "tf = isscalar(A)"),
             ("isvector([1 2 3]);", "tf = isvector(A)"),
             ("length([1 2 3]);", "n = length(A)"),
             ("ndims(ones(2,2,2));", "n = ndims(A)"),
-            ("numel([1 2; 3 4], 1, 2);", "n = numel(A, dim, ...)"),
-            ("size([1 2; 3 4], 1);", "d = size(A, dim)"),
+            ("height([1 2; 3 4]);", "n = height(A)"),
+            ("width([1 2; 3 4]);", "n = width(A)"),
+            ("numel([1 2; 3 4], 1, 2);", "n = numel(A, dim1, dim2, ...)"),
+            ("size([1 2; 3 4], 1);", "sz = size(A, dim)"),
         ];
 
         for (text, expected_label) in cases {
@@ -4259,6 +4294,7 @@ mod tests {
             ("log(2);", "Y = log(X)"),
             ("log1p(2);", "Y = log1p(X)"),
             ("log2(8);", "Y = log2(X)"),
+            ("log2(8);", "[F,E] = log2(X)"),
             ("log10(100);", "Y = log10(X)"),
             ("sqrt(4);", "Y = sqrt(X)"),
         ];
@@ -4318,7 +4354,8 @@ mod tests {
                 "Y = factorial(X, \"like\", prototype)",
             ),
             ("gamma(5);", "Y = gamma(X)"),
-            ("hypot(3, 4);", "R = hypot(X, Y)"),
+            ("gammaln(5);", "Y = gammaln(A)"),
+            ("hypot(3, 4);", "C = hypot(A, B)"),
             ("nextpow2(9);", "p = nextpow2(X)"),
             ("pow2(3);", "Y = pow2(X)"),
             ("pow2(1.5, 2);", "Y = pow2(F, E)"),

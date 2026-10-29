@@ -8,14 +8,14 @@ use runmat_execution::{
     EXECUTABLE_UNIT_SCHEMA_VERSION,
 };
 use runmat_types::{
-    CapabilityRequirement, CapabilitySet, ForeignAffinity, ForeignCapability, ForeignLifetime,
-    ForeignOwnership, ForeignRequirement, ForeignTypeIdentity, InteropManifest, LabCount,
-    ParallelAccess, ParallelManifest, ParallelRandomnessPolicy, ParallelRegionId,
-    ParallelVariableContract, ParallelVariableRole, ParforContract, ProgramFunctionId,
-    ProgramPointId, ProgramSourceId, ProgramSpan, RegionContract, RegionId, RegionProvenance,
-    RegionValueId, SpmdContract, SpmdLabRequirement, ValueFact, ValueKindFact, WasmInteropPolicy,
-    INTEROP_MANIFEST_SCHEMA_VERSION, PARALLEL_MANIFEST_SCHEMA_VERSION,
-    REGION_CONTRACT_SCHEMA_VERSION,
+    CapabilityRequirement, CapabilitySet, ForeignAdapterContractReference, ForeignAffinity,
+    ForeignCapability, ForeignLifetime, ForeignOwnership, ForeignRequirement, ForeignTypeIdentity,
+    InteropManifest, LabCount, ParallelAccess, ParallelManifest, ParallelRandomnessPolicy,
+    ParallelRegionId, ParallelVariableContract, ParallelVariableRole, ParforContract,
+    PlannedForeignAdapter, ProgramFunctionId, ProgramPointId, ProgramSourceId, ProgramSpan,
+    RegionContract, RegionId, RegionProvenance, RegionValueId, SpmdContract, SpmdLabRequirement,
+    ValueFact, ValueKindFact, WasmInteropPolicy, INTEROP_MANIFEST_SCHEMA_VERSION,
+    PARALLEL_MANIFEST_SCHEMA_VERSION, REGION_CONTRACT_SCHEMA_VERSION,
 };
 
 fn program() -> ProgramRevision {
@@ -129,6 +129,10 @@ fn manifest() -> ExecutableUnitManifest {
                 wasm: WasmInteropPolicy::HostBridge,
             }],
             adapters: Vec::new(),
+            adapter_contracts: vec![
+                ForeignAdapterContractReference::planned(PlannedForeignAdapter::DotNet),
+                ForeignAdapterContractReference::planned(PlannedForeignAdapter::WindowsCom),
+            ],
         },
         parallel: ParallelManifest {
             schema_version: PARALLEL_MANIFEST_SCHEMA_VERSION,
@@ -144,6 +148,7 @@ fn manifest() -> ExecutableUnitManifest {
                     transferable: true,
                 }],
                 maximum_workers: Some(LabCount(4)),
+                effects: Default::default(),
                 capabilities: Default::default(),
                 randomness: ParallelRandomnessPolicy::DeterministicSubstreams,
             }],
@@ -154,6 +159,8 @@ fn manifest() -> ExecutableUnitManifest {
                     maximum: LabCount(4),
                 },
                 captures: Vec::new(),
+                outputs: Vec::new(),
+                effects: Default::default(),
                 capabilities: Default::default(),
             }],
             distributed_values: Vec::new(),
@@ -193,7 +200,7 @@ fn executable_manifest_round_trips_all_contract_families() {
     round_trip_vector();
     assert_eq!(
         manifest().cache_key().unwrap().to_string(),
-        "sha256:f19f3e2aab64c58611c48210de564e6b9a2d275a4d4b96c5285ac636efa00c7f"
+        "sha256:81de17f9e5502f8e8dfde65379636ab81ef9021949d45662189ab60855a13cd0"
     );
 }
 
@@ -262,6 +269,18 @@ fn versions_capabilities_digests_and_cache_inputs_are_enforced() {
         .0
         .remove(&CapabilityRequirement::ForeignRuntime);
     assert!(missing_capability.validate().is_err());
+
+    let available = CapabilitySet(BTreeSet::from([
+        CapabilityRequirement::ForeignRuntime,
+        CapabilityRequirement::ParallelRuntime,
+        CapabilityRequirement::DistributedRuntime,
+    ]));
+    baseline.validate_capabilities_for(&available).unwrap();
+    let unavailable = CapabilitySet(BTreeSet::from([
+        CapabilityRequirement::ParallelRuntime,
+        CapabilityRequirement::DistributedRuntime,
+    ]));
+    assert!(baseline.validate_capabilities_for(&unavailable).is_err());
 
     let mut tampered = baseline;
     tampered.optional_sections[0].payload.push(0);

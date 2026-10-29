@@ -543,12 +543,17 @@ fn mask_from_value(value: &Value) -> BuiltinResult<Mask> {
                     .collect(),
                 runmat_value::ComplexStorage::F64(values) => values
                     .iter()
-                    .map(|&(real, imag)| u8::from(is_nonzero_complex(real, imag)))
+                    .map(|value| u8::from(is_nonzero_complex(value.0, value.1)))
                     .collect(),
                 runmat_value::ComplexStorage::F32(values) => values
                     .iter()
-                    .map(|&(real, imag)| {
-                        u8::from(real.is_nan() || imag.is_nan() || real != 0.0 || imag != 0.0)
+                    .map(|value| {
+                        u8::from(
+                            value.0.is_nan()
+                                || value.1.is_nan()
+                                || value.0 != 0.0
+                                || value.1 != 0.0,
+                        )
                     })
                     .collect(),
             };
@@ -831,7 +836,7 @@ fn describe_value_kind(value: &Value) -> String {
         Value::SparseTensor(_) => "sparse tensor".to_string(),
         Value::ComplexTensor(_) => "complex tensor".to_string(),
         Value::Cell(_) => "cell array".to_string(),
-        Value::Struct(_) => "struct".to_string(),
+        Value::Struct(_) | Value::StructArray(_) => "struct".to_string(),
         Value::GpuTensor(_) => "GPU tensor".to_string(),
         Value::ObjectArray(array) => format!("{} object array", array.class_name()),
         Value::Object(obj) => format!("{} object", obj.class_name),
@@ -849,6 +854,8 @@ fn describe_value_kind(value: &Value) -> String {
         Value::Task(_) => "task".to_string(),
         Value::Pool(_) => "pool".to_string(),
         Value::Job(_) => "job".to_string(),
+        Value::Distributed(_) => "distributed".to_string(),
+        Value::Composite(_) => "Composite".to_string(),
         Value::Foreign(_) => "foreign reference".to_string(),
     }
 }

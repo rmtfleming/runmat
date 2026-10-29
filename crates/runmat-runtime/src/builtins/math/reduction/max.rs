@@ -1305,6 +1305,7 @@ fn materialize_for_max(name: &str, value: Value) -> BuiltinResult<InputData> {
         | Value::Object(_)
         | Value::HandleObject(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::Listener(_) => Err(max_invalid_input(format!("{name}: unsupported input type"))),
         Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
@@ -1317,6 +1318,8 @@ fn materialize_for_max(name: &str, value: Value) -> BuiltinResult<InputData> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(max_invalid_input(format!("{name}: unsupported input type"))),
     }
@@ -2535,7 +2538,7 @@ fn elementwise_complex_max(
                 values.push(if origin == 1.0 { a } else { b });
                 indices[offset] = origin;
             }
-            ComplexStorage::$variant(values)
+            ComplexStorage::$variant(values.into())
         }};
     }
 
@@ -2556,7 +2559,7 @@ fn elementwise_complex_max(
                 values.push(value);
                 indices[offset] = origin;
             }
-            ComplexStorage::F64(values)
+            ComplexStorage::F64(values.into())
         }
     };
 
@@ -3112,7 +3115,7 @@ pub(crate) mod tests {
         };
         assert_eq!(
             values.into_complex_storage(),
-            ComplexStorage::F32(vec![(0.5, 5.0)])
+            ComplexStorage::F32(vec![(0.5, 5.0)].into())
         );
     }
 
@@ -3219,7 +3222,7 @@ pub(crate) mod tests {
         };
         assert_eq!(
             values.into_complex_storage(),
-            ComplexStorage::F32(vec![(3.0, 4.0), (0.0, 2.0)])
+            ComplexStorage::F32(vec![(3.0, 4.0), (0.0, 2.0)].into())
         );
     }
 

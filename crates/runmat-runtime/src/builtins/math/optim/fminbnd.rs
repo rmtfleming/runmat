@@ -426,6 +426,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "fminbnd",
+    execution_stack = "process",
     category = "math/optim",
     summary = "Find bounded scalar minima with Brent's method.",
     keywords = "fminbnd,bounded minimization,brent,golden section,parabolic interpolation,optimization",
@@ -602,9 +603,7 @@ fn option_string(field: &str, value: &Value) -> BuiltinResult<String> {
 fn option_f64(field: &str, value: &Value) -> BuiltinResult<f64> {
     let parsed = match value {
         Value::Num(n) => *n,
-        Value::Int(i) if crate::builtins::math::trigonometry::cos::integer_is_exact_f64(i) => {
-            i.to_f64()
-        }
+        Value::Int(i) if crate::builtins::common::validation::integer_is_exact_f64(i) => i.to_f64(),
         Value::Int(_) => {
             return Err(fminbnd_error_with_detail(
                 &FMINBND_ERROR_INVALID_ARGUMENT,
@@ -613,9 +612,10 @@ fn option_f64(field: &str, value: &Value) -> BuiltinResult<f64> {
         }
         Value::Tensor(tensor) if tensor::is_scalar_tensor(tensor) => {
             if tensor.integer_storage().is_some_and(|storage| {
-                storage.exact_values().iter().any(|value| {
-                    !crate::builtins::math::trigonometry::cos::integer_is_exact_f64(value)
-                })
+                storage
+                    .exact_values()
+                    .iter()
+                    .any(|value| !crate::builtins::common::validation::integer_is_exact_f64(value))
             }) {
                 return Err(fminbnd_error_with_detail(
                     &FMINBND_ERROR_INVALID_ARGUMENT,
@@ -1147,7 +1147,7 @@ mod tests {
             (
                 "MaxIter",
                 Value::LogicalArray(LogicalArray {
-                    data: vec![1],
+                    data: vec![1].into(),
                     shape: vec![1, 1],
                 }),
             ),

@@ -12,7 +12,9 @@ use crate::cli::value_types::{
 };
 use crate::cli::ColorMode;
 use crate::cli::TestArgs;
-use crate::cli::{BatchCommand, ClusterCommand, JobCommand, PackageCommand};
+use crate::cli::{
+    BatchCommand, ClusterCommand, JobCommand, MexArgs, NativeInterfaceCommand, PackageCommand,
+};
 
 #[derive(Parser, Clone)]
 #[command(
@@ -267,6 +269,15 @@ pub enum Commands {
         /// Replace an existing output after preserving it until publication succeeds
         #[arg(short, long)]
         force: bool,
+    },
+    /// Build C, C++, Fortran, or CUDA sources into a platform-native MEX module
+    Mex(MexArgs),
+    /// Build CUDA sources into a GPU MEX module with nvcc
+    Mexcuda(MexArgs),
+    /// Prepare and inspect native shared-library interfaces
+    NativeInterface {
+        #[command(subcommand)]
+        command: NativeInterfaceCommand,
     },
     /// Check a MATLAB script or FEA document without running it
     Check {

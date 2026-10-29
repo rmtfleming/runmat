@@ -132,11 +132,9 @@ fn properties_error(error: &'static BuiltinErrorDescriptor) -> RuntimeError {
 /// text form is unobserved in the export and is a documented RunMat choice).
 pub(crate) fn class_name_of_argument(value: &Value) -> Option<String> {
     match value {
-        Value::Object(obj) => Some(obj.class_name.clone()),
-        Value::HandleObject(handle) if !handle.class_name.is_empty() => {
-            Some(handle.class_name.clone())
-        }
-        Value::ClassRef(name) => Some(name.clone()),
+        Value::Object(obj) => Some(obj.class_name.to_string()),
+        Value::HandleObject(handle) => Some(handle.class_name.to_string()),
+        Value::ClassRef(name) => Some(name.to_string()),
         Value::CharArray(ca) if ca.rows == 1 => Some(ca.data.iter().collect()),
         Value::String(s) => Some(s.clone()),
         Value::StringArray(sa) if sa.data.len() == 1 => Some(sa.data[0].clone()),
@@ -155,15 +153,17 @@ pub(crate) fn public_property_names(class_name: &str) -> Vec<String> {
         if !visited.insert(name.clone()) {
             break;
         }
-        let Some(class_def) = crate::class_registry::get_class(&name) else {
+        let Some(class_def) =
+            crate::class_registry::get_class(&runmat_types::ClassIdentity::from(name.as_str()))
+        else {
             break;
         };
         for (prop_name, prop) in &class_def.properties {
             if prop.get_access == MemberAccess::Public {
-                names.insert(prop_name.clone());
+                names.insert(prop_name.to_string());
             }
         }
-        current = class_def.parent.clone();
+        current = class_def.parent.as_ref().map(ToString::to_string);
     }
     names.into_iter().collect()
 }
@@ -195,7 +195,10 @@ fn properties_builtin(value: Value) -> crate::BuiltinResult<Value> {
         value,
         Value::Object(_) | Value::HandleObject(_) | Value::ClassRef(_)
     );
-    if !is_instance && crate::class_registry::get_class(&class_name).is_none() {
+    if !is_instance
+        && crate::class_registry::get_class(&runmat_types::ClassIdentity::from(class_name.as_str()))
+            .is_none()
+    {
         return Err(properties_error(&PROPERTIES_ERROR_UNKNOWN_CLASS));
     }
     names_to_column_cell(public_property_names(&class_name))
@@ -214,7 +217,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::class_registry::{RuntimeClass, RuntimeProperty};
     use runmat_types::MemberAccess;
-    use runmat_value::{ObjectInstance, Value};
+    use runmat_value::Value;
     use std::collections::HashMap;
 
     fn run(value: Value) -> BuiltinResult<Value> {
@@ -253,7 +256,7 @@ pub(crate) mod tests {
 
     fn prop(name: &str, get_access: MemberAccess) -> RuntimeProperty {
         RuntimeProperty {
-            name: name.to_string(),
+            name: name.into(),
             is_static: false,
             is_constant: false,
             is_dependent: false,
@@ -269,7 +272,7 @@ pub(crate) mod tests {
             properties.insert(p.name.clone(), p);
         }
         crate::class_registry::register_class(RuntimeClass {
-            name: name.to_string(),
+            name: name.into(),
             parent: None,
             properties,
             methods: HashMap::new(),
@@ -320,7 +323,7 @@ pub(crate) mod tests {
     #[test]
     fn unresolved_choice_no_properties_is_empty_column() {
         register_test_class("runmat.unittest.PropsEmpty", Vec::new());
-        let result = run(Value::ClassRef("runmat.unittest.PropsEmpty".to_string()))
+        let result = run(Value::ClassRef("runmat.unittest.PropsEmpty".into()))
             .expect("properties(empty class)");
         match result {
             Value::Cell(cell) => {
@@ -361,8 +364,8 @@ pub(crate) mod tests {
                 prop("Hidden", MemberAccess::Private),
             ],
         );
-        let result = run(Value::ClassRef("runmat.unittest.PropsMixed".to_string()))
-            .expect("properties(mixed)");
+        let result =
+            run(Value::ClassRef("runmat.unittest.PropsMixed".into())).expect("properties(mixed)");
         assert_eq!(cell_names(&result), vec!["Visible".to_string()]);
     }
 

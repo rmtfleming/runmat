@@ -6,7 +6,6 @@ use crate::builtins::common::spec::{
 };
 use crate::builtins::introspection::class::class_name_for_value;
 use crate::builtins::introspection::type_resolvers::isa_type;
-use crate::class_registry::get_class;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 use runmat_accelerate_api::{handle_integer_type, handle_is_logical};
 use runmat_builtins::{
@@ -164,7 +163,7 @@ fn value_is_a(value: &Value, requested: &str) -> bool {
         "char" => matches!(value, Value::CharArray(_)),
         "string" => matches!(value, Value::String(_) | Value::StringArray(_)),
         "cell" => matches!(value, Value::Cell(_)),
-        "struct" => matches!(value, Value::Struct(_)),
+        "struct" => matches!(value, Value::Struct(_) | Value::StructArray(_)),
         "function_handle" => matches!(
             value,
             Value::FunctionHandle(_)
@@ -188,10 +187,7 @@ fn value_is_a(value: &Value, requested: &str) -> bool {
             match value {
                 Value::ObjectArray(array) => class_inherits(array.class_name(), &requested_lower),
                 Value::Object(obj) => class_inherits(&obj.class_name, &requested_lower),
-                Value::HandleObject(handle) => {
-                    !handle.class_name.is_empty()
-                        && class_inherits(&handle.class_name, &requested_lower)
-                }
+                Value::HandleObject(handle) => class_inherits(&handle.class_name, &requested_lower),
                 _ => false,
             }
         }
@@ -253,17 +249,20 @@ fn is_handle_like(value: &Value) -> bool {
     }
 }
 
-fn class_inherits(class_name: &str, requested_lower: &str) -> bool {
-    if class_name.eq_ignore_ascii_case(requested_lower) {
+fn class_inherits(class_name: &runmat_types::ClassIdentity, requested_lower: &str) -> bool {
+    if class_name
+        .display_name()
+        .eq_ignore_ascii_case(requested_lower)
+    {
         return true;
     }
-    let mut cursor = Some(class_name.to_string());
+    let mut cursor = Some(class_name.clone());
     let mut visited = std::collections::HashSet::new();
     while let Some(name) = cursor {
         if !visited.insert(name.clone()) {
             break;
         }
-        if name.eq_ignore_ascii_case(requested_lower) {
+        if name.display_name().eq_ignore_ascii_case(requested_lower) {
             return true;
         }
         if let Some(def) = crate::class_registry::get_class(&name) {
@@ -279,10 +278,7 @@ fn class_inherits(class_name: &str, requested_lower: &str) -> bool {
 pub(crate) mod tests {
     use super::*;
     use crate::builtins::common::{gpu_helpers, test_support};
-    use crate::class_registry::RuntimeClass;
-    use runmat_accelerate_api::{
-        AccelProvider, HostIntegerDataView, HostIntegerTensorView, HostTensorView,
-    };
+    use runmat_accelerate_api::{HostIntegerDataView, HostIntegerTensorView, HostTensorView};
     use runmat_value::{
         CellArray, CharArray, ComplexTensor, HandleRef, IntValue, IntegerComplexStorage,
         IntegerStorage, Listener, LogicalArray, ObjectInstance, SparseTensor, StringArray,
@@ -588,7 +584,7 @@ pub(crate) mod tests {
             methods: HashMap::new(),
         };
         crate::class_registry::register_class(def);
-        let obj = Value::Object(ObjectInstance::new(class_name.into()));
+        let obj = Value::Object(ObjectInstance::new(class_name));
         let handle_result = isa_builtin(obj.clone(), Value::from("handle")).expect("isa");
         assert_eq!(handle_result, Value::Bool(true));
         let exact = isa_builtin(obj, Value::from(class_name)).expect("isa");
@@ -602,14 +598,14 @@ pub(crate) mod tests {
         let class_b = unique_class_name("runmat.unittest.CycleB");
 
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: class_a.clone(),
-            parent: Some(class_b.clone()),
+            name: class_a.clone().into(),
+            parent: Some(class_b.clone().into()),
             properties: HashMap::new(),
             methods: HashMap::new(),
         });
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: class_b.clone(),
-            parent: Some(class_a.clone()),
+            name: class_b.clone().into(),
+            parent: Some(class_a.clone().into()),
             properties: HashMap::new(),
             methods: HashMap::new(),
         });

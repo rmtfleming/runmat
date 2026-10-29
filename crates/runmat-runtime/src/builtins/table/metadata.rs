@@ -18,27 +18,6 @@ const ANY_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     default: None,
     description: "Result value.",
 }];
-const NUM_OUTPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "n",
-    ty: BuiltinParamType::IntegerScalar,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Count.",
-}];
-const TABLE_INPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "T",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Table input.",
-}];
-const HEIGHT_INPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
-    name: "A",
-    ty: BuiltinParamType::Any,
-    arity: BuiltinParamArity::Required,
-    default: None,
-    description: "Table, timetable, or array input.",
-}];
 const HEAD_INPUT: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
     name: "A",
     ty: BuiltinParamType::Any,
@@ -378,7 +357,7 @@ const GRPSTATS_INPUTS: [BuiltinParamDescriptor; 4] = [
         description: "Alpha, DataVars, and VarNames options.",
     },
 ];
-const OBJECT_INDEX_INPUTS: [BuiltinParamDescriptor; 3] = [
+const OBJECT_INDEX_INPUTS: [BuiltinParamDescriptor; 2] = [
     BuiltinParamDescriptor {
         name: "obj",
         ty: BuiltinParamType::Any,
@@ -387,21 +366,14 @@ const OBJECT_INDEX_INPUTS: [BuiltinParamDescriptor; 3] = [
         description: "Table object receiver.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Index kind token.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Index payload.",
+        description: "Standard substruct-compatible indexing path.",
     },
 ];
-const OBJECT_ASSIGN_INPUTS: [BuiltinParamDescriptor; 4] = [
+const OBJECT_ASSIGN_INPUTS: [BuiltinParamDescriptor; 3] = [
     BuiltinParamDescriptor {
         name: "obj",
         ty: BuiltinParamType::Any,
@@ -410,18 +382,11 @@ const OBJECT_ASSIGN_INPUTS: [BuiltinParamDescriptor; 4] = [
         description: "Table object receiver.",
     },
     BuiltinParamDescriptor {
-        name: "kind",
-        ty: BuiltinParamType::StringScalar,
-        arity: BuiltinParamArity::Required,
-        default: None,
-        description: "Index kind token.",
-    },
-    BuiltinParamDescriptor {
-        name: "payload",
+        name: "S",
         ty: BuiltinParamType::Any,
         arity: BuiltinParamArity::Required,
         default: None,
-        description: "Index payload.",
+        description: "Standard substruct-compatible indexing path.",
     },
     BuiltinParamDescriptor {
         name: "rhs",
@@ -800,11 +765,6 @@ const GRPSTATS_SIGNATURES: [BuiltinSignatureDescriptor; 3] = [
         outputs: &ANY_OUTPUT,
     },
 ];
-const HEIGHT_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "n = height(A)",
-    inputs: &HEIGHT_INPUT,
-    outputs: &NUM_OUTPUT,
-}];
 const HEAD_SIGNATURES: [BuiltinSignatureDescriptor; 2] = [
     BuiltinSignatureDescriptor {
         label: "B = head(A)",
@@ -817,11 +777,6 @@ const HEAD_SIGNATURES: [BuiltinSignatureDescriptor; 2] = [
         outputs: &ANY_OUTPUT,
     },
 ];
-const WIDTH_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "n = width(T)",
-    inputs: &TABLE_INPUT,
-    outputs: &NUM_OUTPUT,
-}];
 const COMPAT_VALUE_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
     label: "B = tabularBuiltin(A, ...)",
     inputs: &VALUE_AND_ARGS_INPUTS,
@@ -843,12 +798,12 @@ const WRITE_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescr
     outputs: &WRITE_NO_OUTPUT,
 }];
 const OBJECT_SUBSREF_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "out = table.subsref(obj, kind, payload)",
+    label: "out = table.subsref(obj, S)",
     inputs: &OBJECT_INDEX_INPUTS,
     outputs: &ANY_OUTPUT,
 }];
 const OBJECT_SUBSASGN_SIGNATURES: [BuiltinSignatureDescriptor; 1] = [BuiltinSignatureDescriptor {
-    label: "obj = table.subsasgn(obj, kind, payload, rhs)",
+    label: "obj = table.subsasgn(obj, S, rhs)",
     inputs: &OBJECT_ASSIGN_INPUTS,
     outputs: &ANY_OUTPUT,
 }];
@@ -963,20 +918,8 @@ pub const GRPSTATS_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &TABLE_ERRORS,
 };
-pub const HEIGHT_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &HEIGHT_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &TABLE_ERRORS,
-};
 pub const HEAD_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
     signatures: &HEAD_SIGNATURES,
-    output_mode: BuiltinOutputMode::Fixed,
-    completion_policy: BuiltinCompletionPolicy::Public,
-    errors: &TABLE_ERRORS,
-};
-pub const WIDTH_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
-    signatures: &WIDTH_SIGNATURES,
     output_mode: BuiltinOutputMode::Fixed,
     completion_policy: BuiltinCompletionPolicy::Public,
     errors: &TABLE_ERRORS,

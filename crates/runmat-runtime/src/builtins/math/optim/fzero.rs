@@ -427,6 +427,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "fzero",
+    execution_stack = "process",
     category = "math/optim",
     summary = "Find scalar function zeros with bracketed root-finding.",
     keywords = "fzero,root finding,zero,brent,optimization",
@@ -921,7 +922,7 @@ mod tests {
                 };
                 assert_eq!(argument.numeric_dtype(), runmat_value::NumericDType::F32);
                 let residual = argument.materialize_f64()[0] - std::f64::consts::PI;
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(Value::Tensor(
                         Tensor::new_with_dtype(
                             vec![residual],
@@ -938,7 +939,7 @@ mod tests {
                 .unwrap();
         let root = block_on(fzero_builtin(
             Value::BoundFunctionHandle {
-                name: "single_root".to_string(),
+                name: "single_root".into(),
                 function: 7_709,
             },
             Value::Tensor(bracket),
@@ -960,7 +961,7 @@ mod tests {
                     Value::Num(value) => *value,
                     _ => unreachable!(),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(Value::Tensor(
                         Tensor::new_with_dtype(
                             vec![x - 1.0],
@@ -975,7 +976,7 @@ mod tests {
         let options = FzeroOptions::from_struct(None).unwrap();
         let bracket = block_on(bracket_from_endpoints(
             &Value::BoundFunctionHandle {
-                name: "single_result".to_string(),
+                name: "single_result".into(),
                 function: 7_710,
             },
             0.0,
@@ -1061,13 +1062,13 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected scalar numeric argument, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(x - 2.0)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(x - 2.0)) })
             },
         )));
 
         let root = block_on(fzero_builtin(
             Value::BoundFunctionHandle {
-                name: "root_function".to_string(),
+                name: "root_function".into(),
                 function: 42,
             },
             Value::Num(0.0),

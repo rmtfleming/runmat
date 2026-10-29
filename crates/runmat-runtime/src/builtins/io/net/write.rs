@@ -851,6 +851,7 @@ fn flatten_numeric(value: &Value) -> BuiltinResult<Vec<WriteElement>> {
         )),
         Value::Cell(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -866,6 +867,8 @@ fn flatten_numeric(value: &Value) -> BuiltinResult<Vec<WriteElement>> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(write_flow(
             &WRITE_ERROR_INVALID_DATA,

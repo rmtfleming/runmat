@@ -517,6 +517,11 @@ pub async fn assign_sparse_scalar(
         sparse
             .with_updated_integer_value(row, col, value)
             .map_err(map_assignment_shape_error)?
+    } else if sparse.is_complex() {
+        let value = rhs_to_complex_scalar(rhs).await?;
+        sparse
+            .with_updated_complex_value(row, col, value)
+            .map_err(map_assignment_shape_error)?
     } else if sparse.numeric_dtype() == Some(NumericDType::F32) {
         let value = rhs_to_real_scalar(rhs).await? as f32;
         sparse
@@ -825,15 +830,17 @@ mod tests {
         assert_eq!(grown.numeric_dtype(), NumericDType::F32);
         assert_eq!(grown.shape, vec![1, 4]);
         assert_eq!(
-            grown.as_f32_slice(),
-            Some(
-                &[
-                    (1.0, -1.0),
-                    (2.0, -2.0),
-                    (0.0, 0.0),
-                    (1.234_567_890_123_f64 as f32, -9.876_543_210_987_f64 as f32,),
-                ][..]
-            )
+            grown.as_f32_slice().map(|values| values
+                .iter()
+                .copied()
+                .map(<(f32, f32)>::from)
+                .collect::<Vec<_>>()),
+            Some(vec![
+                (1.0, -1.0),
+                (2.0, -2.0),
+                (0.0, 0.0),
+                (1.234_567_890_123_f64 as f32, -9.876_543_210_987_f64 as f32,),
+            ])
         );
 
         let empty = Value::Tensor(Tensor::new(Vec::new(), vec![0, 0]).expect("empty"));
@@ -846,14 +853,16 @@ mod tests {
         assert_eq!(deleted.numeric_dtype(), NumericDType::F32);
         assert_eq!(deleted.shape, vec![1, 3]);
         assert_eq!(
-            deleted.as_f32_slice(),
-            Some(
-                &[
-                    (1.0, -1.0),
-                    (0.0, 0.0),
-                    (1.234_567_890_123_f64 as f32, -9.876_543_210_987_f64 as f32,),
-                ][..]
-            )
+            deleted.as_f32_slice().map(|values| values
+                .iter()
+                .copied()
+                .map(<(f32, f32)>::from)
+                .collect::<Vec<_>>()),
+            Some(vec![
+                (1.0, -1.0),
+                (0.0, 0.0),
+                (1.234_567_890_123_f64 as f32, -9.876_543_210_987_f64 as f32,),
+            ])
         );
     }
 
@@ -1072,6 +1081,34 @@ mod tests {
         assert_eq!(updated.shape(), vec![2, 2]);
         assert_eq!(updated.col_ptrs, vec![0, 0, 1]);
         assert_eq!(updated.row_indices, vec![1]);
+    }
+
+    #[test]
+    fn sparse_complex_scalar_assignment_preserves_complex_storage_and_elides_zero() {
+        let sparse = runmat_value::SparseTensor::zeros_complex(2, 2);
+        let Value::SparseTensor(updated) = block_on(assign_sparse_scalar(
+            sparse,
+            &[2, 1],
+            &Value::Complex(-0.0, 4.5),
+            false,
+        ))
+        .expect("complex sparse assignment") else {
+            panic!("expected sparse output");
+        };
+        assert!(updated.is_complex());
+        assert_eq!(updated.complex_at(1, 0), Some((-0.0, 4.5)));
+
+        let Value::SparseTensor(cleared) = block_on(assign_sparse_scalar(
+            updated,
+            &[2, 1],
+            &Value::Complex(0.0, 0.0),
+            false,
+        ))
+        .expect("zero complex sparse assignment") else {
+            panic!("expected sparse output");
+        };
+        assert!(cleared.is_complex());
+        assert_eq!(cleared.nnz(), 0);
     }
 
     #[test]

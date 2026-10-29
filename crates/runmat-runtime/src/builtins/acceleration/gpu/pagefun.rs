@@ -1239,7 +1239,7 @@ impl TypeName for Value {
                 numeric_array_type_name(tensor.numeric_dtype(), "complex")
             }
             Value::Cell(_) => "cell array",
-            Value::Struct(_) => "struct",
+            Value::Struct(_) | Value::StructArray(_) => "struct",
             Value::GpuTensor(_) => "gpuArray",
             Value::ObjectArray(_) | Value::Object(_) => "object",
             Value::HandleObject(_) => "handle object",
@@ -1256,6 +1256,8 @@ impl TypeName for Value {
             Value::Task(_) => "task",
             Value::Pool(_) => "pool",
             Value::Job(_) => "job",
+            Value::Distributed(_) => "distributed",
+            Value::Composite(_) => "Composite",
             Value::Foreign(_) => "foreign",
         }
     }
@@ -1590,7 +1592,7 @@ pub(crate) mod tests {
         let rhs = Tensor::new(vec![5.0, 7.0, 6.0, 8.0], vec![2, 2]).unwrap();
         let result = pagefun_impl(
             Value::BoundFunctionHandle {
-                name: "mtimes".to_string(),
+                name: "mtimes".into(),
                 function: 17,
             },
             Value::Tensor(lhs),

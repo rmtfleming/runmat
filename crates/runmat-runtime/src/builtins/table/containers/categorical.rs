@@ -885,6 +885,68 @@ fn categorical_object_labels(object: &ObjectInstance) -> BuiltinResult<Vec<Strin
         .collect()
 }
 
+pub(crate) fn categorical_observation_labels(
+    object: &ObjectInstance,
+) -> BuiltinResult<Vec<Option<String>>> {
+    let categories = categorical_categories(object)?;
+    let codes = categorical_codes(object)?;
+    (0..codes.len())
+        .map(|index| {
+            let code = codes
+                .numeric_value_at(index)
+                .ok_or_else(|| invalid_variable("categorical: invalid numeric code storage"))?;
+            if code.materialize_f64().is_nan() {
+                return Ok(None);
+            }
+            category_label_for_numeric_code(code, &categories)
+                .map(Some)
+                .ok_or_else(|| invalid_variable("categorical: category code is out of range"))
+        })
+        .collect()
+}
+
+pub(crate) fn categorical_declared_levels(object: &ObjectInstance) -> BuiltinResult<Value> {
+    let count = categorical_categories(object)?.len();
+    let codes = Tensor::new(
+        (1..=count).map(|code| code as f64).collect(),
+        vec![count, 1],
+    )
+    .map_err(invalid_variable)?;
+    let mut levels = object.clone();
+    levels
+        .properties
+        .insert("Codes".to_string(), Value::Tensor(codes));
+    Ok(Value::Object(levels))
+}
+
+pub(crate) fn categorical_levels_for_observations(
+    object: &ObjectInstance,
+    labels: &[Option<String>],
+) -> BuiltinResult<Value> {
+    let categories = categorical_categories(object)?;
+    let codes = labels
+        .iter()
+        .map(|label| {
+            let Some(label) = label else {
+                return Ok(f64::NAN);
+            };
+            categories
+                .iter()
+                .position(|category| category == label)
+                .map(|index| index as f64 + 1.0)
+                .ok_or_else(|| {
+                    invalid_variable("categorical: group label is not a declared category")
+                })
+        })
+        .collect::<BuiltinResult<Vec<_>>>()?;
+    let codes = Tensor::new(codes, vec![labels.len(), 1]).map_err(invalid_variable)?;
+    let mut levels = object.clone();
+    levels
+        .properties
+        .insert("Codes".to_string(), Value::Tensor(codes));
+    Ok(Value::Object(levels))
+}
+
 pub(crate) fn categorical_categories(object: &ObjectInstance) -> BuiltinResult<Vec<String>> {
     match object.properties.get("Categories") {
         Some(Value::StringArray(array)) => Ok(array.data.clone()),

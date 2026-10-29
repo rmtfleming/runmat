@@ -24,6 +24,21 @@ pub fn clear_value_excluding(current: &Value, incoming: &Value) -> Result<(), St
 }
 
 #[cfg(feature = "native-accel")]
+pub fn clear_value_excluding_values(current: &Value, live: &[Value]) -> Result<(), String> {
+    runmat_accelerate::ensure_residency_hooks();
+    let mut keep_handles = HashSet::new();
+    for value in live {
+        collect_gpu_handle_identities(value, &mut keep_handles)?;
+    }
+    clear_handles_in_value_excluding(current, &keep_handles)
+}
+
+#[cfg(not(feature = "native-accel"))]
+pub fn clear_value_excluding_values(_current: &Value, _live: &[Value]) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(feature = "native-accel")]
 fn clear_handles_in_value(value: &Value) -> Result<(), String> {
     clear_handles_in_value_excluding(value, &HashSet::new())
 }
@@ -69,6 +84,19 @@ fn clear_handles_in_value_excluding_with_visited(
                     visited_handle_targets,
                 )?;
             }
+        }
+        Value::StructArray(array) => {
+            let mut result = Ok(());
+            array.for_each_value(|elem| {
+                if result.is_ok() {
+                    result = clear_handles_in_value_excluding_with_visited(
+                        elem,
+                        keep_handles,
+                        visited_handle_targets,
+                    );
+                }
+            });
+            result?;
         }
         Value::Object(object_value) => {
             for elem in object_value.properties.values() {
@@ -143,6 +171,8 @@ fn clear_handles_in_value_excluding_with_visited(
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_) => {}
     }
     Ok(())
@@ -176,6 +206,19 @@ fn collect_gpu_handle_identities_with_visited(
             for elem in struct_value.fields.values() {
                 collect_gpu_handle_identities_with_visited(elem, output, visited_handle_targets)?;
             }
+        }
+        Value::StructArray(array) => {
+            let mut result = Ok(());
+            array.for_each_value(|elem| {
+                if result.is_ok() {
+                    result = collect_gpu_handle_identities_with_visited(
+                        elem,
+                        output,
+                        visited_handle_targets,
+                    );
+                }
+            });
+            result?;
         }
         Value::Object(object_value) => {
             for elem in object_value.properties.values() {
@@ -238,6 +281,8 @@ fn collect_gpu_handle_identities_with_visited(
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_) => {}
     }
     Ok(())
@@ -326,7 +371,7 @@ mod tests {
         assert!(fusion_residency::is_resident(&handle));
 
         let value = Value::Closure(Closure {
-            function_name: "worker".to_string(),
+            function_name: "worker".into(),
             bound_function: None,
             captures: vec![Value::GpuTensor(handle.clone())],
         });
@@ -408,7 +453,7 @@ mod tests {
         let gc_target =
             runmat_gc::gc_allocate(Value::Struct(payload)).expect("gc allocate payload");
         let value = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target: gc_target,
             valid: true,
         });
@@ -446,7 +491,7 @@ mod tests {
         let incoming_gc =
             runmat_gc::gc_allocate(Value::Struct(incoming_payload)).expect("gc allocate incoming");
         let incoming = Value::HandleObject(HandleRef {
-            class_name: "Payload".to_string(),
+            class_name: "Payload".into(),
             target: incoming_gc,
             valid: true,
         });

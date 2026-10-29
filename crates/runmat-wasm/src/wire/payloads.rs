@@ -292,10 +292,6 @@ fn runtime_flow_to_json(flow: &RuntimeFlow) -> JsonValue {
             "kind": "output-list",
             "values": values.iter().map(|value| value_to_json(value, 0)).collect::<Vec<_>>()
         }),
-        RuntimeFlow::CommaList(values) => serde_json::json!({
-            "kind": "comma-list",
-            "values": values.iter().map(|value| value_to_json(value, 0)).collect::<Vec<_>>()
-        }),
         RuntimeFlow::DynamicList(handle) => serde_json::json!({
             "kind": "dynamic-list",
             "id": handle.0.to_string()
@@ -846,7 +842,7 @@ mod tests {
 
     fn test_source_context() -> ExecutionSourceContext {
         ExecutionSourceContext {
-            name: "<test>".to_string(),
+            name: "<test>".into(),
             text: Some(String::new()),
             identity: None,
         }
@@ -944,7 +940,7 @@ mod tests {
             ..ExecutionOutcome::default()
         };
         let source_context = ExecutionSourceContext {
-            name: "path-source.m".to_string(),
+            name: "path-source.m".into(),
             text: Some("x = 1;\ny = x(2);\n".to_string()),
             identity: None,
         };

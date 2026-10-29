@@ -1,12 +1,11 @@
 pub use inventory;
 mod class_declarations;
-pub use class_declarations::{
-    standard_class_declaration, standard_class_is_subclass, GPU_ARRAY_PUBLIC_METHODS,
-};
+pub use class_declarations::{standard_class_declaration, standard_class_is_subclass};
 pub mod catalog;
 pub use catalog::*;
 mod catalog_fingerprint;
 pub use catalog_fingerprint::{builtin_catalog_fingerprint, BUILTIN_CATALOG_SCHEMA};
+pub use runmat_types::ExecutionStackRequirement;
 pub use runmat_types::{LiteralContext as ResolveContext, LiteralValue};
 use runmat_value::*;
 use serde::{Deserialize, Serialize};
@@ -20,13 +19,18 @@ use std::sync::OnceLock;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_registry {
-    use super::{BuiltinDoc, BuiltinFunction, Constant};
+    use super::{
+        BuiltinDoc, BuiltinFunction, BuiltinImplementationProvenance, Constant,
+        ConstantRegistration, RegistrationManifestEntry,
+    };
     use std::cell::{Cell, RefCell};
 
     thread_local! {
         static FUNCTIONS: RefCell<Vec<&'static BuiltinFunction>> = const { RefCell::new(Vec::new()) };
-        static CONSTANTS: RefCell<Vec<&'static Constant>> = const { RefCell::new(Vec::new()) };
+        static CONSTANTS: RefCell<Vec<&'static ConstantRegistration>> = const { RefCell::new(Vec::new()) };
         static DOCS: RefCell<Vec<&'static BuiltinDoc>> = const { RefCell::new(Vec::new()) };
+        static IMPLEMENTATION_PROVENANCE: RefCell<Vec<&'static BuiltinImplementationProvenance>> = const { RefCell::new(Vec::new()) };
+        static REGISTRATION_MANIFEST: RefCell<Vec<&'static RegistrationManifestEntry>> = const { RefCell::new(Vec::new()) };
         static REGISTERED: Cell<bool> = const { Cell::new(false) };
     }
 
@@ -39,8 +43,8 @@ pub mod wasm_registry {
         FUNCTIONS.with_borrow_mut(|functions| functions.push(leaked));
     }
 
-    pub fn submit_constant(constant: Constant) {
-        let leaked = leak(constant);
+    pub fn submit_constant(registration: ConstantRegistration) {
+        let leaked = leak(registration);
         CONSTANTS.with_borrow_mut(|constants| constants.push(leaked));
     }
 
@@ -49,16 +53,40 @@ pub mod wasm_registry {
         DOCS.with_borrow_mut(|docs| docs.push(leaked));
     }
 
+    pub fn submit_builtin_implementation_provenance(provenance: BuiltinImplementationProvenance) {
+        let leaked = leak(provenance);
+        IMPLEMENTATION_PROVENANCE.with_borrow_mut(|entries| entries.push(leaked));
+    }
+
+    pub fn submit_registration_manifest_entry(entry: RegistrationManifestEntry) {
+        let leaked = leak(entry);
+        REGISTRATION_MANIFEST.with_borrow_mut(|entries| entries.push(leaked));
+    }
+
     pub fn builtin_functions() -> Vec<&'static BuiltinFunction> {
         FUNCTIONS.with_borrow(Clone::clone)
     }
 
     pub fn constants() -> Vec<&'static Constant> {
+        CONSTANTS.with_borrow(|registrations| {
+            registrations.iter().map(|entry| &entry.constant).collect()
+        })
+    }
+
+    pub fn constant_registrations() -> Vec<&'static ConstantRegistration> {
         CONSTANTS.with_borrow(Clone::clone)
     }
 
     pub fn builtin_docs() -> Vec<&'static BuiltinDoc> {
         DOCS.with_borrow(Clone::clone)
+    }
+
+    pub fn builtin_implementation_provenance() -> Vec<&'static BuiltinImplementationProvenance> {
+        IMPLEMENTATION_PROVENANCE.with_borrow(Clone::clone)
+    }
+
+    pub fn registration_manifest_entries() -> Vec<&'static RegistrationManifestEntry> {
+        REGISTRATION_MANIFEST.with_borrow(Clone::clone)
     }
 
     pub fn mark_registered() {
@@ -125,7 +153,7 @@ pub enum Type {
     /// Scalar or array object type with compatible class and shape facts.
     Object {
         /// Fully qualified class name when statically known.
-        class_name: Option<String>,
+        class_name: Option<runmat_types::ClassIdentity>,
         /// MATLAB shape; None means dynamic and individual dimensions may be unknown.
         shape: Option<Vec<Option<usize>>>,
     },
@@ -378,7 +406,7 @@ impl Type {
                 shape: Some(vec![Some(1), Some(1)]),
             },
             Value::Listener(_) => Type::Unknown,
-            Value::Struct(_) => Type::Struct { known_fields: None },
+            Value::Struct(_) | Value::StructArray(_) => Type::Struct { known_fields: None },
             Value::FunctionHandle(_)
             | Value::ExternalFunctionHandle(_)
             | Value::MethodFunctionHandle(_)
@@ -396,6 +424,8 @@ impl Type {
             | Value::Task(_)
             | Value::Pool(_)
             | Value::Job(_)
+            | Value::Distributed(_)
+            | Value::Composite(_)
             | Value::Foreign(_) => Type::Unknown,
             Value::CharArray(ca) => {
                 // Treat as cell of char for type purposes; or a 2-D char matrix conceptually
@@ -419,8 +449,8 @@ mod type_tests {
     #[test]
     fn object_array_type_preserves_class_and_shape() {
         let values = vec![
-            Value::Object(ObjectInstance::new("pkg.Result".into())),
-            Value::Object(ObjectInstance::new("pkg.Result".into())),
+            Value::Object(ObjectInstance::new("pkg.Result")),
+            Value::Object(ObjectInstance::new("pkg.Result")),
         ];
         let array = ObjectArray::new("pkg.Result", values, vec![1, 2]).expect("object array");
         assert!(matches!(
@@ -428,7 +458,7 @@ mod type_tests {
             Type::Object {
                 class_name: Some(name),
                 shape: Some(shape)
-            } if name == "pkg.Result" && shape == vec![Some(1), Some(2)]
+            } if name.display_name() == "pkg.Result" && shape == vec![Some(1), Some(2)]
         ));
     }
 }
@@ -546,6 +576,11 @@ pub struct BuiltinFunction {
     pub accel_tags: &'static [AccelTag],
     pub is_sink: bool,
     pub suppress_auto_output: bool,
+    pub execution_stack: ExecutionStackRequirement,
+    /// Capabilities that are semantically required whenever this builtin is
+    /// called. Accelerator optimization tags are intentionally separate: an
+    /// optional fast path must not become a scheduler resource requirement.
+    pub required_capabilities: &'static [runmat_types::CapabilityRequirement],
     pub descriptor: Option<&'static BuiltinDescriptor>,
     pub extensions: &'static [BuiltinExtensionDescriptor],
     pub integer_capabilities: &'static [BuiltinIntegerCapabilityDescriptor],
@@ -581,11 +616,26 @@ impl BuiltinFunction {
             accel_tags,
             is_sink,
             suppress_auto_output,
+            execution_stack: ExecutionStackRequirement::Any,
+            required_capabilities: &[],
             descriptor: None,
             extensions: &[],
             integer_capabilities: &[],
             integer_audit: None,
         }
+    }
+
+    pub fn with_execution_stack(mut self, execution_stack: ExecutionStackRequirement) -> Self {
+        self.execution_stack = execution_stack;
+        self
+    }
+
+    pub fn with_required_capabilities(
+        mut self,
+        capabilities: &'static [runmat_types::CapabilityRequirement],
+    ) -> Self {
+        self.required_capabilities = capabilities;
+        self
     }
 
     pub fn with_descriptor(mut self, descriptor: &'static BuiltinDescriptor) -> Self {
@@ -648,6 +698,34 @@ pub struct Constant {
     pub value: Value,
 }
 
+/// Declaration-derived provenance for one live constant registration.
+#[doc(hidden)]
+pub struct ConstantRegistration {
+    pub constant: Constant,
+    pub source_file: &'static str,
+    pub module_path: &'static str,
+    pub builtin_path: &'static str,
+}
+
+/// One declaration emitted into both native inventory and the generated WASM registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[doc(hidden)]
+pub struct RegistrationManifestEntry {
+    pub kind: RegistrationKind,
+    pub declaration: &'static str,
+    pub variant: Option<&'static str>,
+    pub builtin_path: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[doc(hidden)]
+pub enum RegistrationKind {
+    Builtin,
+    Constant,
+    FusionSpec,
+    GpuSpec,
+}
+
 pub mod semantics;
 pub mod shape_rules;
 
@@ -670,7 +748,9 @@ impl std::fmt::Debug for Constant {
 #[cfg(not(target_arch = "wasm32"))]
 inventory::collect!(BuiltinFunction);
 #[cfg(not(target_arch = "wasm32"))]
-inventory::collect!(Constant);
+inventory::collect!(ConstantRegistration);
+#[cfg(not(target_arch = "wasm32"))]
+inventory::collect!(RegistrationManifestEntry);
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn builtin_functions() -> Vec<&'static BuiltinFunction> {
@@ -707,6 +787,91 @@ pub fn builtin_name_is_known(name: &str) -> bool {
     builtin_catalog_entry_by_name(name).is_some() || builtin_function_by_name(name).is_some()
 }
 
+/// Resolve a public spelling to the canonical typed builtin identity.
+pub fn builtin_id_by_name(name: &str) -> Option<runmat_types::BuiltinId> {
+    let canonical = builtin_catalog_entry_by_name(name)
+        .map(|entry| entry.identity.name)
+        .or_else(|| builtin_function_by_name(name).map(|function| function.name))?;
+    Some(runmat_types::BuiltinId(canonical.to_owned()))
+}
+
+/// Resolve a declaration spelling to the canonical typed builtin identity.
+pub fn builtin_callable_identity_by_name(name: &str) -> Option<runmat_types::CallableIdentity> {
+    builtin_id_by_name(name).map(runmat_types::CallableIdentity::Builtin)
+}
+
+/// Returns the canonical public call descriptor for a builtin.
+///
+/// Catalog-owned identities take precedence. Runtime registration remains the
+/// bounded fallback for identities whose atomic catalog cutover has not occurred.
+pub fn builtin_descriptor_by_name(name: &str) -> Option<&'static BuiltinDescriptor> {
+    builtin_catalog_entry_by_name(name)
+        .map(|entry| entry.descriptor)
+        .or_else(|| builtin_function_by_name(name).and_then(|function| function.descriptor))
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BuiltinIntegerMetadata {
+    pub capabilities: &'static [BuiltinIntegerCapabilityDescriptor],
+    pub audit: Option<&'static BuiltinIntegerAuditDescriptor>,
+}
+
+/// Returns the canonical integer contract for a builtin during catalog migration.
+///
+/// Catalog-owned identities take precedence. Runtime registration remains the
+/// bounded fallback for identities whose atomic catalog cutover has not occurred.
+pub fn builtin_integer_metadata_by_name(name: &str) -> Option<BuiltinIntegerMetadata> {
+    builtin_catalog_entry_by_name(name)
+        .map(|entry| BuiltinIntegerMetadata {
+            capabilities: entry.integer_capabilities,
+            audit: entry.integer_audit,
+        })
+        .or_else(|| {
+            builtin_function_by_name(name).map(|function| BuiltinIntegerMetadata {
+                capabilities: function.integer_capabilities,
+                audit: function.integer_audit,
+            })
+        })
+}
+
+/// Returns the compatibility extensions declared for a builtin.
+///
+/// Catalog-owned identities take precedence while unmigrated builtins retain
+/// their runtime registration as the bounded fallback during catalog cutover.
+pub fn builtin_extensions_by_name(name: &str) -> Option<&'static [BuiltinExtensionDescriptor]> {
+    builtin_catalog_entry_by_name(name)
+        .map(|entry| entry.extensions)
+        .or_else(|| builtin_function_by_name(name).map(|function| function.extensions))
+}
+
+/// Returns the physical-stack contract for a builtin call.
+///
+/// Canonical catalog declarations take precedence. Runtime registration remains
+/// the authority for builtins that have not yet migrated into the catalog.
+pub fn builtin_execution_stack_requirement(name: &str) -> runmat_types::ExecutionStackRequirement {
+    builtin_catalog_entry_by_name(name)
+        .map(|entry| entry.link.execution_stack)
+        .or_else(|| builtin_function_by_name(name).map(|function| function.execution_stack))
+        .unwrap_or(ExecutionStackRequirement::Any)
+}
+
+/// Returns semantic capabilities required by a builtin call.
+///
+/// Canonical catalog declarations take precedence. Runtime registration is
+/// the typed authority for cohorts that have not yet moved into the catalog.
+pub fn builtin_required_capabilities(name: &str) -> runmat_types::CapabilitySet {
+    builtin_catalog_entry_by_name(name)
+        .map(|entry| entry.contract.capability_set())
+        .or_else(|| {
+            builtin_function_by_name(name).map(|function| {
+                runmat_types::CapabilitySet(
+                    function.required_capabilities.iter().copied().collect(),
+                )
+            })
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn builtin_function_by_name(name: &str) -> Option<&'static BuiltinFunction> {
     wasm_registry::builtin_functions()
@@ -727,10 +892,7 @@ pub fn suppresses_auto_output(name: &str) -> bool {
 /// may suppress implicit `ans` display while still returning a value when one
 /// is explicitly requested.
 pub fn builtin_declares_zero_outputs(name: &str) -> bool {
-    let descriptor = builtin_catalog_entry_by_name(name)
-        .map(|entry| entry.descriptor)
-        .or_else(|| builtin_function_by_name(name).and_then(|function| function.descriptor));
-    descriptor.is_some_and(|descriptor| {
+    builtin_descriptor_by_name(name).is_some_and(|descriptor| {
         descriptor.output_mode == BuiltinOutputMode::Fixed
             && !descriptor.signatures.is_empty()
             && descriptor
@@ -742,12 +904,39 @@ pub fn builtin_declares_zero_outputs(name: &str) -> bool {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn constants() -> Vec<&'static Constant> {
-    inventory::iter::<Constant>().collect()
+    constant_registrations()
+        .into_iter()
+        .map(|registration| &registration.constant)
+        .collect()
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn constants() -> Vec<&'static Constant> {
     wasm_registry::constants()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub fn constant_registrations() -> Vec<&'static ConstantRegistration> {
+    inventory::iter::<ConstantRegistration>().collect()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[doc(hidden)]
+pub fn registration_manifest_entries() -> Vec<&'static RegistrationManifestEntry> {
+    inventory::iter::<RegistrationManifestEntry>().collect()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub fn registration_manifest_entries() -> Vec<&'static RegistrationManifestEntry> {
+    wasm_registry::registration_manifest_entries()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub fn constant_registrations() -> Vec<&'static ConstantRegistration> {
+    wasm_registry::constant_registrations()
 }
 
 // ----------------------

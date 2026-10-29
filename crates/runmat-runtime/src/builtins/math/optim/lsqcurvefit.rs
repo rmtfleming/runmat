@@ -470,6 +470,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "lsqcurvefit",
+    execution_stack = "process",
     category = "math/optim",
     summary = "Fit nonlinear parametric curves in the least-squares sense.",
     keywords = "lsqcurvefit,least squares,curve fitting,optimization,levenberg-marquardt,bounds",
@@ -1118,14 +1119,14 @@ mod tests {
                     xdata.numeric_value_at(0),
                     Some(runmat_value::NumericScalar::U64(value)) if value == expected
                 ));
-                Box::pin(async move { Ok(Value::Num(0.0)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(0.0)) })
             },
         )));
         let xdata = Tensor::new_integer(IntegerStorage::U64(vec![expected]), vec![1, 1]).unwrap();
 
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "wide_xdata".to_string(),
+                name: "wide_xdata".into(),
                 function: 901,
             },
             Value::Num(0.0),
@@ -1143,7 +1144,7 @@ mod tests {
         test_support::with_test_provider(|provider| {
             let _invoker = crate::user_functions::install_semantic_function_invoker(Some(
                 Arc::new(|_function, _args, _requested_outputs| {
-                    Box::pin(async move { Ok(Value::Num(0.0)) })
+                    Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(0.0)) })
                 }),
             ));
             let values = [0.0];
@@ -1158,7 +1159,7 @@ mod tests {
                 automatic.with_provenance(runmat_accelerate_api::GpuHandleProvenance::Automatic);
             let result = block_on(lsqcurvefit_builtin(
                 Value::BoundFunctionHandle {
-                    name: "zero_model".to_string(),
+                    name: "zero_model".into(),
                     function: 904,
                 },
                 Value::GpuTensor(automatic),
@@ -1211,7 +1212,7 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected xdata, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(tensor(
                         xdata.iter().map(|x| p[0] * x + p[1]).collect::<Vec<_>>(),
                         vec![1, xdata.len()],
@@ -1221,7 +1222,7 @@ mod tests {
         )));
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "line".to_string(),
+                name: "line".into(),
                 function: 1,
             },
             tensor(vec![0.0, 0.0], vec![2, 1]),
@@ -1252,7 +1253,7 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected xdata, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(tensor(
                         xdata
                             .iter()
@@ -1270,7 +1271,7 @@ mod tests {
             .collect::<Vec<_>>();
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "exp_decay".to_string(),
+                name: "exp_decay".into(),
                 function: 2,
             },
             tensor(vec![1.0, 0.1], vec![2, 1]),
@@ -1300,7 +1301,7 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected xdata, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(tensor(
                         xdata.iter().map(|x| p[0] * x).collect::<Vec<_>>(),
                         vec![1, xdata.len()],
@@ -1310,7 +1311,7 @@ mod tests {
         )));
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "bounded_line".to_string(),
+                name: "bounded_line".into(),
                 function: 3,
             },
             tensor(vec![0.5], vec![1, 1]),
@@ -1339,7 +1340,7 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected xdata, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(tensor(
                         xdata.iter().map(|x| p[0] * x + p[1]).collect(),
                         vec![1, xdata.len()],
@@ -1349,7 +1350,7 @@ mod tests {
         )));
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "line_multi".to_string(),
+                name: "line_multi".into(),
                 function: 4,
             },
             tensor(vec![0.0, 0.0], vec![1, 2]),
@@ -1398,7 +1399,7 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected xdata, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(tensor(
                         xdata.iter().map(|x| p * x).collect::<Vec<_>>(),
                         vec![1, xdata.len()],
@@ -1410,7 +1411,7 @@ mod tests {
         options.insert("Algorithm", Value::from("trust-region-reflective"));
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "line_algorithm".to_string(),
+                name: "line_algorithm".into(),
                 function: 45,
             },
             Value::Num(0.0),
@@ -1445,12 +1446,14 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected params, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(p[0] + p[1])) })
+                Box::pin(
+                    async move { crate::sequence::single_value_sequence(Value::Num(p[0] + p[1])) },
+                )
             },
         )));
         let result = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "underdetermined".to_string(),
+                name: "underdetermined".into(),
                 function: 5,
             },
             tensor(vec![0.0, 0.0], vec![2, 1]),
@@ -1471,12 +1474,14 @@ mod tests {
     fn lsqcurvefit_rejects_model_ydata_shape_mismatch() {
         let _invoker = crate::user_functions::install_semantic_function_invoker(Some(Arc::new(
             |_function, _args, _requested_outputs| {
-                Box::pin(async move { Ok(tensor(vec![1.0, 2.0], vec![1, 2])) })
+                crate::sequence::single_value_future(async move {
+                    Ok(tensor(vec![1.0, 2.0], vec![1, 2]))
+                })
             },
         )));
         let err = block_on(lsqcurvefit_builtin(
             Value::BoundFunctionHandle {
-                name: "bad_shape".to_string(),
+                name: "bad_shape".into(),
                 function: 6,
             },
             Value::Num(0.0),

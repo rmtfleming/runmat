@@ -11,8 +11,8 @@ mod tests {
     use crate::execution::RuntimeExecutionServices;
     use runmat_value::{
         CellArray, CharArray, ComplexTensor, ForeignAffinity, ForeignLifetime, ForeignOwnership,
-        ForeignRef, ForeignTypeIdentity, IntValue, IntegerComplexStorage, IntegerStorage,
-        MException, StringArray, StructValue, Tensor, Value,
+        ForeignRef, ForeignResourceKey, ForeignTypeIdentity, IntValue, IntegerComplexStorage,
+        IntegerStorage, MException, SparseTensor, StringArray, StructValue, Tensor, Value,
     };
 
     use runmat_execution::value::{InlineValue, ValuePayload};
@@ -42,6 +42,24 @@ mod tests {
         assert_eq!(number.to_bits(), 0x7ff8_0000_0000_0042);
         assert_eq!(decoded.data[1], Value::Int(IntValue::U64(u64::MAX)));
         assert_eq!(decoded.shape, vec![1, 2]);
+    }
+
+    #[test]
+    fn transient_output_sequences_are_rejected_at_every_portable_value_depth() {
+        let direct = encode_inline_value(&Value::OutputList(vec![Value::Num(1.0)])).unwrap_err();
+        assert!(matches!(
+            direct,
+            ValueCodecError::TransientSequenceNotPortable { ref path } if path == "$"
+        ));
+
+        let nested = Value::Cell(
+            CellArray::new(vec![Value::OutputList(vec![Value::Num(2.0)])], 1, 1).unwrap(),
+        );
+        let error = encode_inline_value(&nested).unwrap_err();
+        assert!(matches!(
+            error,
+            ValueCodecError::TransientSequenceNotPortable { ref path } if path == "$[0]"
+        ));
     }
 
     #[test]
@@ -95,7 +113,10 @@ mod tests {
         let decoded_values = decoded_single.as_f32_slice().unwrap();
         assert_eq!(decoded_values[0].0.to_bits(), 0x8000_0000);
         assert_eq!(decoded_values[0].1.to_bits(), 0x7fc0_0042);
-        assert_eq!(decoded_values[1], (f32::MAX, f32::MIN_POSITIVE));
+        assert_eq!(
+            decoded_values[1],
+            runmat_value::ComplexElement(f32::MAX, f32::MIN_POSITIVE)
+        );
         assert_eq!(decoded_single.shape, vec![1, 2]);
 
         let integer_components = [
@@ -145,6 +166,75 @@ mod tests {
                 value
             );
         }
+    }
+
+    #[test]
+    fn sparse_complex_and_logical_values_round_trip_without_losing_storage_semantics() {
+        let complex = Value::SparseTensor(
+            SparseTensor::new_complex(
+                3,
+                2,
+                vec![0, 2, 3],
+                vec![0, 2, 1],
+                vec![
+                    (f64::from_bits(0x8000_0000_0000_0000), 2.5),
+                    (3.0, f64::from_bits(0x7ff8_0000_0000_0042)),
+                    (-4.0, 5.0),
+                ],
+            )
+            .unwrap(),
+        );
+        let Value::SparseTensor(decoded) =
+            decode_inline_value(&encode_inline_value(&complex).unwrap()).unwrap()
+        else {
+            panic!("expected sparse complex value");
+        };
+        assert!(decoded.is_complex());
+        assert_eq!(decoded.col_ptrs, vec![0, 2, 3]);
+        assert_eq!(decoded.row_indices, vec![0, 2, 1]);
+        let values = decoded.as_complex_f64_slice().unwrap();
+        assert_eq!(values[0].0.to_bits(), 0x8000_0000_0000_0000);
+        assert_eq!(values[0].1, 2.5);
+        assert_eq!(values[1].1.to_bits(), 0x7ff8_0000_0000_0042);
+        assert_eq!(values[2], runmat_value::ComplexElement(-4.0, 5.0));
+
+        let complex_single = Value::SparseTensor(
+            SparseTensor::new_complex_f32(
+                2,
+                1,
+                vec![0, 2],
+                vec![0, 1],
+                vec![(1.25, -2.5), (3.75, 4.5)],
+            )
+            .unwrap(),
+        );
+        let Value::SparseTensor(decoded) =
+            decode_inline_value(&encode_inline_value(&complex_single).unwrap()).unwrap()
+        else {
+            panic!("expected sparse complex single value");
+        };
+        assert_eq!(
+            decoded.numeric_dtype(),
+            Some(runmat_value::NumericDType::F32)
+        );
+        assert_eq!(
+            decoded.as_complex_f32_slice(),
+            Some(
+                [
+                    runmat_value::ComplexElement(1.25, -2.5),
+                    runmat_value::ComplexElement(3.75, 4.5),
+                ]
+                .as_slice()
+            )
+        );
+
+        let logical = Value::SparseTensor(
+            SparseTensor::new_logical(3, 2, vec![0, 2, 3], vec![0, 2, 1]).unwrap(),
+        );
+        assert_eq!(
+            decode_inline_value(&encode_inline_value(&logical).unwrap()).unwrap(),
+            logical
+        );
     }
 
     #[test]
@@ -201,20 +291,124 @@ mod tests {
     }
 
     #[test]
+    fn distributed_and_composite_handles_round_trip_without_materializing_payloads() {
+        use runmat_execution::{
+            CompositeHandle, CompositeId, DistributedObjectId, DistributedValueHandle,
+            ExecutionScopeId, GangHandle, GangId, PoolHandle, PoolId,
+        };
+        use runmat_types::{
+            DistributedValueId, DistributionScheme, LabCount, NumericClass, NumericDomain,
+            NumericFact, ParallelRegionId, ProgramFunctionId, RegionId, ValueFact, ValueKindFact,
+        };
+
+        let scope_id = ExecutionScopeId::derive(&[b"codec-distributed"]);
+        let function = ProgramFunctionId(3);
+        let owner_region = ParallelRegionId(RegionId {
+            function,
+            ordinal: 2,
+        });
+        let pool = PoolHandle {
+            id: PoolId::derive(&[b"pool"]),
+            scope_id,
+            generation: 1,
+        };
+        let fact = ValueFact::scalar(ValueKindFact::Numeric(NumericFact {
+            class: NumericClass::Double,
+            domain: NumericDomain::Real,
+        }));
+        let distributed = DistributedValueHandle {
+            id: DistributedObjectId::derive(&[b"value"]),
+            contract: DistributedValueId {
+                function,
+                ordinal: 1,
+            },
+            owner: runmat_types::DistributedOwner::Region(owner_region),
+            scope_id,
+            generation: 1,
+            pool: pool.clone(),
+            partition_count: LabCount(2),
+            value: fact.clone(),
+            global_shape: vec![8, 2],
+            scheme: DistributionScheme::Block { dimension: 1 },
+            materializable: true,
+        };
+        let composite = CompositeHandle {
+            id: CompositeId::derive(&[b"composite"]),
+            owner_region,
+            scope_id,
+            generation: 1,
+            gang: GangHandle {
+                id: GangId::derive(&[b"gang"]),
+                scope_id,
+                generation: 1,
+                pool,
+                labs: LabCount(2),
+            },
+            value: fact,
+        };
+        for value in [
+            Value::Distributed(Box::new(distributed)),
+            Value::Composite(Box::new(composite)),
+        ] {
+            let payload = encode_inline_value(&value).unwrap();
+            assert_eq!(decode_inline_value(&payload).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn immutable_codistributor_value_classes_round_trip_with_exact_properties() {
+        let value = crate::parallel::codistributor::one_dimensional(&[
+            Value::Int(runmat_value::IntValue::U64(2)),
+            Value::Tensor(
+                runmat_value::Tensor::new_integer(
+                    runmat_value::IntegerStorage::U64(vec![1, 2, 3]),
+                    vec![1, 3],
+                )
+                .unwrap(),
+            ),
+            Value::Tensor(
+                runmat_value::Tensor::new_integer(
+                    runmat_value::IntegerStorage::U64(vec![4, 6]),
+                    vec![1, 2],
+                )
+                .unwrap(),
+            ),
+        ])
+        .unwrap();
+        let payload = encode_inline_value(&value).unwrap();
+        assert_eq!(decode_inline_value(&payload).unwrap(), value);
+    }
+
+    #[test]
+    fn unregistered_value_classes_do_not_cross_execution_boundaries() {
+        let object = Value::Object(runmat_value::ObjectInstance::new(
+            "project.LocalClass".to_owned(),
+        ));
+        let error = encode_inline_value(&object).unwrap_err();
+        assert!(matches!(
+            error,
+            ValueCodecError::Unsupported { ref path, rule }
+                if path == "$" && rule.contains("registered codec")
+        ));
+    }
+
+    #[test]
     fn live_foreign_references_require_a_manifest_adapter() {
-        let reference = ForeignRef {
-            host_identity: "host-a".into(),
-            handle: 17,
-            generation: 2,
-            type_identity: ForeignTypeIdentity {
+        let reference = ForeignRef::detached(
+            ForeignResourceKey {
+                host_identity: "host-a".into(),
+                handle: 17,
+                generation: 2,
+            },
+            ForeignTypeIdentity {
                 family: "java".into(),
                 name: "java.lang.Object".into(),
                 version: 1,
             },
-            ownership: ForeignOwnership::Shared,
-            affinity: ForeignAffinity::OriginProcess,
-            lifetime: ForeignLifetime::Session,
-        };
+            ForeignOwnership::Shared,
+            ForeignAffinity::OriginProcess,
+            ForeignLifetime::Session,
+        );
         let error = encode_inline_value(&Value::Foreign(reference)).unwrap_err();
         assert!(matches!(
             error,

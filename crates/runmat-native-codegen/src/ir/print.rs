@@ -20,10 +20,11 @@ pub fn print_native_ir(assembly: &NativeAssembly) -> String {
     for function in &assembly.functions {
         let _ = writeln!(
             output,
-            "function f{} {} source={} locals={} entry=b{}",
+            "function f{} {} source={} capabilities={:?} locals={} entry=b{}",
             function.id.0,
             function.name,
             function.source.0,
+            function.capabilities,
             function.local_count(),
             function.entry.0
         );
@@ -43,13 +44,6 @@ pub fn print_native_ir(assembly: &NativeAssembly) -> String {
                 validation.class_name,
                 validation.validators,
                 validation.default_value
-            );
-        }
-        for expression in &function.index_expressions {
-            let _ = writeln!(
-                output,
-                "  index-expression l{} {:?}",
-                expression.local.0, expression.kind
             );
         }
         for block in &function.blocks {

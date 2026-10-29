@@ -32,6 +32,24 @@ impl ExecutableUnit {
         &self,
         preferred_function: Option<&str>,
     ) -> Result<runmat_execution::ExecutableUnitEnvelope, String> {
+        self.portable_envelope_for_with_interop(
+            preferred_function,
+            runmat_types::InteropManifest::empty(),
+        )
+    }
+
+    /// Build a complete product with an explicit foreign-interoperability
+    /// contract. Package and adapter composition use this entrypoint once
+    /// foreign requirements have been resolved; ordinary source compilation
+    /// records the deterministic empty contract.
+    pub fn portable_envelope_for_with_interop(
+        &self,
+        preferred_function: Option<&str>,
+        interop: runmat_types::InteropManifest,
+    ) -> Result<runmat_execution::ExecutableUnitEnvelope, String> {
+        let interop =
+            runmat_types::InteropManifest::merge([self.inferred_interop_manifest(), interop])
+                .map_err(|error| format!("{}: {}", error.path, error.message))?;
         let payloads = self.component_payloads()?;
         let revisions = self.component_revisions()?;
         let components = payloads
@@ -81,13 +99,23 @@ impl ExecutableUnit {
         let entrypoint_function = u32::try_from(entrypoint_function.0)
             .map(runmat_types::ProgramFunctionId)
             .map_err(|_| "entrypoint identity exceeds the portable schema".to_string())?;
-        let capabilities = runmat_types::CapabilitySet(
+        let mut capabilities = runmat_types::CapabilitySet(
             self.analysis()
                 .functions
                 .iter()
                 .flat_map(|function| function.capabilities.0.iter().copied())
                 .collect(),
         );
+        for adapter in &interop.adapters {
+            capabilities
+                .0
+                .extend(adapter.capabilities.0.iter().copied());
+        }
+        if !interop.foreign_types.is_empty() || !interop.adapters.is_empty() {
+            capabilities
+                .0
+                .insert(runmat_types::CapabilityRequirement::ForeignRuntime);
+        }
         let manifest = runmat_execution::ExecutableUnitManifest {
             schema_version: runmat_execution::EXECUTABLE_UNIT_SCHEMA_VERSION,
             identity: runmat_execution::ExecutableIdentity {
@@ -111,12 +139,43 @@ impl ExecutableUnit {
                 .iter()
                 .map(|region| region.contract.clone())
                 .collect(),
-            interop: runmat_types::InteropManifest::empty(),
-            parallel: runmat_types::ParallelManifest::empty(),
+            interop,
+            parallel: self.analysis().parallel.clone(),
             optional_sections: Vec::new(),
         };
         runmat_execution::ExecutableUnitEnvelope::new(manifest, payloads)
             .map_err(|error| error.to_string())
+    }
+
+    fn inferred_interop_manifest(&self) -> runmat_types::InteropManifest {
+        if !self.requires_python_runtime() {
+            return runmat_types::InteropManifest::empty();
+        }
+        runmat_types::InteropManifest {
+            schema_version: runmat_types::INTEROP_MANIFEST_SCHEMA_VERSION,
+            foreign_types: vec![runmat_types::ForeignRequirement {
+                type_identity: runmat_types::ForeignTypeIdentity {
+                    family: "python".into(),
+                    name: "environment".into(),
+                    version: 1,
+                },
+                ownership: runmat_types::ForeignOwnership::Shared,
+                affinity: runmat_types::ForeignAffinity::OriginProcess,
+                lifetime: runmat_types::ForeignLifetime::Session,
+                capabilities: vec![runmat_types::ForeignCapability::Invoke],
+                wasm: runmat_types::WasmInteropPolicy::Reject,
+            }],
+            adapters: vec![runmat_types::ForeignAdapterRequirement {
+                adapter: runmat_types::ForeignAdapterId::new("python").unwrap(),
+                minimum_version: 1,
+                capabilities: runmat_types::CapabilitySet(std::collections::BTreeSet::from([
+                    runmat_types::CapabilityRequirement::ForeignRuntime,
+                ])),
+                execution_stack: runmat_types::ExecutionStackRequirement::Process,
+                artifact_identities: Vec::new(),
+            }],
+            adapter_contracts: Vec::new(),
+        }
     }
 
     fn component_revisions(

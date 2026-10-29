@@ -818,7 +818,9 @@ fn convert_value(value: Value) -> LocalBoxFuture<'static, BuiltinResult<MatArray
             Value::LogicalArray(la) => Ok(MatArray {
                 class: MatClass::Logical,
                 dims: canonical_dims(&la.shape),
-                data: MatData::Logical { data: la.data },
+                data: MatData::Logical {
+                    data: la.data.into_vec(),
+                },
             }),
             Value::SparseTensor(sparse) => {
                 let logical = sparse.is_logical();
@@ -842,8 +844,8 @@ fn convert_value(value: Value) -> LocalBoxFuture<'static, BuiltinResult<MatArray
                     data: MatData::Sparse {
                         rows: sparse.rows,
                         cols: sparse.cols,
-                        col_ptrs: sparse.col_ptrs,
-                        row_indices: sparse.row_indices,
+                        col_ptrs: sparse.col_ptrs.into_vec(),
+                        row_indices: sparse.row_indices.into_vec(),
                         values,
                         logical,
                     },
@@ -896,8 +898,7 @@ fn convert_value(value: Value) -> LocalBoxFuture<'static, BuiltinResult<MatArray
                 })
             }
             Value::Struct(struct_value) => {
-                let mut field_names: Vec<String> = struct_value.fields.keys().cloned().collect();
-                field_names.sort();
+                let field_names: Vec<String> = struct_value.fields.keys().cloned().collect();
                 let mut field_values = Vec::with_capacity(field_names.len());
                 for field in &field_names {
                     let val = struct_value.fields.get(field).ok_or_else(|| {
@@ -912,6 +913,36 @@ fn convert_value(value: Value) -> LocalBoxFuture<'static, BuiltinResult<MatArray
                 Ok(MatArray {
                     class: MatClass::Struct,
                     dims: vec![1, 1],
+                    data: MatData::Struct {
+                        field_names,
+                        field_values,
+                    },
+                })
+            }
+            Value::StructArray(array) => {
+                let field_names = array.field_names().cloned().collect::<Vec<_>>();
+                let capacity = array.len().checked_mul(field_names.len()).ok_or_else(|| {
+                    save_error_with(
+                        &SAVE_ERROR_SELECTION,
+                        "save: structure array exceeds platform limits",
+                    )
+                })?;
+                let mut field_values = Vec::with_capacity(capacity);
+                for field in &field_names {
+                    let column = array.field_values(field).ok_or_else(|| {
+                        save_error_with(
+                            &SAVE_ERROR_SELECTION,
+                            format!("save: missing struct field '{field}'"),
+                        )
+                    })?;
+                    for value in column {
+                        field_values
+                            .push(convert_value(gather_if_needed_async(value).await?).await?);
+                    }
+                }
+                Ok(MatArray {
+                    class: MatClass::Struct,
+                    dims: canonical_dims(array.shape()),
                     data: MatData::Struct {
                         field_names,
                         field_values,
@@ -1126,12 +1157,6 @@ fn build_matrix_bytes(array: &MatArray, name: Option<&str>) -> BuiltinResult<Vec
             field_names,
             field_values,
         } => {
-            if array.dims != [1, 1] {
-                return Err(save_error_with(
-                    &SAVE_ERROR_UNSUPPORTED,
-                    "save: struct arrays are not supported",
-                ));
-            }
             let max_len = field_names
                 .iter()
                 .map(|n| n.len())

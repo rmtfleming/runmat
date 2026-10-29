@@ -51,6 +51,27 @@ fn execute_source_result_with_extensions(
     execute_source_result(source)
 }
 
+fn is_expand_all_cell_contents(
+    spec: &runmat_runtime::call::arguments::ArgumentSpec,
+    expected_num_indices: usize,
+) -> bool {
+    use runmat_runtime::call::arguments::{ArgumentExpansionSpec, ArgumentSpec};
+
+    match spec {
+        ArgumentSpec::Expansion(ArgumentExpansionSpec::CellContents {
+            num_indices,
+            expand_all,
+        }) => *expand_all && *num_indices == expected_num_indices,
+        ArgumentSpec::Single
+        | ArgumentSpec::CapturedSequence { .. }
+        | ArgumentSpec::Expansion(
+            ArgumentExpansionSpec::ReturnedOutputs
+            | ArgumentExpansionSpec::Member(_)
+            | ArgumentExpansionSpec::DynamicMember,
+        ) => false,
+    }
+}
+
 fn has_num(values: &[runmat_value::Value], expected: f64) -> bool {
     values
         .iter()
@@ -62,6 +83,7 @@ fn numeric_workspace_value(values: &[runmat_value::Value], expected: f64) -> boo
 }
 
 fn has_object_class(values: &[runmat_value::Value], class_name: &str) -> bool {
+    let class_name = runmat_types::ClassIdentity::new(class_name).expect("test class identity");
     values.iter().any(|v| match v {
         runmat_value::Value::Object(obj) => obj.class_name == class_name,
         runmat_value::Value::HandleObject(obj) => obj.class_name == class_name,
@@ -70,9 +92,10 @@ fn has_object_class(values: &[runmat_value::Value], class_name: &str) -> bool {
 }
 
 fn has_class_ref(values: &[runmat_value::Value], class_name: &str) -> bool {
+    let class_name = runmat_types::ClassIdentity::new(class_name).expect("test class identity");
     values
         .iter()
-        .any(|v| matches!(v, runmat_value::Value::ClassRef(name) if name == class_name))
+        .any(|v| matches!(v, runmat_value::Value::ClassRef(name) if name == &class_name))
 }
 
 fn has_numeric_tensor(values: &[runmat_value::Value], expected: &[f64]) -> bool {
@@ -124,6 +147,7 @@ fn has_object_num_property(
     property_name: &str,
     expected: f64,
 ) -> bool {
+    let class_name = runmat_types::ClassIdentity::new(class_name).expect("test class identity");
     values.iter().any(|v| match v {
         runmat_value::Value::Object(obj) if obj.class_name == class_name => {
             matches!(
@@ -141,6 +165,7 @@ fn has_object_string_property(
     property_name: &str,
     expected: &str,
 ) -> bool {
+    let class_name = runmat_types::ClassIdentity::new(class_name).expect("test class identity");
     values.iter().any(|v| match v {
         runmat_value::Value::Object(obj) if obj.class_name == class_name => {
             matches!(
@@ -719,7 +744,7 @@ fn unresolved_qualified_external_handle_expand_zero_output_feval_uses_typed_inst
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded zero-output feval should fail");
@@ -742,7 +767,7 @@ fn unresolved_qualified_external_handle_expand_feval_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode).expect_err("unresolved qualified expanded feval should fail");
     assert_eq!(
@@ -764,7 +789,7 @@ fn unresolved_qualified_external_handle_expand_multi_output_feval_uses_typed_ins
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded multi-output feval should fail");
@@ -849,7 +874,7 @@ fn unresolved_nested_qualified_external_handle_expand_zero_output_feval_uses_typ
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode).expect_err(
         "unresolved nested qualified expanded zero-output feval handle call should fail",
@@ -873,7 +898,7 @@ fn unresolved_nested_qualified_external_handle_expand_single_output_feval_uses_t
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode).expect_err(
         "unresolved nested qualified expanded single-output feval handle call should fail",
@@ -897,7 +922,7 @@ fn unresolved_nested_qualified_external_handle_expand_feval_uses_typed_instructi
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved nested qualified expanded feval handle call should fail");
@@ -986,7 +1011,7 @@ fn unresolved_qualified_external_handle_expand_zero_output_direct_call_uses_type
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded zero-output direct handle call should fail");
@@ -1009,7 +1034,7 @@ fn unresolved_qualified_external_handle_expand_direct_call_uses_typed_instructio
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded direct handle call should fail");
@@ -1032,7 +1057,7 @@ fn unresolved_qualified_external_handle_expand_multi_output_direct_call_uses_typ
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded multi-output direct handle call should fail");
@@ -1125,7 +1150,7 @@ fn unresolved_nested_qualified_external_handle_expand_zero_output_direct_call_us
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode).expect_err(
         "unresolved nested qualified external handle expanded zero-output direct call should fail",
@@ -1149,7 +1174,7 @@ fn unresolved_nested_qualified_external_handle_expand_direct_call_uses_typed_ins
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved nested qualified external handle expanded direct call should fail");
@@ -1173,7 +1198,7 @@ fn unresolved_nested_qualified_external_handle_expand_multi_output_direct_call_u
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode).expect_err(
         "unresolved nested qualified external handle expanded multi-output direct call should fail",
@@ -1307,8 +1332,7 @@ fn unresolved_qualified_direct_call_expand_zero_output_uses_external_boundary_ty
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::ExternalBoundary
             && *out_count == 0
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded zero-output direct call should fail");
@@ -1340,8 +1364,7 @@ fn unresolved_qualified_direct_call_expand_multi_output_uses_external_boundary_t
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::ExternalBoundary
             && *out_count == 2
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved qualified expanded multi-output direct call should fail");
@@ -1468,8 +1491,7 @@ fn unresolved_nested_qualified_direct_call_expand_zero_output_uses_external_boun
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::ExternalBoundary
             && *out_count == 0
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved nested qualified expanded zero-output direct call should fail");
@@ -1503,8 +1525,7 @@ fn unresolved_nested_qualified_direct_call_expand_single_output_uses_external_bo
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::ExternalBoundary
             && *out_count == 1
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved nested qualified expanded single-output direct call should fail");
@@ -1538,8 +1559,7 @@ fn unresolved_nested_qualified_direct_call_expand_multi_output_uses_external_bou
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::ExternalBoundary
             && *out_count == 2
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let err = interpret(&bytecode)
         .expect_err("unresolved nested qualified expanded multi-output direct call should fail");
@@ -2666,7 +2686,7 @@ fn feval_expand_multi_assign_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let vars = interpret(&bytecode).expect("execute semantic feval expanded multi-assign");
@@ -2690,7 +2710,7 @@ fn feval_expand_zero_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     interpret(&bytecode).expect("execute semantic feval expanded zero-output");
 }
@@ -2710,7 +2730,7 @@ fn feval_expand_single_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
     let vars = interpret(&bytecode).expect("execute semantic feval expanded single-output");
     assert!(vars
@@ -2998,10 +3018,7 @@ fn indexed_member_vector_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed member vector assignment should lower through StoreSlice*"
     );
@@ -3025,10 +3042,7 @@ fn indexed_member_logical_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed member logical assignment should lower through StoreSlice*"
     );
@@ -3052,10 +3066,7 @@ fn indexed_base_member_vector_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed-base member vector assignment should lower through StoreSlice*"
     );
@@ -3072,10 +3083,7 @@ fn indexed_base_member_logical_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed-base member logical assignment should lower through StoreSlice*"
     );
@@ -3092,10 +3100,7 @@ fn indexed_dynamic_member_vector_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed dynamic-member vector assignment should lower through StoreSlice*"
     );
@@ -3120,10 +3125,7 @@ fn indexed_dynamic_member_logical_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed dynamic-member logical assignment should lower through StoreSlice*"
     );
@@ -3205,10 +3207,7 @@ fn indexed_cell_member_vector_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed cell-member vector assignment should lower through StoreSlice*"
     );
@@ -3233,10 +3232,7 @@ fn indexed_cell_member_logical_store_back_lowers_to_slice_instruction() {
     assert!(
         bytecode.instructions.iter().any(|instr| matches!(
             instr,
-            runmat_vm::Instr::StoreSlice(..)
-                | runmat_vm::Instr::StoreSliceDelete(..)
-                | runmat_vm::Instr::StoreSliceExpr { .. }
-                | runmat_vm::Instr::StoreSliceExprDelete { .. }
+            runmat_vm::Instr::StoreSlice(..) | runmat_vm::Instr::StoreSliceDelete(..)
         )),
         "indexed cell-member logical assignment should lower through StoreSlice*"
     );
@@ -3475,7 +3471,7 @@ fn function_handle_expand_single_output_executes() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let vars = interpret(&bytecode).expect("execute semantic handle expanded single-output");
@@ -3493,7 +3489,7 @@ fn function_handle_expand_zero_output_executes() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     interpret(&bytecode).expect("execute semantic handle expanded zero-output");
@@ -3511,7 +3507,7 @@ fn function_handle_expand_multi_output_executes() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let vars = interpret(&bytecode).expect("execute semantic handle expanded multi-output");
@@ -3603,7 +3599,7 @@ fn unresolved_external_function_handle_expand_index_call_errors_with_identifier(
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let err = interpret(&bytecode)
@@ -3628,7 +3624,7 @@ fn unresolved_external_function_handle_expand_index_zero_output_errors_with_iden
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 0 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 0 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let err = interpret(&bytecode)
@@ -3653,7 +3649,7 @@ fn unresolved_external_function_handle_expand_index_multi_output_errors_with_ide
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallFevalExpandMultiOutput(specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let err = interpret(&bytecode)
@@ -4205,17 +4201,12 @@ fn subsasgn_missing_protocol_errors_with_identifier_contract() {
 }
 
 #[test]
-fn object_paren_index_missing_subsref_errors_with_identifier_contract() {
-    let err = execute_source_result_with_extensions(
-        "__register_test_classes(); p = new_object('Point'); p(1);",
+fn object_paren_index_uses_default_scalar_array_semantics_without_subsref() {
+    let values = execute_source_result_with_extensions(
+        "__register_test_classes(); p = new_object('Point'); q = p(1);",
     )
-    .expect_err("object paren indexing without subsref should fail");
-    assert_eq!(
-        err.identifier(),
-        Some("RunMat:MissingSubsref"),
-        "unexpected error: {}",
-        err.message()
-    );
+    .expect("ordinary object indexing does not require a subsref overload");
+    assert!(has_object_class(&values, "Point"));
 }
 
 #[test]
@@ -4231,16 +4222,12 @@ fn feval_unsupported_callable_value_errors_with_identifier_contract() {
 }
 
 #[test]
-fn object_paren_assign_missing_subsasgn_errors_with_identifier_contract() {
-    let err =
-        execute_source_result("__register_test_classes(); p = new_object('Point'); p(1) = 2;")
-            .expect_err("object paren assignment without subsasgn should fail");
-    assert_eq!(
-        err.identifier(),
-        Some("RunMat:MissingSubsasgn"),
-        "unexpected error: {}",
-        err.message()
-    );
+fn object_paren_assign_uses_default_homogeneous_array_semantics_without_subsasgn() {
+    let values = execute_source_result(
+        "__register_test_classes(); p = new_object('Point'); q = new_object('Point'); p(2) = q; n = numel(p);",
+    )
+    .expect("ordinary object assignment does not require a subsasgn overload");
+    assert!(has_num(&values, 2.0));
 }
 
 #[test]
@@ -4908,7 +4895,7 @@ fn method_expand_multi_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallMethodOrMemberIndexExpandMultiOutput { specs, out_count, .. }
-            if *out_count == 3 && specs.len() == 2 && specs[1].is_expand && specs[1].expand_all
+            if *out_count == 3 && specs.len() == 2 && is_expand_all_cell_contents(&specs[1], 0)
     )));
 
     let vars = interpret(&bytecode).expect("execute method expand multi-output");
@@ -4948,7 +4935,7 @@ fn builtin_expand_multi_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallBuiltinExpandMultiOutput(name, specs, out_count)
-            if name == "deal" && *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if name == "deal" && *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let vars = interpret(&bytecode).expect("execute builtin expand multi-output");
@@ -4964,7 +4951,7 @@ fn builtin_expand_single_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallBuiltinExpandMultiOutput(name, specs, out_count)
-            if name == "max" && *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if name == "max" && *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 }
 
@@ -4975,7 +4962,7 @@ fn expand_single_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallSemanticFunctionExpandMultiOutput(_, specs, out_count)
-            if *out_count == 1 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 1 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 }
 
@@ -4987,7 +4974,7 @@ fn expand_multi_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallSemanticFunctionExpandMultiOutput(_, specs, out_count)
-            if *out_count == 2 && specs.len() == 1 && specs[0].is_expand && specs[0].expand_all
+            if *out_count == 2 && specs.len() == 1 && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let vars = interpret(&bytecode).expect("execute semantic expand multi-output");
@@ -5004,7 +4991,7 @@ fn method_expand_single_output_uses_typed_instruction() {
     assert!(bytecode.instructions.iter().any(|instr| matches!(
         instr,
         runmat_vm::Instr::CallMethodOrMemberIndexExpandMultiOutput { specs, out_count, .. }
-            if *out_count == 1 && specs.len() == 2 && specs[1].is_expand && specs[1].expand_all
+            if *out_count == 1 && specs.len() == 2 && is_expand_all_cell_contents(&specs[1], 0)
     )));
     interpret(&bytecode).expect("execute valid method expand single-output fallback");
 }
@@ -5154,8 +5141,7 @@ fn unresolved_function_expand_single_output_uses_typed_instruction() {
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::RuntimeNameResolution
             && *out_count == 1
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let err = interpret(&bytecode).expect_err("unresolved expanded call should fail");
@@ -5178,8 +5164,7 @@ fn unresolved_function_expand_zero_output_uses_typed_instruction_and_errors() {
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::RuntimeNameResolution
             && *out_count == 0
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let err = interpret(&bytecode).expect_err("unresolved expanded zero-output call should fail");
@@ -5202,8 +5187,7 @@ fn unresolved_function_expand_multi_output_uses_typed_instruction_and_errors() {
             && *fallback_policy == runmat_hir::CallableFallbackPolicy::RuntimeNameResolution
             && *out_count == 2
             && specs.len() == 1
-            && specs[0].is_expand
-            && specs[0].expand_all
+            && is_expand_all_cell_contents(&specs[0], 0)
     )));
 
     let err = interpret(&bytecode).expect_err("unresolved expanded multi-output call should fail");
@@ -5920,7 +5904,8 @@ fn oop_negative_undefined_property_and_missing_subsref() {
             .any(|v| matches!(v, runmat_value::Value::Num(n) if (*n-1.0).abs()<1e-9)));
     }
 
-    // Class without subsref should error on () indexing
+    // Default object-array indexing still enforces scalar bounds when no
+    // class-defined subsref overload exists.
     let prog2 = r#"
         classdef NoRef
             properties
@@ -5929,7 +5914,7 @@ fn oop_negative_undefined_property_and_missing_subsref() {
         end
         o = new_object('NoRef');
         try
-            x = o(1);
+            x = o(2);
         catch e
             ok=2;
         end

@@ -11,6 +11,7 @@ mod execution;
 mod fusion;
 #[cfg(not(target_arch = "wasm32"))]
 mod generic_native;
+mod parallel_runtime;
 mod profiling;
 mod session;
 mod source_pool;
@@ -46,7 +47,7 @@ pub fn execute_text_request_for_testing(
 ) -> Result<SessionExecutionResult, RunError> {
     let request = abi::ExecutionRequest::for_source(
         abi::SourceInput::Text {
-            name: "<test>".to_string(),
+            name: "<test>".into(),
             text: source_text.to_string(),
         },
         session.compat_mode(),

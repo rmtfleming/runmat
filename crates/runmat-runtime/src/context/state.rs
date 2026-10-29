@@ -19,6 +19,7 @@ use crate::source_context::SourceInfo;
 /// complete state; new code uses the focused accessors on [`RuntimeContext`].
 #[derive(Debug)]
 pub struct RuntimeContextState {
+    pub(crate) local_identity: super::RuntimeContextLocalId,
     pub(crate) source: RefCell<SourceState>,
     pub(crate) call: RefCell<CallState>,
     pub(crate) output: RefCell<OutputState>,
@@ -26,6 +27,7 @@ pub struct RuntimeContextState {
     pub(crate) workspace: RefCell<Option<crate::workspace::WorkspaceResolver>>,
     pub(crate) session_variables: RefCell<crate::workspace::session::SessionVariableState>,
     pub(crate) warnings: RefCell<Vec<crate::warning_store::RuntimeWarning>>,
+    pub(crate) warning_policy: RefCell<crate::warnings::WarningPolicy>,
     pub(crate) console: RefCell<crate::console::ConsoleState>,
     pub(crate) classes: RefCell<crate::class_registry::RuntimeClassState>,
     pub(crate) interaction: RefCell<crate::interaction::InteractionState>,
@@ -37,14 +39,22 @@ pub struct RuntimeContextState {
     pub(crate) language_mode: Cell<super::RuntimeLanguageMode>,
     pub(crate) top_level_await_enabled: Cell<bool>,
     pub(crate) dynamic_eval_enabled: Cell<bool>,
+    pub(crate) execution_stack: Cell<super::RuntimeExecutionStack>,
+    pub(crate) execution_assignment: RefCell<Option<runmat_execution::ProgramExecutionAssignment>>,
+    pub(crate) execution_job: RefCell<Option<runmat_execution::JobId>>,
     pub(crate) callstack_limit: Cell<usize>,
     pub(crate) error_namespace: RefCell<String>,
     pub(crate) cancellation: RefCell<Arc<AtomicBool>>,
+    pub(crate) random: RefCell<crate::builtins::common::random::RuntimeRng>,
 }
 
 impl RuntimeContextState {
-    pub fn new(cancellation: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        local_identity: super::RuntimeContextLocalId,
+        cancellation: Arc<AtomicBool>,
+    ) -> Self {
         Self {
+            local_identity,
             source: RefCell::new(SourceState::default()),
             call: RefCell::new(CallState::default()),
             output: RefCell::new(OutputState::default()),
@@ -54,6 +64,7 @@ impl RuntimeContextState {
                 crate::workspace::session::SessionVariableState::default(),
             ),
             warnings: RefCell::new(Vec::new()),
+            warning_policy: RefCell::new(crate::warnings::WarningPolicy::default()),
             console: RefCell::new(crate::console::ConsoleState::default()),
             classes: RefCell::new(crate::class_registry::RuntimeClassState::default()),
             interaction: RefCell::new(crate::interaction::InteractionState::default()),
@@ -65,9 +76,13 @@ impl RuntimeContextState {
             language_mode: Cell::new(super::RuntimeLanguageMode::Matlab),
             top_level_await_enabled: Cell::new(true),
             dynamic_eval_enabled: Cell::new(true),
+            execution_stack: Cell::new(super::RuntimeExecutionStack::Process),
+            execution_assignment: RefCell::new(None),
+            execution_job: RefCell::new(None),
             callstack_limit: Cell::new(super::DEFAULT_CALLSTACK_LIMIT),
             error_namespace: RefCell::new(super::DEFAULT_ERROR_NAMESPACE.to_string()),
             cancellation: RefCell::new(cancellation),
+            random: RefCell::new(crate::builtins::common::random::RuntimeRng::new()),
         }
     }
 
@@ -76,13 +91,13 @@ impl RuntimeContextState {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct SourceState {
     pub current: Option<SourceInfo>,
     pub catalog: HashMap<SourceId, SourceInfo>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct CallState {
     pub callsites: Vec<CallsiteInfo>,
     pub function_input_callsites: Vec<CallsiteInfo>,
@@ -90,10 +105,11 @@ pub(crate) struct CallState {
     pub external_invoker: Option<std::rc::Rc<crate::user_functions::ExternalFunctionInvoker>>,
     pub lexical_invoker: Option<std::rc::Rc<crate::user_functions::LexicalFunctionInvoker>>,
     pub semantic_resolver: Option<std::sync::Arc<crate::user_functions::FunctionResolver>>,
-    pub dynamic_loader: Option<std::sync::Arc<crate::user_functions::DynamicFunctionLoader>>,
+    pub dynamic_loader: Option<std::rc::Rc<crate::user_functions::DynamicFunctionLoader>>,
+    pub dynamic_clearer: Option<std::rc::Rc<crate::user_functions::DynamicFunctionClearer>>,
     pub source_functions: Option<std::sync::Arc<Vec<crate::user_functions::SourceFunctionInfo>>>,
     pub active_functions: Vec<usize>,
-    pub class_access: Option<String>,
+    pub class_access: Option<runmat_types::ClassIdentity>,
 }
 
 impl std::fmt::Debug for CallState {
@@ -110,6 +126,7 @@ impl std::fmt::Debug for CallState {
             .field("lexical_invoker", &self.lexical_invoker.is_some())
             .field("semantic_resolver", &self.semantic_resolver.is_some())
             .field("dynamic_loader", &self.dynamic_loader.is_some())
+            .field("dynamic_clearer", &self.dynamic_clearer.is_some())
             .field(
                 "source_functions",
                 &self.source_functions.as_ref().map(|catalog| catalog.len()),

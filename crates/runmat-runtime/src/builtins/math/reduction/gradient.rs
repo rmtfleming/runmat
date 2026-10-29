@@ -396,7 +396,7 @@ fn value_is_integer_or_logical(value: &Value) -> bool {
 }
 
 fn ensure_exact_integer_boundary(value: &Value, role: &str) -> BuiltinResult<()> {
-    let exact = crate::builtins::math::trigonometry::cos::integer_is_exact_f64;
+    let exact = crate::builtins::common::validation::integer_is_exact_f64;
     let valid = match value {
         Value::Int(value) => exact(value),
         Value::Tensor(tensor) => tensor
@@ -666,7 +666,7 @@ fn restore_gradient_outputs_if_supported(
         let protected = std::iter::once(prototype.clone())
             .chain(restored.iter().filter_map(gradient_output_handle).cloned())
             .collect::<Vec<_>>();
-        match crate::builtins::math::trigonometry::inverse_helpers::upload_value_protected(
+        match crate::builtins::common::provider_restore::upload_value_protected(
             provider, output, NAME, &protected,
         ) {
             Ok(output) => {

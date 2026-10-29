@@ -25,7 +25,8 @@ use crate::{build_runtime_error, gather_if_needed_async, BuiltinResult, RuntimeE
 
 const FITLM_NAME: &str = "fitlm";
 const PREDICT_NAME: &str = "predict";
-const LINEAR_MODEL_CLASS: &str = "LinearModel";
+const LINEAR_MODEL_CLASS: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new("LinearModel");
 const EPS: f64 = 1.0e-12;
 
 const OUTPUT_MDL: [BuiltinParamDescriptor; 1] = [BuiltinParamDescriptor {
@@ -1834,7 +1835,7 @@ fn ensure_exact_fitlm_integer_tensor_boundary(tensor: &Tensor, role: &str) -> Bu
         return Ok(());
     };
     for integer in storage.exact_values() {
-        if !crate::builtins::math::trigonometry::cos::integer_is_exact_f64(&integer) {
+        if !crate::builtins::common::validation::integer_is_exact_f64(&integer) {
             return Err(fitlm_invalid(format!(
                 "fitlm: integer {role} values must be exactly representable as double"
             )));
@@ -1850,7 +1851,7 @@ fn ensure_exact_fitlm_integer_scalar_boundary(
     let Some(integer) = value.into_int_value() else {
         return Ok(());
     };
-    if !crate::builtins::math::trigonometry::cos::integer_is_exact_f64(&integer) {
+    if !crate::builtins::common::validation::integer_is_exact_f64(&integer) {
         return Err(fitlm_invalid(format!(
             "fitlm: integer {role} values must be exactly representable as double"
         )));

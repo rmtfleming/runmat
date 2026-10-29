@@ -352,6 +352,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "lsqnonlin",
+    execution_stack = "process",
     category = "math/optim",
     summary = "Solve nonlinear least-squares residual problems.",
     keywords = "lsqnonlin,least squares,optimization,levenberg-marquardt,bounds,residual,jacobian",
@@ -967,7 +968,7 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected x tensor, got {other:?}"),
                 };
-                Box::pin(async move {
+                crate::sequence::single_value_future(async move {
                     Ok(tensor(
                         vec![x[0] - 2.0, x[1] - 3.0, x[0] + x[1] - 5.0],
                         vec![3, 1],
@@ -977,7 +978,7 @@ mod tests {
         )));
         let result = block_on(lsqnonlin_builtin(
             Value::BoundFunctionHandle {
-                name: "residual".to_string(),
+                name: "residual".into(),
                 function: 1,
             },
             vec![tensor(vec![0.0, 0.0], vec![2, 1])],
@@ -1001,13 +1002,15 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected scalar x, got {other:?}"),
                 };
-                Box::pin(async move { Ok(tensor(vec![x - 2.0, x - 2.0], vec![1, 2])) })
+                crate::sequence::single_value_future(async move {
+                    Ok(tensor(vec![x - 2.0, x - 2.0], vec![1, 2]))
+                })
             },
         )));
         let empty = Value::Tensor(Tensor::zeros(vec![0, 0]));
         let result = block_on(lsqnonlin_builtin(
             Value::BoundFunctionHandle {
-                name: "bounded".to_string(),
+                name: "bounded".into(),
                 function: 2,
             },
             vec![
@@ -1036,13 +1039,13 @@ mod tests {
                     Value::Num(value) => *value,
                     other => panic!("expected scalar x, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(x - 3.0)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(x - 3.0)) })
             },
         )));
         let empty = Value::Tensor(Tensor::zeros(vec![0, 0]));
         let result = block_on(lsqnonlin_builtin(
             Value::BoundFunctionHandle {
-                name: "empty_options".to_string(),
+                name: "empty_options".into(),
                 function: 22,
             },
             vec![Value::Num(0.0), empty.clone(), empty.clone(), empty],
@@ -1062,13 +1065,15 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected x tensor, got {other:?}"),
                 };
-                Box::pin(async move { Ok(tensor(vec![x[0] - 2.0, x[1] - 5.0], vec![2, 1])) })
+                crate::sequence::single_value_future(async move {
+                    Ok(tensor(vec![x[0] - 2.0, x[1] - 5.0], vec![2, 1]))
+                })
             },
         )));
         let empty = Value::Tensor(Tensor::zeros(vec![0, 0]));
         let result = block_on(lsqnonlin_builtin(
             Value::BoundFunctionHandle {
-                name: "partial_bounds".to_string(),
+                name: "partial_bounds".into(),
                 function: 23,
             },
             vec![tensor(vec![0.0, 0.0], vec![2, 1]), empty, Value::Num(1.0)],
@@ -1093,14 +1098,16 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected x tensor, got {other:?}"),
                 };
-                Box::pin(async move { Ok(tensor(vec![x[0] - 1.0, 2.0 * x[1] - 4.0], vec![1, 2])) })
+                crate::sequence::single_value_future(async move {
+                    Ok(tensor(vec![x[0] - 1.0, 2.0 * x[1] - 4.0], vec![1, 2]))
+                })
             },
         )));
         let mut options = StructValue::new();
         options.insert("Algorithm", Value::from("levenberg-marquardt"));
         let result = block_on(lsqnonlin_builtin(
             Value::BoundFunctionHandle {
-                name: "multi".to_string(),
+                name: "multi".into(),
                 function: 3,
             },
             vec![
@@ -1147,7 +1154,9 @@ mod tests {
                     Value::Tensor(t) => t.materialize_f64().clone(),
                     other => panic!("expected x tensor, got {other:?}"),
                 };
-                Box::pin(async move { Ok(tensor(vec![x[0] - 4.0, x[1] - 5.0], vec![2, 1])) })
+                crate::sequence::single_value_future(async move {
+                    Ok(tensor(vec![x[0] - 4.0, x[1] - 5.0], vec![2, 1]))
+                })
             },
         )));
         let mut problem = StructValue::new();
@@ -1155,7 +1164,7 @@ mod tests {
         problem.insert(
             "objective",
             Value::BoundFunctionHandle {
-                name: "problem".to_string(),
+                name: "problem".into(),
                 function: 4,
             },
         );

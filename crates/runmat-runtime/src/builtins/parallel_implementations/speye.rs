@@ -183,8 +183,14 @@ fn sparse_identity(rows: usize, cols: usize) -> BuiltinResult<SparseTensor> {
     for col in 0..cols {
         col_ptrs.push(diag.min(col + 1));
     }
-    SparseTensor::new(rows, cols, col_ptrs, (0..diag).collect(), vec![1.0; diag])
-        .map_err(|err| internal_error(err.to_string()))
+    SparseTensor::new(
+        rows,
+        cols,
+        col_ptrs,
+        (0..diag).collect::<Vec<usize>>(),
+        vec![1.0; diag],
+    )
+    .map_err(|err| internal_error(err.to_string()))
 }
 
 fn invalid_argument() -> RuntimeError {

@@ -762,6 +762,10 @@ pub fn value_shape_2d(value: &Value) -> (usize, usize) {
         Value::Cell(c) => (c.rows, c.cols),
         Value::CharArray(c) => (c.rows, c.cols),
         Value::StringArray(s) => (s.rows, s.cols),
+        Value::StructArray(array) => (
+            array.shape().first().copied().unwrap_or(0),
+            array.shape().get(1).copied().unwrap_or(1),
+        ),
         Value::GpuTensor(handle) => {
             let rows = handle.shape.first().copied().unwrap_or(1);
             let cols = handle.shape.get(1).copied().unwrap_or(1);
@@ -780,6 +784,7 @@ pub fn value_is_empty(value: &Value) -> bool {
         Value::StringArray(s) => s.data.is_empty(),
         Value::CharArray(c) => c.rows == 0 || c.cols == 0,
         Value::Cell(c) => c.data.is_empty(),
+        Value::StructArray(array) => array.is_empty(),
         Value::GpuTensor(handle) => handle.shape.contains(&0),
         _ => false,
     }
@@ -795,6 +800,11 @@ pub fn value_is_finite(value: &Value) -> bool {
             .iter()
             .all(|v| v.is_finite()),
         Value::SparseTensor(t) if t.integer_storage().is_some() => true,
+        Value::SparseTensor(t) if t.is_complex() => t
+            .materialize_complex_f64()
+            .expect("complex sparse storage")
+            .iter()
+            .all(|value| value.0.is_finite() && value.1.is_finite()),
         Value::SparseTensor(t) => t.materialize_f64().iter().all(|v| v.is_finite()),
         Value::ComplexTensor(t) if t.integer_storage().is_some() => true,
         Value::ComplexTensor(t) => t
@@ -890,6 +900,11 @@ pub fn value_is_real(value: &Value) -> bool {
             .iter()
             .all(IntValue::is_zero),
         Value::ComplexTensor(t) => t.materialize_f64().iter().all(|(_, im)| *im == 0.0),
+        Value::SparseTensor(t) if t.is_complex() => t
+            .materialize_complex_f64()
+            .expect("complex sparse storage")
+            .iter()
+            .all(|value| value.1 == 0.0),
         Value::GpuTensor(handle) => handle_storage(handle) == GpuTensorStorage::Real,
         Value::Num(_)
         | Value::Int(_)
@@ -920,6 +935,16 @@ pub fn value_is_integer(value: &Value) -> bool {
             .iter()
             .all(|v| v.is_finite() && v.fract() == 0.0),
         Value::SparseTensor(t) if t.integer_storage().is_some() => true,
+        Value::SparseTensor(t) if t.is_complex() => t
+            .materialize_complex_f64()
+            .expect("complex sparse storage")
+            .iter()
+            .all(|value| {
+                value.0.is_finite()
+                    && value.0.fract() == 0.0
+                    && value.1.is_finite()
+                    && value.1.fract() == 0.0
+            }),
         Value::SparseTensor(t) => t
             .materialize_f64()
             .iter()
@@ -945,6 +970,11 @@ pub fn value_is_non_nan(value: &Value) -> bool {
         Value::Tensor(t) if t.integer_storage().is_some() => true,
         Value::Tensor(t) => tensor::tensor_values_f64_cow(t).iter().all(|v| !v.is_nan()),
         Value::SparseTensor(t) if t.integer_storage().is_some() => true,
+        Value::SparseTensor(t) if t.is_complex() => t
+            .materialize_complex_f64()
+            .expect("complex sparse storage")
+            .iter()
+            .all(|value| !value.0.is_nan() && !value.1.is_nan()),
         Value::SparseTensor(t) => t.materialize_f64().iter().all(|v| !v.is_nan()),
         Value::ComplexTensor(t) if t.integer_storage().is_some() => true,
         Value::ComplexTensor(t) => t
@@ -1155,11 +1185,12 @@ pub fn validate_resident_metadata(value: &Value) -> BuiltinResult<()> {
     let integer = handle_integer_type(handle);
     let logical = handle_is_logical(handle);
     let precision = runmat_accelerate_api::handle_precision(handle);
-    let expected_class =
-        crate::builtins::common::gpu_helpers::expected_gpu_class_name(precision, integer, logical);
-    let class_valid = runmat_accelerate_api::handle_class_name(handle)
-        .as_deref()
-        .is_none_or(|class_name| Some(class_name) == expected_class);
+    let expected_class = crate::builtins::common::gpu_helpers::expected_gpu_class_identity(
+        precision, integer, logical,
+    );
+    let class_valid = runmat_accelerate_api::handle_class_identity(handle)
+        .as_ref()
+        .is_none_or(|class_identity| Some(class_identity) == expected_class.as_ref());
     let physical_valid = if integer.is_some() {
         storage == GpuTensorStorage::Real && precision.is_none() && !logical
     } else if logical {
@@ -1462,9 +1493,9 @@ fn logical_value_all_true(value: &Value) -> BuiltinResult<bool> {
 }
 
 fn ensure_same_numeric_class(builtin: &str, lhs: &Value, rhs: &Value) -> BuiltinResult<()> {
-    let lhs = numeric_class_name(lhs)
+    let lhs = numeric_class_identity(lhs)
         .ok_or_else(|| invalid_argument_error(builtin, "expected numeric input"))?;
-    let rhs = numeric_class_name(rhs)
+    let rhs = numeric_class_identity(rhs)
         .ok_or_else(|| invalid_argument_error(builtin, "expected numeric bound"))?;
     if lhs != rhs {
         return Err(invalid_argument_error(
@@ -1476,25 +1507,27 @@ fn ensure_same_numeric_class(builtin: &str, lhs: &Value, rhs: &Value) -> Builtin
     Ok(())
 }
 
-fn numeric_class_name(value: &Value) -> Option<String> {
+fn numeric_class_identity(value: &Value) -> Option<runmat_types::ClassIdentity> {
     match value {
-        Value::GpuTensor(handle) if handle_is_logical(handle) => Some("logical".into()),
+        Value::GpuTensor(handle) if handle_is_logical(handle) => {
+            Some(runmat_types::standard::LOGICAL.owned())
+        }
         Value::GpuTensor(handle) if handle_integer_type(handle).is_some() => {
-            crate::builtins::common::gpu_helpers::expected_gpu_class_name(
+            crate::builtins::common::gpu_helpers::expected_gpu_class_identity(
                 None,
                 handle_integer_type(handle),
                 false,
             )
-            .map(str::to_owned)
         }
-        Value::GpuTensor(handle) => crate::builtins::common::gpu_helpers::expected_gpu_class_name(
-            runmat_accelerate_api::handle_precision(handle),
-            None,
-            false,
-        )
-        .map(str::to_owned),
+        Value::GpuTensor(handle) => {
+            crate::builtins::common::gpu_helpers::expected_gpu_class_identity(
+                runmat_accelerate_api::handle_precision(handle),
+                None,
+                false,
+            )
+        }
         _ if value_is_numeric_or_logical(value) => {
-            Some(class_name_for_value(value).to_ascii_lowercase())
+            runmat_types::ClassIdentity::new(class_name_for_value(value)).ok()
         }
         _ => None,
     }
@@ -1507,6 +1540,7 @@ pub fn value_is_column(value: &Value) -> bool {
         Value::LogicalArray(value) => &value.shape,
         Value::StringArray(value) => &value.shape,
         Value::Cell(value) => &value.shape,
+        Value::StructArray(value) => value.shape(),
         Value::CharArray(value) => &value.shape,
         Value::GpuTensor(handle) => &handle.shape,
         _ => {
@@ -1537,6 +1571,7 @@ pub fn value_is_vector(value: &Value) -> Result<bool, RuntimeError> {
         Value::LogicalArray(value) => shape_is_vector(&value.shape),
         Value::StringArray(value) => shape_is_vector(&value.shape),
         Value::Cell(value) => shape_is_vector(&value.shape),
+        Value::StructArray(value) => shape_is_vector(value.shape()),
         Value::CharArray(value) => shape_is_vector(&value.shape),
         Value::GpuTensor(handle) => shape_is_vector(&handle.shape),
         Value::SparseTensor(value) => value.rows == 1 || value.cols == 1,
@@ -1568,7 +1603,7 @@ pub fn value_matches_class(value: &Value, class_name: &str) -> bool {
         "char" => matches!(value, Value::CharArray(_)),
         "string" => matches!(value, Value::String(_) | Value::StringArray(_)),
         "cell" => matches!(value, Value::Cell(_)),
-        "struct" => matches!(value, Value::Struct(_)),
+        "struct" => matches!(value, Value::Struct(_) | Value::StructArray(_)),
         "sparse" => matches!(value, Value::SparseTensor(_)),
         "double" => {
             matches!(value, Value::Num(_) | Value::Complex(_, _))
@@ -1642,8 +1677,31 @@ pub fn value_has_logical_class(value: &Value) -> bool {
         || matches!(value, Value::GpuTensor(handle) if handle_is_logical(handle))
 }
 
+/// Returns whether a fixed-width integer can cross a binary64 boundary
+/// without changing its value. Exactness depends on significant bits, so an
+/// aligned wide integer can be exact even when its magnitude exceeds
+/// `flintmax`.
+pub fn integer_is_exact_f64(value: &IntValue) -> bool {
+    let magnitude = match value {
+        IntValue::I8(value) => u64::from(value.unsigned_abs()),
+        IntValue::I16(value) => u64::from(value.unsigned_abs()),
+        IntValue::I32(value) => u64::from(value.unsigned_abs()),
+        IntValue::I64(value) => value.unsigned_abs(),
+        IntValue::U8(value) => u64::from(*value),
+        IntValue::U16(value) => u64::from(*value),
+        IntValue::U32(value) => u64::from(*value),
+        IntValue::U64(value) => *value,
+    };
+    if magnitude == 0 {
+        return true;
+    }
+    let significant_bits = u64::BITS - magnitude.leading_zeros();
+    significant_bits <= f64::MANTISSA_DIGITS
+        || magnitude.trailing_zeros() >= significant_bits - f64::MANTISSA_DIGITS
+}
+
 pub fn native_integer_value_is_exact_f64(value: &Value) -> bool {
-    let exact = crate::builtins::math::trigonometry::cos::integer_is_exact_f64;
+    let exact = integer_is_exact_f64;
     match value {
         Value::Int(value) => exact(value),
         Value::Tensor(tensor) => tensor
@@ -1719,7 +1777,7 @@ pub async fn native_integer_value_is_exact_f64_async(value: &Value) -> Result<bo
             .with_gpu_gather_retry(crate::GpuGatherRetry::Never)
             .build());
         }
-        let exact = crate::builtins::math::trigonometry::cos::integer_is_exact_f64;
+        let exact = integer_is_exact_f64;
         let values_exact = match &gathered.data {
             runmat_accelerate_api::HostIntegerDataOwned::I8(values) => values
                 .iter()
@@ -1804,13 +1862,16 @@ pub async fn value_is_member_async(value: &Value, set: &Value) -> BuiltinResult<
 }
 
 fn ensure_member_class_compatibility(value: &Value, set: &Value) -> BuiltinResult<()> {
-    let Some(value_class) = numeric_class_name(value) else {
+    let Some(value_class) = numeric_class_identity(value) else {
         return Ok(());
     };
-    let Some(set_class) = numeric_class_name(set) else {
+    let Some(set_class) = numeric_class_identity(set) else {
         return Ok(());
     };
-    if value_class == set_class || value_class == "double" || set_class == "double" {
+    if value_class == set_class
+        || value_class.is(runmat_types::standard::DOUBLE)
+        || set_class.is(runmat_types::standard::DOUBLE)
+    {
         return Ok(());
     }
     Err(invalid_argument_error(
@@ -1926,6 +1987,18 @@ fn sparse_atoms(t: &SparseTensor) -> Result<Vec<ValidationAtom>, RuntimeError> {
                 .value_at(0)
                 .expect("one-element zero storage");
             out.push(ValidationAtom::Integer(zero));
+        }
+        return Ok(out);
+    }
+    if t.is_complex() {
+        let values = t.materialize_complex_f64().expect("complex sparse storage");
+        out.extend(
+            values
+                .iter()
+                .map(|value| ValidationAtom::ComplexNumber(value.0, value.1)),
+        );
+        if values.len() < numel {
+            out.push(ValidationAtom::ComplexNumber(0.0, 0.0));
         }
         return Ok(out);
     }
@@ -2109,6 +2182,12 @@ fn numeric_values_all(value: &Value, pred: impl Fn(f64) -> bool) -> bool {
                         .to_f64(),
                 )
             }) && (storage.len() >= numel || pred(0.0))
+        }
+        Value::SparseTensor(t) if t.is_complex() => {
+            let values = t.materialize_complex_f64().expect("complex sparse storage");
+            let numel = t.rows.saturating_mul(t.cols);
+            values.iter().all(|value| value.1 == 0.0 && pred(value.0))
+                && (values.len() >= numel || pred(0.0))
         }
         Value::SparseTensor(t) => {
             let numel = t.rows.saturating_mul(t.cols);
@@ -2546,7 +2625,7 @@ mod tests {
     use crate::builtins::common::test_support;
     use runmat_value::{
         ComplexTensor, IntValue, IntegerComplexStorage, IntegerStorage, LogicalArray, StringArray,
-        StructValue, Tensor,
+        StructArray, StructValue, Tensor,
     };
 
     fn ok(builtin: &str, args: Vec<Value>) {
@@ -2568,6 +2647,24 @@ mod tests {
 
     fn sparse(values: Vec<f64>) -> Value {
         Value::SparseTensor(SparseTensor::new(2, 2, vec![0, 1, 1], vec![0], values).unwrap())
+    }
+
+    #[test]
+    fn fixed_width_integer_binary64_exactness_uses_significant_bits() {
+        for value in [
+            IntValue::I8(i8::MIN),
+            IntValue::I16(i16::MIN),
+            IntValue::I32(i32::MIN),
+            IntValue::U8(u8::MAX),
+            IntValue::U16(u16::MAX),
+            IntValue::U32(u32::MAX),
+            IntValue::U64(1_u64 << 54),
+        ] {
+            assert!(integer_is_exact_f64(&value), "{value:?} must be exact");
+        }
+        assert!(!integer_is_exact_f64(&IntValue::U64((1_u64 << 53) + 1)));
+        assert!(!integer_is_exact_f64(&IntValue::I64(-((1_i64 << 53) + 1))));
+        assert!(integer_is_exact_f64(&IntValue::U64(0)));
     }
 
     #[test]
@@ -2818,6 +2915,41 @@ mod tests {
         assert!(value_is_empty(&Value::ComplexTensor(empty_complex)));
     }
 
+    fn structure_array(shape: Vec<usize>) -> Value {
+        let mut element = StructValue::new();
+        element.insert("value", Value::Num(1.0));
+        Value::StructArray(
+            StructArray::new(vec![element; shape.iter().product()], shape)
+                .expect("structure array"),
+        )
+    }
+
+    #[test]
+    fn structural_predicates_use_structure_array_shape() {
+        let matrix = structure_array(vec![2, 2]);
+        assert_eq!(value_shape_2d(&matrix), (2, 2));
+        assert!(!value_is_empty(&matrix));
+        assert!(!value_is_column(&matrix));
+        assert!(!value_is_vector(&matrix).unwrap());
+        assert!(value_matches_class(&matrix, "struct"));
+
+        let column = structure_array(vec![3, 1]);
+        assert!(value_is_column(&column));
+        assert!(value_is_vector(&column).unwrap());
+
+        let nd = structure_array(vec![1, 2, 2]);
+        assert_eq!(value_shape_2d(&nd), (1, 2));
+        assert!(!value_is_column(&nd));
+        assert!(!value_is_vector(&nd).unwrap());
+
+        let empty = Value::StructArray(
+            StructArray::empty(vec!["value".into()], vec![0, 4]).expect("empty structure array"),
+        );
+        assert_eq!(value_shape_2d(&empty), (0, 4));
+        assert!(value_is_empty(&empty));
+        assert!(!value_is_vector(&empty).unwrap());
+    }
+
     #[test]
     fn finite_integer_and_nan_predicates_read_typed_integer_storage_exactly() {
         let tensor = Tensor::new_integer(IntegerStorage::I16(vec![-1, 0, 2]), vec![1, 3]).unwrap();
@@ -2870,6 +3002,39 @@ mod tests {
         assert!(!value_is_real(&value));
         assert!(value_is_integer(&value));
         ok("mustBeInteger", vec![value]);
+    }
+
+    #[test]
+    fn complex_sparse_validators_keep_both_components() {
+        let value = Value::SparseTensor(
+            SparseTensor::new_complex(
+                2,
+                2,
+                vec![0, 2, 3],
+                vec![0, 1, 1],
+                vec![(1.0, 0.0), (2.0, -3.0), (f64::NAN, 4.0)],
+            )
+            .expect("complex sparse"),
+        );
+        assert!(!value_is_finite(&value));
+        assert!(!value_is_real(&value));
+        assert!(!value_is_integer(&value));
+        assert!(!value_is_non_nan(&value));
+
+        let integral = Value::SparseTensor(
+            SparseTensor::new_complex(
+                1,
+                2,
+                vec![0, 1, 2],
+                vec![0, 0],
+                vec![(1.0, 0.0), (2.0, -3.0)],
+            )
+            .expect("integral complex sparse"),
+        );
+        assert!(value_is_finite(&integral));
+        assert!(!value_is_real(&integral));
+        assert!(value_is_integer(&integral));
+        assert!(value_is_non_nan(&integral));
     }
 
     #[test]
@@ -3191,7 +3356,7 @@ mod tests {
     #[test]
     fn namedargs2cell_preserves_field_order() {
         let mut st = StructValue::new();
-        st.insert("Name", Value::String("Ada".into()));
+        st.insert("Name", Value::String("entry-a".into()));
         st.insert("Value", Value::Num(7.0));
         let out = namedargs2cell_value(Value::Struct(st)).expect("namedargs2cell");
         let Value::Cell(cell) = out else {

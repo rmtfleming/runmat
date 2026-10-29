@@ -18,6 +18,7 @@ use crate::builtins::common::spec::{
     ReductionNaN, ResidencyPolicy, ShapeRequirements,
 };
 use crate::builtins::common::tensor;
+use crate::builtins::control::plot_setup_error::is_nonfatal_plot_setup_error;
 use crate::builtins::control::type_resolvers::step_type;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
@@ -385,7 +386,7 @@ fn is_plot_style_arg(value: &Value) -> bool {
 }
 
 fn is_tf_object(value: &Value) -> bool {
-    matches!(value, Value::Object(object) if object.is_class("tf"))
+    matches!(value, Value::Object(object) if object.is_class(runmat_types::standard::TRANSFER_FUNCTION))
 }
 
 #[derive(Clone, Debug)]
@@ -403,7 +404,7 @@ impl TransferFunction {
                 "expected a tf object",
             ));
         };
-        if !object.is_class("tf") {
+        if !object.is_class(runmat_types::standard::TRANSFER_FUNCTION) {
             return Err(step_error_with_detail(
                 &STEP_ERROR_INVALID_MODEL,
                 format!("expected a tf object, got {}", object.class_name),
@@ -853,7 +854,7 @@ async fn plot_response_with_style(eval: &StepEval, style: Option<&Value>) -> Bui
         vec![t, y]
     };
     if let Err(err) = crate::call_builtin_async("plot", &args).await {
-        if super::is_nonfatal_plot_setup_error(&err) {
+        if is_nonfatal_plot_setup_error(&err) {
             return Ok(());
         }
         return Err(step_error_with_detail(

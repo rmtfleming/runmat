@@ -1,12 +1,22 @@
+use crate::sequence::ResolveValueSequence;
 use crate::{build_runtime_error, create_class_object, make_cell_with_shape, RuntimeError};
 use runmat_accelerate_api::GpuTensorHandle;
 use runmat_builtins::builtin_functions;
 
+use runmat_types::ClassIdentity;
 use runmat_value::Value;
 use std::cell::RefCell;
 
 thread_local! {
-    static CLASS_ACCESS_CONTEXT: RefCell<Option<String>> = const { RefCell::new(None) };
+    static CLASS_ACCESS_CONTEXT: RefCell<Option<ClassIdentity>> = const { RefCell::new(None) };
+}
+
+fn resolve_single_sequence(sequence: runmat_value::ValueSequence) -> Result<Value, RuntimeError> {
+    let mut values = sequence.resolve(
+        runmat_types::SequenceUse::RequireSingle,
+        crate::sequence::SequenceResolutionContext::default(),
+    )?;
+    Ok(values.remove(0))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -18,7 +28,7 @@ fn ensure_wasm_builtins_registered() {
 fn ensure_wasm_builtins_registered() {}
 
 pub struct ClassAccessContextGuard {
-    previous: Option<String>,
+    previous: Option<ClassIdentity>,
     context: Option<std::rc::Rc<crate::context::RuntimeContextState>>,
 }
 
@@ -35,7 +45,7 @@ impl Drop for ClassAccessContextGuard {
     }
 }
 
-pub fn push_class_access_context(class_name: Option<String>) -> ClassAccessContextGuard {
+pub fn push_class_access_context(class_name: Option<ClassIdentity>) -> ClassAccessContextGuard {
     let context =
         crate::context::legacy::active().map(|context| std::rc::Rc::clone(context.state()));
     let previous = if let Some(context) = &context {
@@ -46,14 +56,14 @@ pub fn push_class_access_context(class_name: Option<String>) -> ClassAccessConte
     ClassAccessContextGuard { previous, context }
 }
 
-fn current_class_access_context() -> Option<String> {
+fn current_class_access_context() -> Option<ClassIdentity> {
     if let Some(context) = crate::context::legacy::active() {
         return context.state().call.borrow().class_access.clone();
     }
     CLASS_ACCESS_CONTEXT.with(|slot| slot.borrow().clone())
 }
 
-pub fn class_access_context() -> Option<String> {
+pub fn class_access_context() -> Option<ClassIdentity> {
     current_class_access_context()
 }
 
@@ -68,6 +78,11 @@ pub fn value_contains_gpu(value: &Value) -> bool {
         Value::GpuTensor(_) => true,
         Value::Cell(ca) => ca.data.iter().any(|ptr| value_contains_gpu(ptr)),
         Value::Struct(sv) => sv.fields.values().any(value_contains_gpu),
+        Value::StructArray(array) => {
+            let mut found = false;
+            array.for_each_value(|value| found |= value_contains_gpu(value));
+            found
+        }
         Value::Object(obj) => obj.properties.values().any(value_contains_gpu),
         Value::Closure(closure) => closure.captures.iter().any(value_contains_gpu),
         Value::OutputList(values) => values.iter().any(value_contains_gpu),
@@ -169,6 +184,15 @@ fn gather_if_needed_async_impl<'a>(
                 }
                 Ok(Value::Struct(gathered))
             }
+            Value::StructArray(array) => {
+                let gathered = array
+                    .clone()
+                    .try_map_values_async(|value| async move {
+                        gather_if_needed_async_impl(&value).await
+                    })
+                    .await?;
+                Ok(Value::StructArray(gathered))
+            }
             Value::Object(obj) => {
                 let mut cloned = obj.clone();
                 for value in cloned.properties.values_mut() {
@@ -183,13 +207,10 @@ fn gather_if_needed_async_impl<'a>(
                 }
                 Ok(Value::Closure(cloned))
             }
-            Value::OutputList(values) => {
-                let mut gathered = Vec::with_capacity(values.len());
-                for value in values {
-                    gathered.push(gather_if_needed_async_impl(value).await?);
-                }
-                Ok(Value::OutputList(gathered))
-            }
+            Value::OutputList(_) => Err(crate::runtime_error::semantic_error(
+                "TransientSequenceBelowDispatch",
+                "legacy output-list carrier reached scalar gather dispatch",
+            )),
             other => Ok(other.clone()),
         }
     })
@@ -230,6 +251,21 @@ pub fn call_builtin(name: &str, args: &[Value]) -> Result<Value, RuntimeError> {
     futures::executor::block_on(call_builtin_async(name, args))
 }
 
+#[derive(Clone, Copy)]
+struct ResolvedBuiltinName<'a> {
+    requested: &'a str,
+    canonical: &'a str,
+}
+
+impl<'a> ResolvedBuiltinName<'a> {
+    fn resolve(requested: &'a str) -> Self {
+        Self {
+            requested,
+            canonical: runmat_builtins::canonical_builtin_name(requested).unwrap_or(requested),
+        }
+    }
+}
+
 #[async_recursion::async_recursion(?Send)]
 async fn call_builtin_async_impl(
     name: &str,
@@ -238,7 +274,13 @@ async fn call_builtin_async_impl(
 ) -> Result<Value, RuntimeError> {
     ensure_wasm_builtins_registered();
 
+    let resolved_name = ResolvedBuiltinName::resolve(name);
+    let name = resolved_name.canonical;
+
     let _output_guard = crate::output_count::push_output_count(output_count);
+    if let Some(result) = try_distributed_builtin(name, args, output_count).await? {
+        return Ok(result);
+    }
     let scoped_builtin_service = crate::context::legacy::active()
         .and_then(|context| context.service_ports().builtin().cloned());
     let matching_bindings = scoped_builtin_service.as_ref().map_or_else(
@@ -272,13 +314,20 @@ async fn call_builtin_async_impl(
             return compatibility_checked_builtin_result(name, args, result);
         }
         // Fallback: treat as class constructor if class is registered.
-        if crate::class_registry::get_class(name).is_some() {
+        if ClassIdentity::new(name)
+            .ok()
+            .and_then(|identity| crate::class_registry::get_class(&identity))
+            .is_some()
+        {
             let result = call_registered_class_constructor(name, args, output_count).await?;
             return compatibility_checked_builtin_result(name, args, result);
         }
-        return Err(build_runtime_error(format!("Undefined function: {name}"))
-            .with_identifier("RunMat:UndefinedFunction")
-            .build());
+        return Err(build_runtime_error(format!(
+            "Undefined function: {}",
+            resolved_name.requested
+        ))
+        .with_identifier("RunMat:UndefinedFunction")
+        .build());
     }
 
     if let Some(result) = try_call_registered_instance_method(name, args, output_count).await? {
@@ -357,17 +406,163 @@ async fn call_builtin_async_impl(
     Err(builder.build())
 }
 
+async fn try_distributed_builtin(
+    name: &str,
+    args: &[Value],
+    output_count: Option<usize>,
+) -> Result<Option<Value>, RuntimeError> {
+    if !args
+        .iter()
+        .any(|value| matches!(value, Value::Distributed(_)))
+    {
+        return Ok(None);
+    }
+    let entry = runmat_builtins::builtin_catalog_entry_by_name(name).ok_or_else(|| {
+        build_runtime_error(format!(
+            "{name}: distributed arguments require a canonical builtin placement contract"
+        ))
+        .with_identifier("RunMat:parallel:DistributedBuiltinUnsupported")
+        .build()
+    })?;
+    match entry.placement.distributed {
+        runmat_builtins::BuiltinDistributedPolicy::Unsupported => Err(build_runtime_error(
+            format!("{name}: distributed inputs are not supported by this builtin"),
+        )
+        .with_identifier("RunMat:parallel:DistributedBuiltinUnsupported")
+        .build()),
+        runmat_builtins::BuiltinDistributedPolicy::InspectHandles => Ok(None),
+        runmat_builtins::BuiltinDistributedPolicy::MaterializeArguments => {
+            let (context, service) = distributed_service(name)?;
+            let mut materialized = Vec::with_capacity(args.len());
+            for argument in args {
+                if let Value::Distributed(handle) = argument {
+                    crate::parallel::lease::validate_distributed(&context, handle)?;
+                    materialized.push(service.materialize((**handle).clone()).await?);
+                } else {
+                    materialized.push(argument.clone());
+                }
+            }
+            call_builtin_async_impl(name, &materialized, output_count)
+                .await
+                .map(Some)
+        }
+        runmat_builtins::BuiltinDistributedPolicy::MapUnary
+        | runmat_builtins::BuiltinDistributedPolicy::MapUnaryConstrained(_)
+        | runmat_builtins::BuiltinDistributedPolicy::ScalarLikePrototype => {
+            let (context, service) = distributed_service(name)?;
+            for argument in args {
+                if let Value::Distributed(handle) = argument {
+                    crate::parallel::lease::validate_distributed(&context, handle)?;
+                }
+            }
+            let requested_outputs = output_count.unwrap_or(1);
+            let literals = distributed_literal_context(args);
+            let inference = runmat_builtins::infer_partition_local_call(
+                entry,
+                &runmat_types::CallRequest {
+                    arguments: args.iter().map(crate::value_fact::value_fact).collect(),
+                    literals: literals.clone(),
+                    outputs: runmat_types::OutputSelection::new(match requested_outputs {
+                        0 => runmat_types::RequestedOutputCount::Zero,
+                        1 => runmat_types::RequestedOutputCount::One,
+                        count => runmat_types::RequestedOutputCount::Exactly(count),
+                    }),
+                },
+            );
+            if !inference.diagnostics.is_empty() {
+                return Err(build_runtime_error(format!(
+                    "{name}: distributed execution does not satisfy the builtin input contract"
+                ))
+                .with_identifier("RunMat:parallel:DistributedInputContract")
+                .build());
+            }
+            if inference.outputs.len() != requested_outputs {
+                return Err(build_runtime_error(format!(
+                    "{name}: distributed execution described {} outputs for {requested_outputs} requested outputs",
+                    inference.outputs.len()
+                ))
+                .with_identifier("RunMat:parallel:DistributedOutputContract")
+                .build());
+            }
+            service
+                .invoke(crate::context::RuntimeDistributedCallRequest {
+                    builtin: runmat_types::BuiltinId(name.into()),
+                    arguments: args.to_vec(),
+                    literals,
+                    requested_outputs,
+                    outputs: inference.outputs,
+                    invocation: context.service_ports().collective().map_or(
+                        crate::context::RuntimeDistributedInvocation::Client,
+                        |collective| {
+                            crate::context::RuntimeDistributedInvocation::Worker(
+                                collective.context().clone(),
+                            )
+                        },
+                    ),
+                })
+                .await
+                .map(crate::call::arguments::project_legacy_builtin_value_abi)
+                .map(Some)
+        }
+    }
+}
+
+fn distributed_literal_context(args: &[Value]) -> runmat_types::LiteralContext {
+    runmat_types::LiteralContext::new(
+        args.iter()
+            .map(|value| match value {
+                Value::String(value) => runmat_types::LiteralValue::String(value.clone()),
+                Value::StringArray(value) if value.data.len() == 1 => {
+                    runmat_types::LiteralValue::String(value.data[0].clone())
+                }
+                Value::CharArray(value) if value.rows == 1 => {
+                    runmat_types::LiteralValue::Character(value.data.iter().collect())
+                }
+                _ => runmat_types::LiteralValue::Unknown,
+            })
+            .collect(),
+    )
+}
+
+fn distributed_service(
+    name: &str,
+) -> Result<
+    (
+        crate::context::RuntimeContext,
+        std::rc::Rc<dyn crate::context::RuntimeDistributedService>,
+    ),
+    RuntimeError,
+> {
+    let context = crate::context::legacy::active().ok_or_else(|| {
+        build_runtime_error(format!(
+            "{name}: distributed arguments require an active RunMat execution context"
+        ))
+        .with_identifier("RunMat:parallel:DistributedRuntimeUnavailable")
+        .build()
+    })?;
+    let service = context
+        .service_ports()
+        .require_distributed("distributed builtin")
+        .map_err(|error| {
+            build_runtime_error(error.to_string())
+                .with_identifier("RunMat:parallel:DistributedRuntimeUnavailable")
+                .build()
+        })?
+        .clone();
+    Ok((context, service))
+}
+
 fn compatibility_checked_builtin_result(
     name: &str,
     args: &[Value],
     mut result: Value,
 ) -> Result<Value, RuntimeError> {
     crate::compatibility::ensure_value_compatible(&result, name)?;
-    propagate_gpu_provenance(name, args, &mut result);
+    propagate_gpu_provenance(args, &mut result);
     Ok(result)
 }
 
-fn propagate_gpu_provenance(name: &str, args: &[Value], result: &mut Value) {
+fn propagate_gpu_provenance(args: &[Value], result: &mut Value) {
     let mut saw_gpu = false;
     let mut explicit = false;
     for arg in args {
@@ -377,40 +572,21 @@ fn propagate_gpu_provenance(name: &str, args: &[Value], result: &mut Value) {
         });
     }
     if !saw_gpu {
-        let explicit_constructor = matches!(
-            name,
-            "zeros"
-                | "ones"
-                | "inf"
-                | "nan"
-                | "rand"
-                | "randn"
-                | "randi"
-                | "eye"
-                | "true"
-                | "false"
-        ) && args.iter().any(|arg| {
-            crate::builtins::common::tensor::value_to_string(arg)
-                .is_some_and(|text| text.eq_ignore_ascii_case("gpuarray"))
-        });
         visit_gpu_handles_mut(result, &mut |handle| {
-            if explicit_constructor {
-                handle.descriptor.provenance =
-                    Some(runmat_accelerate_api::GpuHandleProvenance::Explicit);
-            } else if runmat_accelerate_api::handle_provenance(handle).is_none() {
+            if runmat_accelerate_api::handle_provenance(handle).is_none() {
                 handle.descriptor.provenance =
                     Some(runmat_accelerate_api::GpuHandleProvenance::Automatic);
             }
         });
         return;
     }
-    let provenance = if explicit {
-        runmat_accelerate_api::GpuHandleProvenance::Explicit
-    } else {
-        runmat_accelerate_api::GpuHandleProvenance::Automatic
-    };
     visit_gpu_handles_mut(result, &mut |handle| {
-        handle.descriptor.provenance = Some(provenance);
+        let result_is_explicit = runmat_accelerate_api::handle_is_explicit(handle);
+        handle.descriptor.provenance = Some(if explicit || result_is_explicit {
+            runmat_accelerate_api::GpuHandleProvenance::Explicit
+        } else {
+            runmat_accelerate_api::GpuHandleProvenance::Automatic
+        });
     });
 }
 
@@ -425,6 +601,9 @@ fn visit_gpu_handles(value: &Value, visitor: &mut impl FnMut(&GpuTensorHandle)) 
             .fields
             .values()
             .for_each(|value| visit_gpu_handles(value, visitor)),
+        Value::StructArray(array) => {
+            array.for_each_value(|value| visit_gpu_handles(value, visitor));
+        }
         Value::Object(value) => value
             .properties
             .values()
@@ -451,6 +630,9 @@ fn visit_gpu_handles_mut(value: &mut Value, visitor: &mut impl FnMut(&mut GpuTen
             .fields
             .values_mut()
             .for_each(|value| visit_gpu_handles_mut(value, visitor)),
+        Value::StructArray(array) => {
+            array.for_each_value_mut(|value| visit_gpu_handles_mut(value, visitor));
+        }
         Value::Object(value) => value
             .properties
             .values_mut()
@@ -475,11 +657,12 @@ pub(crate) async fn try_call_registered_instance_method(
         return Ok(None);
     };
     let class_name = match receiver {
-        Value::Object(obj) => obj.class_name.as_str(),
-        Value::HandleObject(handle) => handle.class_name.as_str(),
+        Value::Object(obj) => &obj.class_name,
+        Value::HandleObject(handle) => &handle.class_name,
         _ => return Ok(None),
     };
-    let Some((method, owner)) = crate::class_registry::lookup_method(class_name, method_name)
+    let method_identity = runmat_types::MethodName::from(method_name);
+    let Some((method, owner)) = crate::class_registry::lookup_method(class_name, &method_identity)
     else {
         return Ok(None);
     };
@@ -489,9 +672,9 @@ pub(crate) async fn try_call_registered_instance_method(
     let caller_class = current_class_access_context();
     let access_allowed = match method.access {
         runmat_types::MemberAccess::Public => true,
-        runmat_types::MemberAccess::Private => caller_class.as_deref() == Some(owner.as_str()),
+        runmat_types::MemberAccess::Private => caller_class.as_ref() == Some(&owner),
         runmat_types::MemberAccess::Protected => caller_class
-            .as_deref()
+            .as_ref()
             .is_some_and(|caller| crate::class_registry::is_class_or_subclass(caller, &owner)),
     };
     if !access_allowed {
@@ -509,13 +692,18 @@ pub(crate) async fn try_call_registered_instance_method(
     )
     .await
     {
-        return finalize_instance_method_result(method_name, receiver, result).map(Some);
+        return finalize_instance_method_result(&method_identity, receiver, result).map(Some);
     }
     if runmat_builtins::builtin_name_is_known(&method.function_name)
         && method.function_name != method_name
     {
         let result = call_builtin_async_impl(&method.function_name, args, output_count).await;
-        return finalize_instance_method_result(method_name, receiver, result).map(Some);
+        return finalize_instance_method_result(
+            &method_identity,
+            receiver,
+            result.and_then(crate::call::arguments::adapt_legacy_builtin_result),
+        )
+        .map(Some);
     }
     let owner_qualified = format!("{owner}.{method_name}");
     if owner_qualified != method.function_name {
@@ -526,25 +714,32 @@ pub(crate) async fn try_call_registered_instance_method(
         )
         .await
         {
-            return finalize_instance_method_result(method_name, receiver, result).map(Some);
+            return finalize_instance_method_result(&method_identity, receiver, result).map(Some);
         }
         if runmat_builtins::builtin_name_is_known(&owner_qualified)
             && owner_qualified != method_name
         {
             let result = call_builtin_async_impl(&owner_qualified, args, output_count).await;
-            return finalize_instance_method_result(method_name, receiver, result).map(Some);
+            return finalize_instance_method_result(
+                &method_identity,
+                receiver,
+                result.and_then(crate::call::arguments::adapt_legacy_builtin_result),
+            )
+            .map(Some);
         }
     }
     Ok(None)
 }
 
 fn finalize_instance_method_result(
-    method_name: &str,
+    method_name: &runmat_types::MethodName,
     receiver: &Value,
-    result: Result<Value, RuntimeError>,
+    result: Result<runmat_value::ValueSequence, RuntimeError>,
 ) -> Result<Value, RuntimeError> {
-    let result = result?;
-    if method_name == "delete" {
+    let result = resolve_single_sequence(result?)?;
+    const DELETE_METHOD: runmat_types::StaticMethodName =
+        runmat_types::StaticMethodName::new("delete");
+    if DELETE_METHOD.is(method_name) {
         if let Value::HandleObject(handle) = receiver {
             if !crate::set_handle_valid(handle, false) {
                 return Err(build_runtime_error(format!(
@@ -570,10 +765,15 @@ async fn try_call_registered_static_method(
     if class_name.trim().is_empty() || method_name.trim().is_empty() {
         return Ok(None);
     }
-    if crate::class_registry::get_class(class_name).is_none() {
+    let Ok(class_identity) = ClassIdentity::new(class_name) else {
+        return Ok(None);
+    };
+    if crate::class_registry::get_class(&class_identity).is_none() {
         return Ok(None);
     }
-    let Some((method, owner)) = crate::class_registry::lookup_method(class_name, method_name)
+    let method_identity = runmat_types::MethodName::from(method_name);
+    let Some((method, owner)) =
+        crate::class_registry::lookup_method(&class_identity, &method_identity)
     else {
         return Ok(None);
     };
@@ -587,7 +787,7 @@ async fn try_call_registered_static_method(
     )
     .await
     {
-        return result.map(Some);
+        return result.and_then(resolve_single_sequence).map(Some);
     }
     if runmat_builtins::builtin_name_is_known(&method.function_name)
         && method.function_name != qualified_name
@@ -605,7 +805,7 @@ async fn try_call_registered_static_method(
         )
         .await
         {
-            return result.map(Some);
+            return result.and_then(resolve_single_sequence).map(Some);
         }
         if runmat_builtins::builtin_name_is_known(&owner_qualified)
             && owner_qualified != qualified_name
@@ -624,21 +824,31 @@ async fn call_registered_class_constructor(
     output_count: Option<usize>,
 ) -> Result<Value, RuntimeError> {
     let requested_outputs = output_count.unwrap_or(1);
+    let class_identity = ClassIdentity::new(class_name).map_err(|error| {
+        build_runtime_error(format!("Invalid class name '{class_name}': {error}"))
+            .with_identifier("RunMat:InvalidClassName")
+            .build()
+    })?;
     let default_object = create_class_object(class_name.to_string()).await?;
     let constructor_method_name = class_name.rsplit('.').next().unwrap_or(class_name);
-    let Some((ctor, owner)) =
-        crate::class_registry::lookup_method(class_name, constructor_method_name)
-            .or_else(|| crate::class_registry::lookup_method(class_name, class_name))
-    else {
+    let constructor_identity = runmat_types::MethodName::from(constructor_method_name);
+    let qualified_constructor_identity = runmat_types::MethodName::from(class_name);
+    let Some((ctor, owner)) = crate::class_registry::lookup_method(
+        &class_identity,
+        &constructor_identity,
+    )
+    .or_else(|| {
+        crate::class_registry::lookup_method(&class_identity, &qualified_constructor_identity)
+    }) else {
         return Ok(default_object);
     };
     let owner_qualified = format!("{owner}.{constructor_method_name}");
     let caller_class = current_class_access_context();
     let ctor_access_allowed = match ctor.access {
         runmat_types::MemberAccess::Public => true,
-        runmat_types::MemberAccess::Private => caller_class.as_deref() == Some(owner.as_str()),
+        runmat_types::MemberAccess::Private => caller_class.as_ref() == Some(&owner),
         runmat_types::MemberAccess::Protected => caller_class
-            .as_deref()
+            .as_ref()
             .is_some_and(|caller| crate::class_registry::is_class_or_subclass(caller, &owner)),
     };
     if !ctor_access_allowed {
@@ -657,7 +867,7 @@ async fn call_registered_class_constructor(
         )
         .await
         {
-            return Ok::<Option<Value>, RuntimeError>(Some(result?));
+            return Ok::<Option<Value>, RuntimeError>(Some(resolve_single_sequence(result?)?));
         }
         if runmat_builtins::builtin_name_is_known(&ctor.function_name)
             && ctor.function_name != class_name
@@ -672,7 +882,7 @@ async fn call_registered_class_constructor(
         )
         .await
         {
-            return Ok::<Option<Value>, RuntimeError>(Some(result?));
+            return Ok::<Option<Value>, RuntimeError>(Some(resolve_single_sequence(result?)?));
         }
         if runmat_builtins::builtin_name_is_known(&owner_qualified) && owner_qualified != class_name
         {
@@ -783,11 +993,19 @@ fn should_retry_with_gpu_gather(err: &RuntimeError, args: &[Value]) -> bool {
     error_chain_has_gpu_gather_retry(err, crate::GpuGatherRetry::Requested)
 }
 
-fn value_contains_explicit_gpu(value: &Value) -> bool {
+/// Returns whether a value, including any recursively captured value, carries
+/// explicit device-residency intent. Execution boundaries may gather automatic
+/// residency, but must not silently erase an explicit `gpuArray` request.
+pub fn value_contains_explicit_gpu(value: &Value) -> bool {
     match value {
         Value::GpuTensor(handle) => runmat_accelerate_api::handle_is_explicit(handle),
         Value::Cell(cell) => cell.data.iter().any(value_contains_explicit_gpu),
         Value::Struct(value) => value.fields.values().any(value_contains_explicit_gpu),
+        Value::StructArray(array) => {
+            let mut found = false;
+            array.for_each_value(|value| found |= value_contains_explicit_gpu(value));
+            found
+        }
         Value::Object(value) => value.properties.values().any(value_contains_explicit_gpu),
         Value::Closure(value) => value.captures.iter().any(value_contains_explicit_gpu),
         Value::OutputList(values) => values.iter().any(value_contains_explicit_gpu),
@@ -1077,14 +1295,9 @@ mod tests {
             automatic.with_provenance(runmat_accelerate_api::GpuHandleProvenance::Automatic);
 
         let mut explicit_value = Value::GpuTensor(explicit_result.clone());
-        super::propagate_gpu_provenance(
-            "plus",
-            &[Value::GpuTensor(explicit.clone())],
-            &mut explicit_value,
-        );
+        super::propagate_gpu_provenance(&[Value::GpuTensor(explicit.clone())], &mut explicit_value);
         let mut automatic_value = Value::GpuTensor(automatic_result.clone());
         super::propagate_gpu_provenance(
-            "plus",
             &[Value::GpuTensor(automatic.clone())],
             &mut automatic_value,
         );
@@ -1116,6 +1329,131 @@ mod tests {
         }
     }
 
+    #[test]
+    fn builtin_result_provenance_preserves_producer_intent_without_gpu_inputs() {
+        let explicitly_created = GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: 0,
+            buffer_id: 95,
+            descriptor: Default::default(),
+        }
+        .with_provenance(runmat_accelerate_api::GpuHandleProvenance::Explicit);
+        let automatically_created = GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: 0,
+            buffer_id: 96,
+            descriptor: Default::default(),
+        };
+
+        let mut explicit_value = Value::GpuTensor(explicitly_created.clone());
+        super::propagate_gpu_provenance(&[], &mut explicit_value);
+        let mut automatic_value = Value::GpuTensor(automatically_created.clone());
+        super::propagate_gpu_provenance(&[], &mut automatic_value);
+
+        let Value::GpuTensor(explicit_value) = explicit_value else {
+            unreachable!()
+        };
+        assert_eq!(
+            explicit_value.descriptor.provenance,
+            Some(runmat_accelerate_api::GpuHandleProvenance::Explicit)
+        );
+        let Value::GpuTensor(automatic_value) = automatic_value else {
+            unreachable!()
+        };
+        assert_eq!(
+            automatic_value.descriptor.provenance,
+            Some(runmat_accelerate_api::GpuHandleProvenance::Automatic)
+        );
+        for handle in [&explicitly_created, &automatically_created] {
+            runmat_accelerate_api::clear_handle_metadata(handle);
+        }
+    }
+
+    #[test]
+    fn builtin_result_provenance_does_not_downgrade_explicit_producer_intent() {
+        let automatic_input = GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: 0,
+            buffer_id: 97,
+            descriptor: Default::default(),
+        }
+        .with_provenance(runmat_accelerate_api::GpuHandleProvenance::Automatic);
+        let explicit_result = GpuTensorHandle {
+            shape: vec![1, 1],
+            device_id: 0,
+            buffer_id: 98,
+            descriptor: Default::default(),
+        }
+        .with_provenance(runmat_accelerate_api::GpuHandleProvenance::Explicit);
+
+        let mut result = Value::GpuTensor(explicit_result.clone());
+        super::propagate_gpu_provenance(&[Value::GpuTensor(automatic_input.clone())], &mut result);
+
+        let Value::GpuTensor(result) = result else {
+            unreachable!()
+        };
+        assert_eq!(
+            result.descriptor.provenance,
+            Some(runmat_accelerate_api::GpuHandleProvenance::Explicit)
+        );
+        for handle in [&automatic_input, &explicit_result] {
+            runmat_accelerate_api::clear_handle_metadata(handle);
+        }
+    }
+
+    #[test]
+    fn array_constructor_forms_preserve_explicit_gpu_intent_without_dispatcher_name_policy() {
+        let _random_guard = crate::builtins::common::random::test_guard();
+        crate::builtins::common::test_support::with_test_provider(|provider| {
+            let prototype_tensor = Tensor::new(vec![0.0; 4], vec![2, 2]).expect("prototype");
+            let mut prototype =
+                crate::builtins::common::gpu_helpers::upload_tensor(provider, &prototype_tensor)
+                    .expect("upload prototype");
+            runmat_accelerate_api::mark_handle_explicit(&mut prototype);
+
+            let dimension_args = || vec![Value::Num(2.0), Value::Num(2.0)];
+            let class_selected = |name: &'static str| {
+                let mut arguments = dimension_args();
+                arguments.push(Value::from("gpuArray"));
+                (name, arguments)
+            };
+            let like_selected = |name: &'static str, mut arguments: Vec<Value>| {
+                arguments.push(Value::from("like"));
+                arguments.push(Value::GpuTensor(prototype.clone()));
+                (name, arguments)
+            };
+            let cases = [
+                class_selected("zeros"),
+                class_selected("ones"),
+                class_selected("inf"),
+                class_selected("nan"),
+                class_selected("rand"),
+                class_selected("randn"),
+                like_selected("randi", vec![Value::Num(9.0), Value::Num(2.0)]),
+                like_selected("eye", vec![Value::Num(2.0)]),
+                like_selected("true", dimension_args()),
+                like_selected("false", dimension_args()),
+            ];
+
+            for (name, arguments) in cases {
+                let output = call_builtin(name, &arguments)
+                    .unwrap_or_else(|error| panic!("{name} explicit constructor failed: {error}"));
+                let Value::GpuTensor(handle) = output else {
+                    panic!("{name} explicit constructor returned a host value")
+                };
+                assert!(
+                    runmat_accelerate_api::handle_is_explicit(&handle),
+                    "{name} lost explicit gpuArray intent"
+                );
+                provider.free(&handle).expect("free constructor output");
+                runmat_accelerate_api::clear_handle_metadata(&handle);
+            }
+
+            provider.free(&prototype).expect("free prototype");
+            runmat_accelerate_api::clear_handle_metadata(&prototype);
+        });
+    }
+
     fn unique_class_name(prefix: &str) -> String {
         let id = TEST_CLASS_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{}_{}", prefix, id)
@@ -1124,7 +1462,7 @@ mod tests {
     #[test]
     fn value_contains_gpu_detects_nested_closure_captures() {
         let value = Value::Closure(Closure {
-            function_name: "worker".to_string(),
+            function_name: "worker".into(),
             bound_function: None,
             captures: vec![Value::GpuTensor(GpuTensorHandle {
                 shape: vec![1],
@@ -1151,7 +1489,7 @@ mod tests {
     }
 
     #[test]
-    fn gather_if_needed_reports_provider_unavailable_for_nested_output_list_gpu() {
+    fn gather_if_needed_rejects_nested_output_list_before_provider_access() {
         runmat_accelerate_api::clear_provider();
         let _provider_guard = ThreadProviderGuard::set(None);
         let value = Value::OutputList(vec![Value::GpuTensor(GpuTensorHandle {
@@ -1162,8 +1500,11 @@ mod tests {
             descriptor: Default::default(),
         })]);
         let err = futures::executor::block_on(gather_if_needed_async(&value))
-            .expect_err("missing provider should fail nested output-list gather");
-        assert_eq!(err.identifier(), Some("RunMat:gather:ProviderUnavailable"));
+            .expect_err("transient sequence must fail before provider access");
+        assert_eq!(
+            err.identifier(),
+            Some("RunMat:TransientSequenceBelowDispatch")
+        );
     }
 
     #[test]
@@ -1171,7 +1512,7 @@ mod tests {
         runmat_accelerate_api::clear_provider();
         let _provider_guard = ThreadProviderGuard::set(None);
         let value = Value::Closure(Closure {
-            function_name: "worker".to_string(),
+            function_name: "worker".into(),
             bound_function: None,
             captures: vec![Value::GpuTensor(GpuTensorHandle {
                 shape: vec![1],
@@ -1202,15 +1543,15 @@ mod tests {
                 assert_eq!(requested_outputs, 1);
                 let mut sv = StructValue::new();
                 sv.fields.insert("x".to_string(), Value::Num(12.0));
-                Box::pin(async move { Ok(Value::Struct(sv)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Struct(sv)) })
             }),
         ));
 
         let mut parent_methods = HashMap::new();
         parent_methods.insert(
-            child_name.clone(),
+            child_name.clone().into(),
             crate::class_registry::RuntimeMethod {
-                name: child_name.clone(),
+                name: child_name.clone().into(),
                 is_static: true,
                 is_abstract: false,
                 is_sealed: false,
@@ -1220,14 +1561,14 @@ mod tests {
             },
         );
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: parent_name.clone(),
+            name: parent_name.clone().into(),
             parent: None,
             properties: HashMap::new(),
             methods: parent_methods,
         });
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: child_name.clone(),
-            parent: Some(parent_name),
+            name: child_name.clone().into(),
+            parent: Some(parent_name.into()),
             properties: HashMap::new(),
             methods: HashMap::new(),
         });
@@ -1237,7 +1578,7 @@ mod tests {
         let Value::Object(obj) = out else {
             panic!("expected object from constructor dispatch");
         };
-        assert_eq!(obj.class_name, child_name);
+        assert_eq!(obj.class_name.display_name(), child_name);
         assert_eq!(obj.properties.get("x"), Some(&Value::Num(12.0)));
     }
 
@@ -1246,19 +1587,19 @@ mod tests {
         let private_class_name = unique_class_name("runtime_ctor_private");
         let mut private_methods = HashMap::new();
         private_methods.insert(
-            private_class_name.clone(),
+            private_class_name.clone().into(),
             crate::class_registry::RuntimeMethod {
-                name: private_class_name.clone(),
+                name: private_class_name.clone().into(),
                 is_static: true,
                 is_abstract: false,
                 is_sealed: false,
                 access: MemberAccess::Private,
-                function_name: "Point.origin".to_string(),
+                function_name: "Point.origin".into(),
                 implicit_class_argument: None,
             },
         );
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: private_class_name.clone(),
+            name: private_class_name.clone().into(),
             parent: None,
             properties: HashMap::new(),
             methods: private_methods,
@@ -1270,9 +1611,9 @@ mod tests {
         let public_class_name = unique_class_name("runtime_ctor_public_no_semantic");
         let mut public_methods = HashMap::new();
         public_methods.insert(
-            public_class_name.clone(),
+            public_class_name.clone().into(),
             crate::class_registry::RuntimeMethod {
-                name: public_class_name.clone(),
+                name: public_class_name.clone().into(),
                 is_static: true,
                 is_abstract: false,
                 is_sealed: false,
@@ -1282,7 +1623,7 @@ mod tests {
             },
         );
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: public_class_name.clone(),
+            name: public_class_name.clone().into(),
             parent: None,
             properties: HashMap::new(),
             methods: public_methods,
@@ -1293,7 +1634,7 @@ mod tests {
         let Value::Object(obj) = out else {
             panic!("expected object result");
         };
-        assert_eq!(obj.class_name, public_class_name);
+        assert_eq!(obj.class_name.display_name(), public_class_name);
     }
 
     #[test]
@@ -1301,15 +1642,15 @@ mod tests {
         let class_name = unique_class_name("runtime_static_dispatch");
         let fn_name = unique_class_name("runtime_static_fn");
         crate::class_registry::register_class(crate::class_registry::RuntimeClass {
-            name: class_name.clone(),
+            name: class_name.clone().into(),
             parent: None,
             properties: HashMap::new(),
             methods: {
                 let mut methods = HashMap::new();
                 methods.insert(
-                    "zero".to_string(),
+                    "zero".into(),
                     crate::class_registry::RuntimeMethod {
-                        name: "zero".to_string(),
+                        name: "zero".into(),
                         is_static: true,
                         is_abstract: false,
                         is_sealed: false,
@@ -1330,7 +1671,7 @@ mod tests {
             std::sync::Arc::new(move |function, _args, requested_outputs| {
                 assert_eq!(function, 20202);
                 assert_eq!(requested_outputs, 1);
-                Box::pin(async { Ok(Value::Num(77.0)) })
+                Box::pin(async { crate::sequence::single_value_sequence(Value::Num(77.0)) })
             }),
         ));
 

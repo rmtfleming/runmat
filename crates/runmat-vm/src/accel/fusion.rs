@@ -39,6 +39,7 @@ pub fn value_kind(value: &Value) -> &'static str {
         Value::ComplexTensor(_) => "ComplexTensor",
         Value::Cell(_) => "Cell",
         Value::Struct(_) => "Struct",
+        Value::StructArray(_) => "StructArray",
         Value::GpuTensor(_) => "GpuTensor",
         Value::ObjectArray(_) => "ObjectArray",
         Value::Object(_) => "Object",
@@ -56,6 +57,8 @@ pub fn value_kind(value: &Value) -> &'static str {
         Value::Task(_) => "Task",
         Value::Pool(_) => "Pool",
         Value::Job(_) => "Job",
+        Value::Distributed(_) => "Distributed",
+        Value::Composite(_) => "Composite",
         Value::Foreign(_) => "Foreign",
     }
 }
@@ -112,8 +115,6 @@ pub fn fusion_span_has_vm_barrier(instructions: &[Instr], span: &InstrSpan) -> b
                 | Instr::StoreIndexDelete(_)
                 | Instr::StoreSlice(_, _, _, _)
                 | Instr::StoreSliceDelete(_, _, _, _)
-                | Instr::StoreSliceExpr { .. }
-                | Instr::StoreSliceExprDelete { .. }
                 | Instr::StoreIndexCell { .. }
                 | Instr::StoreIndexCellDelete { .. }
                 | Instr::StoreMember(_)

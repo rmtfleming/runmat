@@ -226,10 +226,10 @@ async fn convert_value_to_logical(value: Value) -> BuiltinResult<Value> {
             .ok_or_else(|| conversion_error("sym")),
         Value::SymbolicArray(_) => Err(conversion_error("sym")),
         Value::Cell(_) => Err(conversion_error("cell")),
-        Value::Struct(_) => Err(conversion_error("struct")),
-        Value::ObjectArray(array) => Err(conversion_error(array.class_name())),
-        Value::Object(obj) => Err(conversion_error(&obj.class_name)),
-        Value::HandleObject(handle) => Err(conversion_error(&handle.class_name)),
+        Value::Struct(_) | Value::StructArray(_) => Err(conversion_error("struct")),
+        Value::ObjectArray(array) => Err(conversion_error(array.class_name().display_name())),
+        Value::Object(obj) => Err(conversion_error(obj.class_name.display_name())),
+        Value::HandleObject(handle) => Err(conversion_error(handle.class_name.display_name())),
         Value::Listener(_) => Err(conversion_error("event.listener")),
         Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
@@ -241,7 +241,9 @@ async fn convert_value_to_logical(value: Value) -> BuiltinResult<Value> {
         | Value::Future(_)
         | Value::Task(_)
         | Value::Pool(_)
-        | Value::Job(_) => Err(conversion_error("MException")),
+        | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_) => Err(conversion_error("MException")),
         Value::Foreign(_) => Err(conversion_error("foreign")),
         Value::OutputList(_) => Err(conversion_error("OutputList")),
     }

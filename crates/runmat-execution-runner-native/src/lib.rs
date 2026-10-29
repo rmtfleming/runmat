@@ -23,15 +23,15 @@ pub use meshing_host::{
     execute_meshing_program_request, run_meshing_worker_stdio, NativeMeshingHostLimits,
 };
 pub use object_store::NativeObjectStore;
-pub use program_session::{NativeProgramSession, NativeProgramTask};
+pub use program_session::{NativeProgramFailure, NativeProgramSession, NativeProgramTask};
 pub use protocol::{ProgramProgress, WorkerResponse};
 pub use remote::{
     run_remote_driver_from_env, run_remote_meshing_worker_quic, run_remote_worker_from_env,
     run_remote_worker_quic, run_remote_worker_relay, QuicRemoteWorkerChannel,
     RelayRemoteWorkerChannel, RemoteAttempt, RemoteBundleReceipt, RemoteObjectReceipt,
-    RemotePoolDriver, RemoteTaskCompletion, RemoteValueReceipt, RemoteWorkerChannel,
-    RemoteWorkerChannelConfig, RemoteWorkerRelayRequest,
+    RemotePoolDriver, RemoteSpmdGangCompletion, RemoteSpmdGangProgram, RemoteTaskCompletion,
+    RemoteValueReceipt, RemoteWorkerChannel, RemoteWorkerChannelConfig, RemoteWorkerRelayRequest,
 };
 pub use service::NativeExecutionService;
-pub use test_workload::{execute_host_program_request, execute_host_program_request_with_project};
+pub use test_workload::execute_host_program_request;
 pub use worker::run_worker_stdio;

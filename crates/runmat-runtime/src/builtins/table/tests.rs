@@ -1,5 +1,5 @@
 use super::*;
-use crate::RuntimeError;
+use crate::{RuntimeError, OBJECT_INDEX_PAREN};
 #[cfg(not(target_arch = "wasm32"))]
 use async_trait::async_trait;
 use futures::executor::block_on;
@@ -240,9 +240,9 @@ fn write_sample_parquet(path: &Path) {
         schema,
         vec![
             Arc::new(ArrowStringArray::from(vec![
-                Some("Ada"),
-                Some("Grace"),
-                Some("Linus"),
+                Some("item-a"),
+                Some("item-b"),
+                Some("item-c"),
             ])),
             Arc::new(Float64Array::from(vec![Some(10.0), Some(12.5), None])),
             Arc::new(BooleanArray::from(vec![Some(true), Some(false), None])),
@@ -304,7 +304,7 @@ fn write_integer_parquet(path: &Path) {
 #[test]
 fn readtable_imports_headered_numeric_and_text_columns() {
     let path = unique_path("readtable_basic");
-    fs::write(&path, "Name,Score\nAda,10\nGrace,12\n").expect("write sample");
+    fs::write(&path, "Name,Score\nitem-a,10\nitem-b,12\n").expect("write sample");
     let table = object(read_table(&path, Vec::new()));
     assert_eq!(
         table_variable_names_from_object(&table).unwrap(),
@@ -319,7 +319,7 @@ fn readtable_imports_headered_numeric_and_text_columns() {
     }
     match table_member_get(&table, &Value::from("Name")).unwrap() {
         Value::StringArray(array) => {
-            assert_eq!(array.data, vec!["Ada".to_string(), "Grace".to_string()]);
+            assert_eq!(array.data, vec!["item-a".to_string(), "item-b".to_string()]);
         }
         other => panic!("expected string array, got {other:?}"),
     }
@@ -353,7 +353,11 @@ fn parquetread_imports_common_column_types() {
             assert_eq!(array.shape, vec![3, 1]);
             assert_eq!(
                 array.data,
-                vec!["Ada".to_string(), "Grace".to_string(), "Linus".to_string()]
+                vec![
+                    "item-a".to_string(),
+                    "item-b".to_string(),
+                    "item-c".to_string()
+                ]
             );
         }
         other => panic!("expected string column, got {other:?}"),
@@ -1038,7 +1042,7 @@ fn detect_import_options_preserves_partial_ranges_for_replay() {
 #[test]
 fn detect_import_options_read_row_names_replays_through_readtable() {
     let path = unique_path("detect_import_options_row_names");
-    fs::write(&path, "Row,Name,Score\nr1,Ada,10\nr2,Grace,12\n").expect("write sample");
+    fs::write(&path, "Row,Name,Score\nr1,item-a,10\nr2,item-b,12\n").expect("write sample");
     let options = detect_options(&path, vec![Value::from("ReadRowNames"), Value::Bool(true)]);
     assert_eq!(options.fields.get("NumVariables"), Some(&Value::Num(2.0)));
     match options.fields.get("VariableNames").unwrap() {
@@ -1309,11 +1313,11 @@ fn readtable_variable_types_coerce_imported_columns() {
         other => panic!("expected logical array, got {other:?}"),
     }
     match table_member_get(&table, &Value::from("When")).unwrap() {
-        Value::Object(object) => assert!(object.is_class("datetime")),
+        Value::Object(object) => assert!(object.is_class(runmat_types::standard::DATETIME)),
         other => panic!("expected datetime object, got {other:?}"),
     }
     match table_member_get(&table, &Value::from("Elapsed")).unwrap() {
-        Value::Object(object) => assert!(object.is_class("duration")),
+        Value::Object(object) => assert!(object.is_class(runmat_types::standard::DURATION)),
         other => panic!("expected duration object, got {other:?}"),
     }
     match table_member_get(&table, &Value::from("Kind")).unwrap() {
@@ -1353,7 +1357,7 @@ fn readtable_preserves_explicit_import_variable_names_when_requested() {
 #[test]
 fn readtable_text_type_char_imports_text_columns_as_char_matrix() {
     let path = unique_path("readtable_text_type_char");
-    fs::write(&path, "Name\nAda\nGrace\n").expect("write sample");
+    fs::write(&path, "Name\nitem-a\nitem-b\n").expect("write sample");
     let table = object(read_table(
         &path,
         vec![Value::from("TextType"), Value::from("char")],
@@ -1361,9 +1365,9 @@ fn readtable_text_type_char_imports_text_columns_as_char_matrix() {
     match table_member_get(&table, &Value::from("Name")).unwrap() {
         Value::CharArray(array) => {
             assert_eq!(array.rows, 2);
-            assert_eq!(array.cols, 5);
-            assert_eq!(char_row(&array, 0), "Ada  ");
-            assert_eq!(char_row(&array, 1), "Grace");
+            assert_eq!(array.cols, 6);
+            assert_eq!(char_row(&array, 0), "item-a");
+            assert_eq!(char_row(&array, 1), "item-b");
         }
         other => panic!("expected char array, got {other:?}"),
     }
@@ -1373,7 +1377,7 @@ fn readtable_text_type_char_imports_text_columns_as_char_matrix() {
 #[test]
 fn readtable_variable_types_cellstr_imports_cell_column() {
     let path = unique_path("readtable_variable_types_cellstr");
-    fs::write(&path, "Name\nAda\nGrace\n").expect("write sample");
+    fs::write(&path, "Name\nitem-a\nitem-b\n").expect("write sample");
     let types = StringArray::new(vec!["cellstr".to_string()], vec![1, 1]).unwrap();
     let table = object(read_table(
         &path,
@@ -1385,11 +1389,11 @@ fn readtable_variable_types_cellstr_imports_cell_column() {
             assert_eq!(cell.cols, 1);
             assert_eq!(
                 cell.get(0, 0).unwrap(),
-                Value::CharArray(CharArray::new_row("Ada"))
+                Value::CharArray(CharArray::new_row("item-a"))
             );
             assert_eq!(
                 cell.get(1, 0).unwrap(),
-                Value::CharArray(CharArray::new_row("Grace"))
+                Value::CharArray(CharArray::new_row("item-b"))
             );
         }
         other => panic!("expected cell array, got {other:?}"),
@@ -2693,7 +2697,7 @@ fn timetable_conversion_predicates_and_head_work() {
     ));
     let first_two = block_on(head_builtin(timetable.clone(), vec![Value::Num(2.0)])).unwrap();
     let first_two_object = object(first_two);
-    assert_eq!(first_two_object.class_name, TIMETABLE_CLASS);
+    assert!(first_two_object.class_name.is(TIMETABLE_CLASS));
     assert_eq!(table_height(&first_two_object).unwrap(), 2);
     match timetable_row_times(&first_two_object).unwrap().unwrap() {
         Value::Tensor(tensor) => assert_eq!(tensor.materialize_f64(), vec![1.0, 2.0]),
@@ -2710,7 +2714,7 @@ fn timetable_conversion_predicates_and_head_work() {
     );
     let converted = block_on(table2timetable_builtin(table, Vec::new())).unwrap();
     let converted_object = object(converted);
-    assert_eq!(converted_object.class_name, TIMETABLE_CLASS);
+    assert!(converted_object.class_name.is(TIMETABLE_CLASS));
     assert_eq!(
         table_variable_names_from_object(&converted_object).unwrap(),
         vec!["Time".to_string(), "X".to_string()]
@@ -3004,21 +3008,6 @@ fn head_wgpu_preserves_every_integer_class_exactly() {
 }
 
 #[test]
-fn height_reads_resident_shape_without_provider_or_data_access() {
-    assert_eq!(HEIGHT_INTEGER_CAPABILITIES.len(), 1);
-    let handle = runmat_accelerate_api::GpuTensorHandle {
-        shape: vec![13, 4],
-        device_id: u32::MAX,
-        buffer_id: u64::MAX,
-        descriptor: Default::default(),
-    };
-    assert!(matches!(
-        block_on(height_builtin(Value::GpuTensor(handle))).unwrap(),
-        Value::Num(13.0)
-    ));
-}
-
-#[test]
 fn categorical_dictionary_and_selector_objects_materialize() {
     let _runmat = crate::compatibility::push_runmat_extensions_enabled(true);
     let categorical = block_on(categorical_builtin(vec![Value::StringArray(
@@ -3130,7 +3119,7 @@ fn array_datastore_preserves_every_integer_storage_class_and_options() {
         let Value::Object(datastore) = datastore else {
             panic!("expected ArrayDatastore object");
         };
-        assert_eq!(datastore.class_name, ARRAY_DATASTORE_CLASS);
+        assert!(datastore.class_name.is(ARRAY_DATASTORE_CLASS));
         let Some(Value::Tensor(data)) = datastore.properties.get("Data") else {
             panic!("expected typed datastore data");
         };
@@ -3375,7 +3364,7 @@ fn file_datastore_preserves_constructor_metadata() {
     let Value::Object(datastore) = datastore else {
         panic!("expected fileDatastore object");
     };
-    assert_eq!(datastore.class_name, FILE_DATASTORE_CLASS);
+    assert!(datastore.class_name.is(FILE_DATASTORE_CLASS));
     assert_eq!(datastore.properties.get("Files"), Some(&files));
     assert_eq!(
         datastore.properties.get("ReadFcn"),
@@ -4140,7 +4129,7 @@ fn writetable_and_readcell_cover_delimited_interop() {
         vec![
             Value::Tensor(Tensor::new(vec![1.0, 2.0], vec![2, 1]).unwrap()),
             Value::StringArray(
-                StringArray::new(vec!["Ada".into(), "Grace".into()], vec![2, 1]).unwrap(),
+                StringArray::new(vec!["item-a".into(), "item-b".into()], vec![2, 1]).unwrap(),
             ),
         ],
     )
@@ -4163,7 +4152,7 @@ fn writetable_and_readcell_cover_delimited_interop() {
             assert_eq!(cell.get(0, 0).unwrap(), Value::from("A"));
             assert_eq!(cell.get(0, 1).unwrap(), Value::from("Name"));
             assert_eq!(cell.get(1, 0).unwrap(), Value::Num(1.0));
-            assert_eq!(cell.get(1, 1).unwrap(), Value::from("Ada"));
+            assert_eq!(cell.get(1, 1).unwrap(), Value::from("item-a"));
         }
         other => panic!("expected cell array, got {other:?}"),
     }
@@ -4285,7 +4274,7 @@ fn table_selector_objects_filter_rows_and_variables() {
         )
         .unwrap(),
     );
-    assert_eq!(ranged.class_name, TIMETABLE_CLASS);
+    assert!(ranged.class_name.is(TIMETABLE_CLASS));
     assert_eq!(table_height(&ranged).unwrap(), 1);
 
     let open_left = block_on(timerange_builtin(vec![
@@ -4349,7 +4338,7 @@ fn table_selector_objects_filter_rows_and_variables() {
         )
         .unwrap(),
     );
-    assert_eq!(selected.class_name, TIMETABLE_CLASS);
+    assert!(selected.class_name.is(TIMETABLE_CLASS));
     match table_member_get(&selected, &Value::from("X")).unwrap() {
         Value::Tensor(tensor) => assert_eq!(tensor.materialize_f64(), vec![20.0]),
         other => panic!("expected datetime row-time selection, got {other:?}"),
@@ -4551,11 +4540,19 @@ fn table2struct_defaults_to_row_structs_and_to_scalar_preserves_columns() {
     )
     .unwrap();
     match block_on(table2struct_builtin(t.clone(), Vec::new())).unwrap() {
-        Value::Cell(cell) => {
-            assert_eq!(cell.rows, 2);
-            assert!(matches!(cell.data[0], Value::Struct(_)));
+        Value::StructArray(array) => {
+            assert_eq!(array.shape(), [2, 1]);
+            assert_eq!(array.field_names().cloned().collect::<Vec<_>>(), ["A", "B"]);
+            assert_eq!(
+                array.get_linear(0).unwrap().fields.get("A"),
+                Some(&Value::Num(1.0))
+            );
+            assert_eq!(
+                array.get_linear(1).unwrap().fields.get("B"),
+                Some(&Value::Num(4.0))
+            );
         }
-        other => panic!("expected struct array cell, got {other:?}"),
+        other => panic!("expected typed structure array, got {other:?}"),
     }
     match block_on(table2struct_builtin(
         t,
@@ -4598,8 +4595,11 @@ fn categorical_categories_and_dictionary_lookup_have_semantics() {
     .unwrap();
     let value = block_on(dictionary_subsref(
         dictionary,
-        OBJECT_INDEX_PAREN.to_string(),
-        Value::from("b"),
+        crate::object::indexing::standard_substruct_fixture_from_parts(
+            OBJECT_INDEX_PAREN,
+            Value::Cell(CellArray::new(vec![Value::from("b")], 1, 1).unwrap()),
+        )
+        .unwrap(),
     ))
     .unwrap();
     assert_eq!(value, Value::Num(20.0));

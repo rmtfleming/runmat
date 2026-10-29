@@ -1758,6 +1758,21 @@ fn elementwise_binary_broadcast_data(
     Ok((out, shape, GpuTensorStorage::ComplexInterleaved))
 }
 
+fn require_non_integer_elementwise_inputs(
+    operation: &'static str,
+    left: &GpuTensorHandle,
+    right: &GpuTensorHandle,
+) -> Result<()> {
+    if runmat_accelerate_api::handle_integer_type(left).is_some()
+        || runmat_accelerate_api::handle_integer_type(right).is_some()
+    {
+        return Err(runmat_accelerate_api::unsupported_provider_operation(
+            format!("{operation}: native integer inputs are not supported by this provider"),
+        ));
+    }
+    Ok(())
+}
+
 fn elementwise_pow_broadcast_data(
     context: &str,
     lhs: &[f64],
@@ -4435,7 +4450,7 @@ impl AccelProvider for InProcessProvider {
     fn device_info_struct(&self) -> runmat_accelerate_api::ApiDeviceInfo {
         runmat_accelerate_api::ApiDeviceInfo {
             device_id: self.device_id,
-            name: "InProcess".to_string(),
+            name: "InProcess".into(),
             vendor: "RunMat".to_string(),
             memory_bytes: None,
             backend: Some("inprocess".to_string()),
@@ -5488,6 +5503,7 @@ impl AccelProvider for InProcessProvider {
         b: &'a GpuTensorHandle,
     ) -> AccelProviderFuture<'a, GpuTensorHandle> {
         Box::pin(async move {
+            require_non_integer_elementwise_inputs("elem_add", a, b)?;
             let (out, shape, storage) = {
                 let guard = registry().lock().unwrap();
                 let abuf = guard
@@ -5521,6 +5537,7 @@ impl AccelProvider for InProcessProvider {
         b: &'a GpuTensorHandle,
     ) -> AccelProviderFuture<'a, GpuTensorHandle> {
         Box::pin(async move {
+            require_non_integer_elementwise_inputs("elem_mul", a, b)?;
             let (out, shape, storage) = {
                 let guard = registry().lock().unwrap();
                 let abuf = guard
@@ -5554,6 +5571,7 @@ impl AccelProvider for InProcessProvider {
         b: &'a GpuTensorHandle,
     ) -> AccelProviderFuture<'a, GpuTensorHandle> {
         Box::pin(async move {
+            require_non_integer_elementwise_inputs("elem_sub", a, b)?;
             let (out, shape, storage) = {
                 let guard = registry().lock().unwrap();
                 let abuf = guard
@@ -5587,6 +5605,7 @@ impl AccelProvider for InProcessProvider {
         b: &'a GpuTensorHandle,
     ) -> AccelProviderFuture<'a, GpuTensorHandle> {
         Box::pin(async move {
+            require_non_integer_elementwise_inputs("elem_div", a, b)?;
             let (out, shape, storage) = {
                 let guard = registry().lock().unwrap();
                 let abuf = guard
@@ -5620,6 +5639,7 @@ impl AccelProvider for InProcessProvider {
         b: &'a GpuTensorHandle,
     ) -> AccelProviderFuture<'a, GpuTensorHandle> {
         Box::pin(async move {
+            require_non_integer_elementwise_inputs("elem_pow", a, b)?;
             let (out, shape) = {
                 let guard = registry().lock().unwrap();
                 let abuf = guard
@@ -6596,7 +6616,11 @@ impl AccelProvider for InProcessProvider {
         &'a self,
         _a: &'a GpuTensorHandle,
     ) -> AccelProviderFuture<'a, GpuTensorHandle> {
-        Box::pin(async move { Err(anyhow::anyhow!("unary_gamma not supported by provider")) })
+        Box::pin(async move {
+            Err(runmat_accelerate_api::unsupported_provider_operation(
+                "unary_gamma not supported by provider",
+            ))
+        })
     }
     fn unary_gammaln<'a>(
         &'a self,
@@ -9340,7 +9364,9 @@ impl AccelProvider for InProcessProvider {
         _direction: ProviderScanDirection,
         _nan_mode: ProviderNanMode,
     ) -> Result<GpuTensorHandle> {
-        Err(anyhow!("cumsum_scan not supported by provider"))
+        Err(runmat_accelerate_api::unsupported_provider_operation(
+            "cumsum_scan not supported by provider",
+        ))
     }
 
     fn integer_cumsum_scan(
@@ -9410,7 +9436,9 @@ impl AccelProvider for InProcessProvider {
         _direction: ProviderScanDirection,
         _nan_mode: ProviderNanMode,
     ) -> Result<runmat_accelerate_api::ProviderCumminResult> {
-        Err(anyhow!("cummin_scan not supported by provider"))
+        Err(runmat_accelerate_api::unsupported_provider_operation(
+            "cummin_scan not supported by provider",
+        ))
     }
 
     fn integer_cummin_scan(
@@ -10444,11 +10472,11 @@ mod tests {
                     .expect("shared native upload");
                 assert_eq!(handle.descriptor.element_type, Some(expected_type));
                 assert_eq!(handle.descriptor.storage, Some(storage));
-                runmat_accelerate_api::clear_handle_class_name(&handle);
+                runmat_accelerate_api::clear_handle_class_identity(&handle);
                 assert_eq!(runmat_accelerate_api::handle_storage(&handle), storage);
                 assert_eq!(
-                    runmat_accelerate_api::handle_class_name(&handle).as_deref(),
-                    Some(expected_type.class_name())
+                    runmat_accelerate_api::handle_class_identity(&handle),
+                    Some(expected_type.class_identity())
                 );
                 assert_eq!(
                     runmat_accelerate_api::handle_precision(&handle),
@@ -11456,7 +11484,7 @@ mod tests {
                 Some(NumericElementType::F32)
             );
             assert_eq!(output.descriptor.storage, Some(GpuTensorStorage::Real));
-            runmat_accelerate_api::clear_handle_class_name(output);
+            runmat_accelerate_api::clear_handle_class_identity(output);
         }
         let x_output = block_on(provider.download_numeric(&result.outputs[0]))
             .expect("download native single x grid");

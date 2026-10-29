@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use once_cell::sync::{Lazy, OnceCell};
+use runmat_types::{standard, ClassIdentity};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use std::cell::Cell;
@@ -13,19 +14,41 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
+mod native_device;
 mod placement;
 
+pub use native_device::*;
 pub use placement::*;
 
 type ResidencyMarkFn = fn(&GpuTensorHandle);
 type ResidencyClearFn = fn(&GpuTensorHandle);
 type SequenceThresholdFn = fn() -> Option<usize>;
 type WorkgroupSizeHintFn = fn() -> Option<u32>;
+type ExecutionProviderAuthorizer = fn(&dyn AccelProvider) -> ExecutionProviderAuthorization;
 
 static RESIDENCY_MARK: OnceCell<ResidencyMarkFn> = OnceCell::new();
 static RESIDENCY_CLEAR: OnceCell<ResidencyClearFn> = OnceCell::new();
 static SEQUENCE_THRESHOLD_PROVIDER: OnceCell<SequenceThresholdFn> = OnceCell::new();
 static WORKGROUP_SIZE_HINT_PROVIDER: OnceCell<WorkgroupSizeHintFn> = OnceCell::new();
+static EXECUTION_PROVIDER_AUTHORIZER: OnceCell<ExecutionProviderAuthorizer> = OnceCell::new();
+
+/// Scheduler authorization state for one process-local acceleration provider.
+/// Direct sessions are unrestricted. Scheduled invocations explicitly allow
+/// or deny providers from their fenced device assignment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionProviderAuthorization {
+    Unrestricted,
+    Allowed,
+    Denied,
+}
+
+/// Installs the runtime-owned provider authorization policy. Provider
+/// discovery remains in this crate; invocation and lease authority remain in
+/// the runtime. The callback connects those domains without a dependency
+/// cycle.
+pub fn register_execution_provider_authorizer(authorizer: ExecutionProviderAuthorizer) {
+    let _ = EXECUTION_PROVIDER_AUTHORIZER.set(authorizer);
+}
 
 pub type GpuHandleIdentity = (u32, u64);
 
@@ -36,7 +59,7 @@ static LOGICAL_HANDLE_HITS: Lazy<RwLock<HashMap<GpuHandleIdentity, u64>>> =
 static TRANSPOSED_HANDLES: Lazy<RwLock<HashMap<GpuHandleIdentity, TransposeInfo>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-static HANDLE_CLASS_NAMES: Lazy<RwLock<HashMap<GpuHandleIdentity, String>>> =
+static HANDLE_CLASS_IDENTITIES: Lazy<RwLock<HashMap<GpuHandleIdentity, ClassIdentity>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub const fn handle_identity(handle: &GpuTensorHandle) -> GpuHandleIdentity {
@@ -128,20 +151,23 @@ pub fn handle_precision(handle: &GpuTensorHandle) -> Option<ProviderPrecision> {
         .and_then(NumericElementType::precision)
 }
 
-/// Record the MATLAB underlying class associated with a GPU tensor handle.
+/// Record the underlying runtime class associated with a GPU tensor handle.
 ///
 /// Precision alone cannot represent integer gpuArray classes, so runtime
 /// introspection and validation use this metadata when the upload path knows
 /// the exact requested or inferred class.
-pub fn set_handle_class_name(handle: &GpuTensorHandle, class_name: impl Into<String>) {
-    if let Ok(mut guard) = HANDLE_CLASS_NAMES.write() {
-        guard.insert(handle_identity(handle), class_name.into());
+pub fn set_handle_class_identity(
+    handle: &GpuTensorHandle,
+    class_identity: impl Into<ClassIdentity>,
+) {
+    if let Ok(mut guard) = HANDLE_CLASS_IDENTITIES.write() {
+        guard.insert(handle_identity(handle), class_identity.into());
     }
 }
 
-/// Look up the recorded MATLAB underlying class for a GPU tensor handle.
-pub fn handle_class_name(handle: &GpuTensorHandle) -> Option<String> {
-    HANDLE_CLASS_NAMES
+/// Look up the recorded underlying runtime class for a GPU tensor handle.
+pub fn handle_class_identity(handle: &GpuTensorHandle) -> Option<ClassIdentity> {
+    HANDLE_CLASS_IDENTITIES
         .read()
         .ok()
         .and_then(|guard| guard.get(&handle_identity(handle)).cloned())
@@ -149,13 +175,13 @@ pub fn handle_class_name(handle: &GpuTensorHandle) -> Option<String> {
             handle
                 .descriptor
                 .element_type
-                .map(|element_type| element_type.class_name().to_string())
+                .map(NumericElementType::class_identity)
         })
 }
 
-/// Clear any recorded MATLAB underlying class metadata for a GPU tensor handle.
-pub fn clear_handle_class_name(handle: &GpuTensorHandle) {
-    if let Ok(mut guard) = HANDLE_CLASS_NAMES.write() {
+/// Clear any recorded underlying runtime class metadata for a GPU tensor handle.
+pub fn clear_handle_class_identity(handle: &GpuTensorHandle) {
+    if let Ok(mut guard) = HANDLE_CLASS_IDENTITIES.write() {
         guard.remove(&handle_identity(handle));
     }
 }
@@ -178,13 +204,13 @@ pub fn set_handle_logical(handle: &GpuTensorHandle, logical: bool) {
         }
     }
     if logical {
-        if let Ok(mut classes) = HANDLE_CLASS_NAMES.write() {
-            classes.insert(identity, "logical".into());
+        if let Ok(mut classes) = HANDLE_CLASS_IDENTITIES.write() {
+            classes.insert(identity, standard::LOGICAL.owned());
         }
-    } else if let Ok(mut classes) = HANDLE_CLASS_NAMES.write() {
+    } else if let Ok(mut classes) = HANDLE_CLASS_IDENTITIES.write() {
         if classes
             .get(&identity)
-            .is_some_and(|class| class == "logical")
+            .is_some_and(|class| class.is(standard::LOGICAL))
         {
             classes.remove(&identity);
         }
@@ -284,12 +310,49 @@ impl IntegerElementType {
     }
 }
 
+impl From<IntegerElementType> for runmat_types::IntegerClass {
+    fn from(element_type: IntegerElementType) -> Self {
+        match element_type {
+            IntegerElementType::I8 => Self::Int8,
+            IntegerElementType::I16 => Self::Int16,
+            IntegerElementType::I32 => Self::Int32,
+            IntegerElementType::I64 => Self::Int64,
+            IntegerElementType::U8 => Self::UInt8,
+            IntegerElementType::U16 => Self::UInt16,
+            IntegerElementType::U32 => Self::UInt32,
+            IntegerElementType::U64 => Self::UInt64,
+        }
+    }
+}
+
+impl From<runmat_types::IntegerClass> for IntegerElementType {
+    fn from(class: runmat_types::IntegerClass) -> Self {
+        use runmat_types::IntegerClass;
+
+        match class {
+            IntegerClass::Int8 => Self::I8,
+            IntegerClass::Int16 => Self::I16,
+            IntegerClass::Int32 => Self::I32,
+            IntegerClass::Int64 => Self::I64,
+            IntegerClass::UInt8 => Self::U8,
+            IntegerClass::UInt16 => Self::U16,
+            IntegerClass::UInt32 => Self::U32,
+            IntegerClass::UInt64 => Self::U64,
+        }
+    }
+}
+
 /// Look up the exact native integer class stored by a GPU tensor handle.
 pub fn handle_integer_type(handle: &GpuTensorHandle) -> Option<IntegerElementType> {
     handle
         .descriptor
         .element_type
         .and_then(NumericElementType::integer_type)
+}
+
+/// Look up the source-language integer class stored by a GPU tensor handle.
+pub fn handle_integer_class(handle: &GpuTensorHandle) -> Option<runmat_types::IntegerClass> {
+    handle_integer_type(handle).map(Into::into)
 }
 
 impl Default for GpuTensorStorage {
@@ -397,7 +460,7 @@ pub fn handle_is_explicit(handle: &GpuTensorHandle) -> bool {
 /// available on existing handle values.
 pub fn clear_handle_metadata(handle: &GpuTensorHandle) {
     clear_residency(handle);
-    clear_handle_class_name(handle);
+    clear_handle_class_identity(handle);
     clear_handle_logical(handle);
     clear_handle_transpose(handle);
 }
@@ -1506,8 +1569,33 @@ pub type AccelDownloadFuture<'a> = AccelProviderFuture<'a, crate::HostTensorOwne
 pub type AccelIntegerDownloadFuture<'a> = AccelProviderFuture<'a, crate::HostIntegerTensorOwned>;
 pub type AccelNumericDownloadFuture<'a> = AccelProviderFuture<'a, crate::HostNumericTensorOwned>;
 
+#[derive(Debug)]
+pub struct UnsupportedProviderOperation {
+    detail: String,
+}
+
+impl std::fmt::Display for UnsupportedProviderOperation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for UnsupportedProviderOperation {}
+
+pub fn unsupported_provider_operation(detail: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(UnsupportedProviderOperation {
+        detail: detail.into(),
+    })
+}
+
+pub fn is_unsupported_provider_operation(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<UnsupportedProviderOperation>()
+        .is_some()
+}
+
 fn unsupported_future<T>(message: &'static str) -> AccelProviderFuture<'static, T> {
-    Box::pin(async move { Err(anyhow::anyhow!(message)) })
+    Box::pin(async move { Err(unsupported_provider_operation(message)) })
 }
 
 /// Device/provider interface that backends implement and register into the runtime layer
@@ -1638,6 +1726,102 @@ pub trait AccelProvider: Send + Sync {
 
     fn free(&self, h: &GpuTensorHandle) -> anyhow::Result<()>;
     fn device_info(&self) -> String;
+
+    /// Native device ABI this provider can expose to extension code.
+    ///
+    /// Returning `None` is the conservative default. In particular, a WGPU
+    /// buffer is not a CUDA allocation and must not be exported through this
+    /// contract even when both ultimately use the same physical GPU.
+    fn native_device_api(&self) -> Option<NativeDeviceApi> {
+        None
+    }
+
+    /// Describe the provider-owned native device, context, and stream.
+    fn native_device_context(&self) -> anyhow::Result<NativeDeviceContext> {
+        Err(anyhow!(
+            "provider '{}' does not expose a native device context",
+            self.device_info()
+        ))
+    }
+
+    /// Make the provider's native context current on this execution lane.
+    fn enter_native_device_context(&self) -> anyhow::Result<NativeDeviceContextGuard> {
+        Err(anyhow!(
+            "provider '{}' does not support native device context entry",
+            self.device_info()
+        ))
+    }
+
+    /// Export one provider-owned buffer to compatible native extension code.
+    fn export_native_device_buffer(
+        &self,
+        _handle: &GpuTensorHandle,
+        _access: NativeDeviceAccess,
+    ) -> anyhow::Result<NativeDeviceBuffer> {
+        Err(anyhow!(
+            "provider '{}' does not expose native device buffers",
+            self.device_info()
+        ))
+    }
+
+    /// Allocate a provider-owned native numeric buffer.
+    fn allocate_native_device_buffer(
+        &self,
+        _shape: &[usize],
+        _element_type: NumericElementType,
+        _storage: GpuTensorStorage,
+        _initialization: NativeDeviceInitialization,
+    ) -> anyhow::Result<GpuTensorHandle> {
+        Err(anyhow!(
+            "provider '{}' does not allocate native extension buffers",
+            self.device_info()
+        ))
+    }
+
+    /// Make an independent provider-owned copy of a native device buffer.
+    fn copy_native_device_buffer(
+        &self,
+        _source: &GpuTensorHandle,
+    ) -> anyhow::Result<GpuTensorHandle> {
+        Err(anyhow!(
+            "provider '{}' does not copy native extension buffers",
+            self.device_info()
+        ))
+    }
+
+    /// Copy one component from an interleaved complex native buffer into a
+    /// new real buffer owned by this provider.
+    fn copy_native_device_component(
+        &self,
+        _source: &GpuTensorHandle,
+        _component: NativeDeviceComponent,
+    ) -> anyhow::Result<GpuTensorHandle> {
+        Err(anyhow!(
+            "provider '{}' does not extract native complex components",
+            self.device_info()
+        ))
+    }
+
+    /// Combine matching real native buffers into a new interleaved complex
+    /// buffer owned by this provider.
+    fn combine_native_device_components(
+        &self,
+        _real: &GpuTensorHandle,
+        _imaginary: &GpuTensorHandle,
+    ) -> anyhow::Result<GpuTensorHandle> {
+        Err(anyhow!(
+            "provider '{}' does not combine native complex components",
+            self.device_info()
+        ))
+    }
+
+    /// Wait for work submitted through the provider's native extension stream.
+    fn synchronize_native_device(&self) -> anyhow::Result<()> {
+        Err(anyhow!(
+            "provider '{}' does not expose native device synchronization",
+            self.device_info()
+        ))
+    }
     /// Returns the stable identifier used to route this provider's handles.
     /// Distinct concurrently registered provider instances must return distinct
     /// identifiers; reusing an identifier would make handle ownership ambiguous.
@@ -1659,6 +1843,17 @@ pub trait AccelProvider: Send + Sync {
     /// mandatory floating-point transfer boundary.
     fn capability_snapshot(&self) -> ProviderCapabilitySnapshot {
         ProviderCapabilitySnapshot::conservative(self)
+    }
+
+    /// Returns a validated cluster-facing device description when this
+    /// provider can execute remotely scheduled accelerator work. Providers
+    /// opt in explicitly, so host-only compatibility providers are never
+    /// advertised as hardware accelerators.
+    fn execution_accelerator_device(
+        &self,
+        _inventory_epoch: u64,
+    ) -> anyhow::Result<Option<runmat_execution::resource::AcceleratorDevice>> {
+        Ok(None)
     }
 
     /// Determines whether a representation-specific operation can execute
@@ -2357,15 +2552,19 @@ pub trait AccelProvider: Send + Sync {
         Err(anyhow::anyhow!("logical_isreal not supported by provider"))
     }
     fn logical_isfinite(&self, _a: &GpuTensorHandle) -> anyhow::Result<GpuTensorHandle> {
-        Err(anyhow::anyhow!(
-            "logical_isfinite not supported by provider"
+        Err(unsupported_provider_operation(
+            "logical_isfinite not supported by provider",
         ))
     }
     fn logical_isnan(&self, _a: &GpuTensorHandle) -> anyhow::Result<GpuTensorHandle> {
-        Err(anyhow::anyhow!("logical_isnan not supported by provider"))
+        Err(unsupported_provider_operation(
+            "logical_isnan not supported by provider",
+        ))
     }
     fn logical_isinf(&self, _a: &GpuTensorHandle) -> anyhow::Result<GpuTensorHandle> {
-        Err(anyhow::anyhow!("logical_isinf not supported by provider"))
+        Err(unsupported_provider_operation(
+            "logical_isinf not supported by provider",
+        ))
     }
     fn elem_atan2<'a>(
         &'a self,
@@ -3652,14 +3851,52 @@ unsafe fn register_provider_for_device(device_id: u32, provider: &'static dyn Ac
     }
 }
 
+/// Register a provider as an addressable device owner without selecting it as
+/// the ambient placement provider.
+///
+/// This supports specialized native-device providers that coexist with WGPU
+/// or another general compute provider. Handles produced by the provider route
+/// through its distinct device id.
+///
+/// # Safety
+///
+/// The provider must remain valid for the process lifetime, and its device id
+/// must not be reused by a different live provider.
+pub unsafe fn register_device_provider(provider: &'static dyn AccelProvider) {
+    // SAFETY: the caller supplies the same lifetime and identity guarantees as
+    // `register_provider`; this variant changes only ambient selection.
+    unsafe { register_provider_for_device(provider.device_id(), provider) };
+}
+
 pub fn provider() -> Option<&'static dyn AccelProvider> {
-    if let Some(p) = current_thread_provider() {
+    if let Some(p) = current_thread_provider().filter(|provider| provider_is_authorized(*provider))
+    {
         return Some(p);
     }
-    GLOBAL_PROVIDER
+    if let Some(provider) = GLOBAL_PROVIDER
         .read()
         .ok()
         .and_then(|guard| guard.as_ref().copied())
+        .filter(|provider| provider_is_authorized(*provider))
+    {
+        return Some(provider);
+    }
+    PROVIDER_REGISTRY.read().ok().and_then(|providers| {
+        providers
+            .iter()
+            // Registry-only providers (for example a native CUDA extension
+            // provider beside ambient WGPU) become the default only when a
+            // scheduled assignment names them. Direct sessions retain the
+            // established ambient-provider policy.
+            .filter(|(_, provider)| {
+                matches!(
+                    provider_authorization(**provider),
+                    ExecutionProviderAuthorization::Allowed
+                )
+            })
+            .min_by_key(|(device_id, _)| **device_id)
+            .map(|(_, provider)| *provider)
+    })
 }
 
 /// Clear the active provider selection without invalidating providers that own live handles.
@@ -3681,23 +3918,88 @@ pub fn provider_for_device(device_id: u32) -> Option<&'static dyn AccelProvider>
         .ok()
         .and_then(|guard| guard.get(&device_id).copied())
     {
-        return Some(registered);
+        return provider_is_authorized(registered).then_some(registered);
     }
     if let Some(thread_provider) = current_thread_provider() {
         if thread_provider.device_id() == device_id {
-            return Some(thread_provider);
+            return provider_is_authorized(thread_provider).then_some(thread_provider);
         }
     }
     // Preserve legacy behavior: when no explicit per-device registration exists,
     // fall back to the globally active provider regardless of handle device id.
-    GLOBAL_PROVIDER
+    let fallback = GLOBAL_PROVIDER
         .read()
         .ok()
-        .and_then(|guard| guard.as_ref().copied())
+        .and_then(|guard| guard.as_ref().copied());
+    fallback.filter(|provider| {
+        matches!(
+            provider_authorization(*provider),
+            ExecutionProviderAuthorization::Unrestricted
+        )
+    })
+}
+
+/// Returns every addressable provider in deterministic process-local order.
+/// Provider registration guarantees that these references remain valid for
+/// the process lifetime.
+pub fn registered_providers() -> Vec<&'static dyn AccelProvider> {
+    PROVIDER_REGISTRY
+        .read()
+        .map(|providers| providers.values().copied().collect())
+        .unwrap_or_default()
 }
 
 pub fn provider_for_handle(handle: &GpuTensorHandle) -> Option<&'static dyn AccelProvider> {
     provider_for_device(handle.device_id)
+}
+
+/// Select a registered provider that explicitly exposes `api`.
+///
+/// The thread-selected provider wins when compatible. Otherwise selection is
+/// deterministic by provider device id, allowing a native extension backend
+/// to coexist with a different ambient placement provider.
+pub fn provider_for_native_device(api: NativeDeviceApi) -> Option<&'static dyn AccelProvider> {
+    if let Some(selected) = current_thread_provider().filter(|provider| {
+        provider.native_device_api() == Some(api) && provider_is_authorized(*provider)
+    }) {
+        return Some(selected);
+    }
+    PROVIDER_REGISTRY.read().ok().and_then(|providers| {
+        providers
+            .iter()
+            .filter(|(_, provider)| {
+                provider.native_device_api() == Some(api) && provider_is_authorized(**provider)
+            })
+            .min_by_key(|(device_id, _)| **device_id)
+            .map(|(_, provider)| *provider)
+    })
+}
+
+/// Returns whether a process-local provider advertises the exact device
+/// contract named by a scheduler lease.
+pub fn provider_matches_execution_lease(
+    provider: &(impl AccelProvider + ?Sized),
+    lease: &runmat_execution::resource::AcceleratorDeviceLease,
+) -> bool {
+    provider
+        .execution_accelerator_device(lease.inventory_epoch)
+        .ok()
+        .flatten()
+        .is_some_and(|device| lease.matches_device(&device))
+}
+
+fn provider_authorization(provider: &dyn AccelProvider) -> ExecutionProviderAuthorization {
+    EXECUTION_PROVIDER_AUTHORIZER
+        .get()
+        .map(|authorizer| authorizer(provider))
+        .unwrap_or(ExecutionProviderAuthorization::Unrestricted)
+}
+
+fn provider_is_authorized(provider: &dyn AccelProvider) -> bool {
+    !matches!(
+        provider_authorization(provider),
+        ExecutionProviderAuthorization::Denied
+    )
 }
 
 pub fn spawn_handle_concurrency_for(handle: &GpuTensorHandle) -> Option<SpawnHandleConcurrency> {
@@ -3826,6 +4128,21 @@ impl NumericElementType {
             Self::U16 => "uint16",
             Self::U32 => "uint32",
             Self::U64 => "uint64",
+        }
+    }
+
+    pub fn class_identity(self) -> ClassIdentity {
+        match self {
+            Self::F64 => standard::DOUBLE.owned(),
+            Self::F32 => standard::SINGLE.owned(),
+            Self::I8 => standard::INT8.owned(),
+            Self::I16 => standard::INT16.owned(),
+            Self::I32 => standard::INT32.owned(),
+            Self::I64 => standard::INT64.owned(),
+            Self::U8 => standard::UINT8.owned(),
+            Self::U16 => standard::UINT16.owned(),
+            Self::U32 => standard::UINT32.owned(),
+            Self::U64 => standard::UINT64.owned(),
         }
     }
 
@@ -4697,7 +5014,10 @@ mod tests {
             handle_provenance(&cloned),
             Some(GpuHandleProvenance::Explicit)
         );
-        assert_eq!(handle_class_name(&cloned).as_deref(), Some("uint64"));
+        assert_eq!(
+            handle_class_identity(&cloned),
+            Some(standard::UINT64.owned())
+        );
 
         let encoded = serde_json::to_string(&cloned).expect("serialize durable handle");
         let decoded: GpuTensorHandle =
@@ -4724,7 +5044,10 @@ mod tests {
             handle_storage(&floating),
             GpuTensorStorage::ComplexInterleaved
         );
-        assert_eq!(handle_class_name(&floating).as_deref(), Some("single"));
+        assert_eq!(
+            handle_class_identity(&floating),
+            Some(standard::SINGLE.owned())
+        );
         clear_handle_metadata(&floating);
 
         let integer = GpuTensorHandle::new(vec![1, 2], 37, 41)
@@ -4732,7 +5055,10 @@ mod tests {
 
         assert_eq!(handle_precision(&integer), None);
         assert_eq!(handle_integer_type(&integer), Some(IntegerElementType::U64));
-        assert_eq!(handle_class_name(&integer).as_deref(), Some("uint64"));
+        assert_eq!(
+            handle_class_identity(&integer),
+            Some(standard::UINT64.owned())
+        );
         clear_handle_metadata(&integer);
     }
 
@@ -4894,8 +5220,8 @@ mod tests {
         clear_handle_metadata(&first);
         clear_handle_metadata(&second);
 
-        set_handle_class_name(&first, "single");
-        set_handle_class_name(&second, "uint64");
+        set_handle_class_identity(&first, standard::SINGLE);
+        set_handle_class_identity(&second, standard::UINT64);
         set_handle_logical(&first, true);
         record_handle_transpose(&first, 2, 3);
         mark_handle_automatic(&mut first);
@@ -4903,8 +5229,14 @@ mod tests {
 
         assert_eq!(handle_precision(&first), Some(ProviderPrecision::F32));
         assert_eq!(handle_precision(&second), None);
-        assert_eq!(handle_class_name(&first).as_deref(), Some("logical"));
-        assert_eq!(handle_class_name(&second).as_deref(), Some("uint64"));
+        assert_eq!(
+            handle_class_identity(&first),
+            Some(standard::LOGICAL.owned())
+        );
+        assert_eq!(
+            handle_class_identity(&second),
+            Some(standard::UINT64.owned())
+        );
         assert_eq!(handle_integer_type(&first), None);
         assert_eq!(handle_integer_type(&second), Some(IntegerElementType::U64));
         assert!(handle_is_logical(&first));
@@ -4927,7 +5259,10 @@ mod tests {
 
         clear_handle_metadata(&first);
         assert_eq!(handle_precision(&first), Some(ProviderPrecision::F32));
-        assert_eq!(handle_class_name(&first).as_deref(), Some("single"));
+        assert_eq!(
+            handle_class_identity(&first),
+            Some(standard::SINGLE.owned())
+        );
         assert!(!handle_is_logical(&first));
         assert_eq!(handle_transpose_info(&first), None);
         assert_eq!(
@@ -5174,5 +5509,35 @@ mod tests {
             !desc.clamp_zero,
             "explicit clamp_zero=false should preserve unclamped semantics"
         );
+    }
+
+    #[test]
+    fn unsupported_provider_operations_have_typed_identity() {
+        let unsupported = unsupported_provider_operation("test operation is unavailable");
+        let dynamic = unsupported_provider_operation(format!("unsupported precision {}", 64));
+        let ordinary = anyhow::anyhow!("test operation is unavailable");
+
+        assert!(is_unsupported_provider_operation(&unsupported));
+        assert!(is_unsupported_provider_operation(&dynamic));
+        assert!(!is_unsupported_provider_operation(&ordinary));
+        assert_eq!(unsupported.to_string(), "test operation is unavailable");
+        assert_eq!(dynamic.to_string(), "unsupported precision 64");
+    }
+
+    #[test]
+    fn provider_integer_elements_round_trip_source_language_classes() {
+        for element_type in [
+            IntegerElementType::I8,
+            IntegerElementType::I16,
+            IntegerElementType::I32,
+            IntegerElementType::I64,
+            IntegerElementType::U8,
+            IntegerElementType::U16,
+            IntegerElementType::U32,
+            IntegerElementType::U64,
+        ] {
+            let class = runmat_types::IntegerClass::from(element_type);
+            assert_eq!(IntegerElementType::from(class), element_type);
+        }
     }
 }

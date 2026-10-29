@@ -16,7 +16,7 @@ use runmat_value::{
 
 use crate::builtins::common::gpu_helpers;
 use crate::builtins::common::tensor as tensor_utils;
-use crate::builtins::math::elementwise::conj::conjugate_integer_imaginary_storage;
+use crate::builtins::math::elementwise::complex_components::conjugate_integer_imaginary_storage;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 const NAME: &str = "toeplitz";
@@ -372,7 +372,7 @@ fn toeplitz_typed_integer(
     let (InputVector::TypedInteger(c), InputVector::TypedInteger(r)) = (c, r) else {
         unreachable!("typed integer branch requires typed integer vectors");
     };
-    if c.class_name() != r.class_name() {
+    if c.numeric_dtype() != r.numeric_dtype() {
         return Err(error_with_detail(
             &ERROR_INVALID_INPUT,
             "integer inputs must use one common native integer class",
@@ -413,7 +413,7 @@ fn toeplitz_typed_complex(
             "typed complex integer inputs must use the same integer class",
         ));
     };
-    if c.class_name() != r.class_name() {
+    if c.numeric_dtype() != r.numeric_dtype() {
         return Err(error_with_detail(
             &ERROR_INVALID_INPUT,
             "typed complex integer inputs must use the same integer class",

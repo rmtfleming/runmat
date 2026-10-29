@@ -236,7 +236,7 @@ fn render_value(value: &Value, mode: RenderMode) -> Vec<String> {
             RenderMode::Nested => vec![crate::builtins::table::table_summary_text(value)
                 .unwrap_or_else(|_| value.to_string())],
         },
-        Value::Object(obj) if obj.is_class("datetime") => match mode {
+        Value::Object(obj) if obj.is_class(runmat_types::standard::DATETIME) => match mode {
             RenderMode::TopLevel => crate::builtins::datetime::datetime_display_text(value)
                 .map(|text| text.unwrap_or_else(|| value.to_string()))
                 .unwrap_or_else(|_| value.to_string())
@@ -248,7 +248,7 @@ fn render_value(value: &Value, mode: RenderMode) -> Vec<String> {
                 .flatten()
                 .unwrap_or_else(|| value.to_string())],
         },
-        Value::Object(obj) if obj.is_class("duration") => match mode {
+        Value::Object(obj) if obj.is_class(runmat_types::standard::DURATION) => match mode {
             RenderMode::TopLevel => crate::builtins::duration::duration_display_text(value)
                 .map(|text| text.unwrap_or_else(|| value.to_string()))
                 .unwrap_or_else(|_| value.to_string())
@@ -311,6 +311,7 @@ fn render_value(value: &Value, mode: RenderMode) -> Vec<String> {
             RenderMode::TopLevel => format_struct(struct_value),
             RenderMode::Nested => vec!["[1x1 struct]".to_string()],
         },
+        Value::StructArray(array) => vec![array.to_string()],
         Value::Cell(cell) => match mode {
             RenderMode::TopLevel => format_cell(cell),
             RenderMode::Nested => vec![format!(
@@ -333,6 +334,8 @@ fn render_value(value: &Value, mode: RenderMode) -> Vec<String> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => {
             vec![value.to_string()]
@@ -737,6 +740,10 @@ fn summarize_for_cell(value: &Value) -> String {
             }
         }
         Value::Struct(_) => "[1x1 struct]".to_string(),
+        Value::StructArray(array) => format!(
+            "[{} struct]",
+            dims_to_string(&canonical_dims(array.shape()))
+        ),
         Value::Cell(inner) => format!("[{} cell]", dims_to_string(&canonical_dims(&inner.shape))),
         Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
@@ -753,6 +760,8 @@ fn summarize_for_cell(value: &Value) -> String {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => value.to_string(),
         Value::GpuTensor(_) => "gpuArray".to_string(),

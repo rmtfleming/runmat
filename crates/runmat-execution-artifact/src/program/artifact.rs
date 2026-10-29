@@ -17,6 +17,8 @@ pub enum ExecutableForm {
     ExecutableUnitV3 = 3,
     NativeObjectV1 = 4,
     MeshingWorkload = 5,
+    InterpreterBytecodeV2 = 6,
+    InterpreterScriptV2 = 7,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -45,6 +47,17 @@ impl ProgramArtifact {
             return Ok(None);
         }
         runmat_execution::ExecutableUnitEnvelope::from_canonical_bytes(&self.executable_bytes)
+            .map(Some)
+            .map_err(|error| ArtifactError::Invalid(error.to_string()))
+    }
+
+    pub fn executable_unit_admission(
+        &self,
+    ) -> ArtifactResult<Option<runmat_execution::ExecutableUnitAdmission>> {
+        if self.form != ExecutableForm::ExecutableUnitV3 {
+            return Ok(None);
+        }
+        runmat_execution::ExecutableUnitEnvelope::admission(&self.executable_bytes)
             .map(Some)
             .map_err(|error| ArtifactError::Invalid(error.to_string()))
     }
@@ -94,12 +107,35 @@ impl ProgramArtifact {
             ));
         }
         self.target.validate_form(self.form)?;
-        if let Some(envelope) = self.executable_unit()? {
-            if envelope.manifest.identity.program != recipe.program_revision {
+        if let Some(admission) = self.executable_unit_admission()? {
+            if admission.identity.program != recipe.program_revision
+                || admission.identity.entrypoint != recipe.entrypoint
+                || admission.interop != recipe.interop
+            {
                 return Err(ArtifactError::Identity(
-                    "executable unit does not match its exact program revision".into(),
+                    "executable unit does not match its exact program revision, entrypoint, and interop manifest"
+                        .into(),
                 ));
             }
+            let semantic_accelerators =
+                runmat_execution::resource::accelerator_requirements_for_capabilities(
+                    &admission.capabilities,
+                )
+                .map_err(|error| ArtifactError::Invalid(error.to_string()))?;
+            if !runmat_execution::resource::accelerator_requests_satisfy_requirements(
+                &recipe.accelerators,
+                &semantic_accelerators,
+            ) {
+                return Err(ArtifactError::Identity(
+                    "program recipe omits accelerator requirements declared by its executable"
+                        .into(),
+                ));
+            }
+            // The transport envelope remains a bounded, opaque byte container
+            // here. Validate its canonical bytes and component digests without
+            // interpreting MIR, analysis, bytecode, or registry payloads.
+            self.executable_unit()?
+                .expect("executable-unit form returns its validated envelope");
         }
         if self.form == ExecutableForm::NativeObjectV1 {
             let payload = self

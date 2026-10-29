@@ -49,14 +49,35 @@ fn discover_source_catalog(
 }
 
 async fn load_dynamic_function(
+    runtime: runmat_runtime::context::RuntimeContext,
     name: String,
     args: Vec<Value>,
     requested_outputs: usize,
-    compat: CompatMode,
-    top_level_await_enabled: bool,
-    cache: Arc<Mutex<HashMap<std::path::PathBuf, DynamicFunctionCacheEntry>>>,
-    project_handoff: Option<runmat_package::FrozenProjectHandoff>,
-) -> Option<Result<Value, RuntimeError>> {
+    phase: runmat_runtime::user_functions::DynamicFunctionLoadPhase,
+    environment: DynamicFunctionEnvironment,
+) -> Option<Result<runmat_value::ValueSequence, RuntimeError>> {
+    #[cfg(target_arch = "wasm32")]
+    let _ = &runtime;
+    let DynamicFunctionEnvironment {
+        compat,
+        top_level_await_enabled,
+        cache,
+        project_handoff,
+        #[cfg(not(target_arch = "wasm32"))]
+        mex_runtime,
+    } = environment;
+    #[cfg(not(target_arch = "wasm32"))]
+    if phase == runmat_runtime::user_functions::DynamicFunctionLoadPhase::BeforeSemantic {
+        if let Some(result) = mex_runtime
+            .load_and_call(&name, args.clone(), requested_outputs, runtime)
+            .await
+        {
+            return Some(result);
+        }
+    }
+    if phase == runmat_runtime::user_functions::DynamicFunctionLoadPhase::BeforeSemantic {
+        return None;
+    }
     let resolve_span = info_span!(
         "runtime.callable.resolve",
         call_kind = "runtime-name",
@@ -275,6 +296,16 @@ async fn load_dynamic_function(
     )
 }
 
+#[derive(Clone)]
+struct DynamicFunctionEnvironment {
+    compat: CompatMode,
+    top_level_await_enabled: bool,
+    cache: Arc<Mutex<HashMap<std::path::PathBuf, DynamicFunctionCacheEntry>>>,
+    project_handoff: Option<runmat_package::FrozenProjectHandoff>,
+    #[cfg(not(target_arch = "wasm32"))]
+    mex_runtime: std::rc::Rc<runmat_runtime::foreign::MexRuntimeSession>,
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn discover_known_project_symbols(source_name: Option<&str>) -> HashSet<String> {
     discover_source_catalog(source_name)
@@ -283,6 +314,71 @@ fn discover_known_project_symbols(source_name: Option<&str>) -> HashSet<String> 
 }
 
 impl RunMatSession {
+    pub(super) fn configure_dynamic_function_services(&self) {
+        let dynamic_environment = DynamicFunctionEnvironment {
+            compat: self.compat_mode,
+            top_level_await_enabled: self.top_level_await_enabled,
+            cache: Arc::clone(&self.dynamic_function_cache),
+            project_handoff: self.project_handoff.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            mex_runtime: std::rc::Rc::clone(&self.mex_runtime),
+        };
+        let loader: std::rc::Rc<runmat_runtime::user_functions::DynamicFunctionLoader> =
+            std::rc::Rc::new(move |runtime, name, args, requested_outputs, phase| {
+                let environment = dynamic_environment.clone();
+                Box::pin(load_dynamic_function(
+                    runtime,
+                    name,
+                    args,
+                    requested_outputs,
+                    phase,
+                    environment,
+                ))
+            });
+        self.runtime_context
+            .set_dynamic_function_loader(Some(loader));
+
+        let dynamic_function_cache = Arc::clone(&self.dynamic_function_cache);
+        #[cfg(not(target_arch = "wasm32"))]
+        let mex_runtime = std::rc::Rc::clone(&self.mex_runtime);
+        let clearer: std::rc::Rc<runmat_runtime::user_functions::DynamicFunctionClearer> =
+            std::rc::Rc::new(move |runtime, request| {
+                let dynamic_function_cache = Arc::clone(&dynamic_function_cache);
+                #[cfg(not(target_arch = "wasm32"))]
+                let mex_runtime = std::rc::Rc::clone(&mex_runtime);
+                Box::pin(async move {
+                    #[cfg(target_arch = "wasm32")]
+                    let _ = &runtime;
+                    if !matches!(
+                        request,
+                        runmat_runtime::user_functions::DynamicFunctionClearRequest::NativeExtensions
+                    ) {
+                        let mut cache = dynamic_function_cache
+                            .lock()
+                            .unwrap_or_else(|poison| poison.into_inner());
+                        match &request {
+                            runmat_runtime::user_functions::DynamicFunctionClearRequest::All => {
+                                cache.clear();
+                            }
+                            runmat_runtime::user_functions::DynamicFunctionClearRequest::Named(
+                                name,
+                            ) => {
+                                cache.retain(|path, _| {
+                                    !super::dynamic::path_matches_clear_name(path, name)
+                                });
+                            }
+                            runmat_runtime::user_functions::DynamicFunctionClearRequest::NativeExtensions => {}
+                        }
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    mex_runtime.clear_gracefully(&request, runtime).await?;
+                    Ok(())
+                })
+            });
+        self.runtime_context
+            .set_dynamic_function_clearer(Some(clearer));
+    }
+
     async fn run(
         &mut self,
         input: &str,
@@ -302,26 +398,7 @@ impl RunMatSession {
                 self.project_handoff.clone(),
             ),
         );
-        let dynamic_function_cache = Arc::clone(&self.dynamic_function_cache);
-        let dynamic_function_compat = self.compat_mode;
-        let dynamic_function_top_level_await = self.top_level_await_enabled;
-        let dynamic_project_handoff = self.project_handoff.clone();
-        let loader: Arc<runmat_runtime::user_functions::DynamicFunctionLoader> =
-            Arc::new(move |name, args, requested_outputs| {
-                let cache = Arc::clone(&dynamic_function_cache);
-                let project_handoff = dynamic_project_handoff.clone();
-                Box::pin(load_dynamic_function(
-                    name,
-                    args,
-                    requested_outputs,
-                    dynamic_function_compat,
-                    dynamic_function_top_level_await,
-                    cache,
-                    project_handoff,
-                ))
-            });
-        self.runtime_context
-            .set_dynamic_function_loader(Some(loader));
+        self.configure_dynamic_function_services();
         let source_lookup_name = self
             .current_source_fullpath_name()
             .unwrap_or_else(|| self.current_source_name());
@@ -428,7 +505,7 @@ impl RunMatSession {
                 identity: source_identity,
             },
             result: result
-                .map(|outcome| apply_requested_output_policy(outcome, &requested_outputs)),
+                .and_then(|outcome| apply_requested_output_policy(outcome, &requested_outputs)),
         }
     }
 
@@ -721,11 +798,19 @@ impl RunMatSession {
         #[cfg(not(target_arch = "wasm32"))]
         let mut bytecode = interactive_unit.bytecode().clone();
         #[cfg(target_arch = "wasm32")]
-        let _ = mir;
-        #[cfg(target_arch = "wasm32")]
-        let _ = analysis;
-        #[cfg(target_arch = "wasm32")]
-        let mut bytecode = bytecode;
+        let mut bytecode = {
+            let mut bytecode = bytecode;
+            bytecode
+                .install_parallel_regions(&mir, &analysis.parallel)
+                .map_err(|error| {
+                    RunError::Runtime(
+                        build_runtime_error(error)
+                            .with_identifier("RunMat:ExecutableProduct")
+                            .build(),
+                    )
+                })?;
+            bytecode
+        };
         let source_catalog_entries = self
             .source_pool
             .entries()
@@ -1000,7 +1085,8 @@ impl RunMatSession {
             }
 
             match self.interpret_with_context(&execution_bytecode).await {
-                Ok(runmat_vm::InterpreterOutcome::Completed(results)) => {
+                Ok(runmat_vm::InterpreterOutcome::Completed(completion)) => {
+                    let results = completion.values;
                     self.stats.interpreter_fallback += 1;
                     if self.verbose {
                         debug!("Interpreter results: {results:?}");
@@ -1206,6 +1292,8 @@ impl RunMatSession {
                         continue;
                     }
                     let value_clone = self.variable_array[var_id].clone();
+                    runmat_runtime::execution::validate_storable_value(&value_clone)
+                        .map_err(RunError::Runtime)?;
                     if previous_workspace.get(name) != Some(&value_clone) {
                         changed_names.insert(name.clone());
                     }
@@ -1239,6 +1327,8 @@ impl RunMatSession {
                         continue;
                     }
                     let value_clone = self.variable_array[*var_id].clone();
+                    runmat_runtime::execution::validate_storable_value(&value_clone)
+                        .map_err(RunError::Runtime)?;
                     if previous_workspace.get(name) != Some(&value_clone) {
                         changed_names.insert(name.clone());
                     }
@@ -1271,6 +1361,8 @@ impl RunMatSession {
             self.next_semantic_function_id = next_semantic_function_id_after_success;
             // Apply 'ans' update if applicable (persisting expression result)
             if let Some((var_id, value)) = ans_update {
+                runmat_runtime::execution::validate_storable_value(&value)
+                    .map_err(RunError::Runtime)?;
                 self.bind_workspace_slot("ans".to_string(), var_id);
                 self.workspace_values.insert("ans".to_string(), value);
                 if debug_trace {
@@ -1549,51 +1641,58 @@ impl RunMatSession {
 fn apply_requested_output_policy(
     mut outcome: crate::abi::ExecutionOutcome,
     requested_outputs: &runmat_hir::RequestedOutputCount,
-) -> crate::abi::ExecutionOutcome {
+) -> Result<crate::abi::ExecutionOutcome, RunError> {
     use crate::abi::RuntimeFlow;
     use runmat_hir::RequestedOutputCount;
+    use runmat_value::{ValueSequence, ValueSequenceKind};
+
+    let flow = match outcome.flow {
+        RuntimeFlow::DynamicList(handle) => {
+            outcome.flow = match requested_outputs {
+                RequestedOutputCount::Zero | RequestedOutputCount::Exactly(0) => {
+                    RuntimeFlow::NoValue
+                }
+                _ => RuntimeFlow::DynamicList(handle),
+            };
+            return Ok(outcome);
+        }
+        RuntimeFlow::NoValue => Ok(ValueSequence::empty()),
+        RuntimeFlow::Single(value) => ValueSequence::single(value),
+        RuntimeFlow::OutputList(values) => ValueSequence::comma_separated(values),
+    }
+    .map_err(runmat_runtime::sequence::sequence_error_to_runtime)
+    .map_err(RunError::Runtime)?;
 
     outcome.flow = match requested_outputs {
         RequestedOutputCount::Zero => RuntimeFlow::NoValue,
-        RequestedOutputCount::One => match outcome.flow {
-            RuntimeFlow::OutputList(mut values) | RuntimeFlow::CommaList(mut values) => {
-                if values.is_empty() {
-                    RuntimeFlow::NoValue
-                } else {
-                    RuntimeFlow::Single(values.remove(0))
-                }
-            }
-            flow => flow,
-        },
+        RequestedOutputCount::One => first_runtime_flow_value(flow),
         RequestedOutputCount::Exactly(count) => {
             if *count == 0 {
                 RuntimeFlow::NoValue
             } else if *count == 1 {
-                match outcome.flow {
-                    RuntimeFlow::OutputList(mut values) | RuntimeFlow::CommaList(mut values) => {
-                        if values.is_empty() {
-                            RuntimeFlow::NoValue
-                        } else {
-                            RuntimeFlow::Single(values.remove(0))
-                        }
-                    }
-                    flow => flow,
-                }
+                first_runtime_flow_value(flow)
             } else {
-                match outcome.flow {
-                    RuntimeFlow::NoValue => RuntimeFlow::OutputList(Vec::new()),
-                    RuntimeFlow::Single(value) => RuntimeFlow::OutputList(vec![value]),
-                    RuntimeFlow::OutputList(mut values) | RuntimeFlow::CommaList(mut values) => {
-                        values.truncate(*count);
-                        RuntimeFlow::OutputList(values)
-                    }
-                    RuntimeFlow::DynamicList(handle) => RuntimeFlow::DynamicList(handle),
-                }
+                let mut values = flow.into_values();
+                values.truncate(*count);
+                RuntimeFlow::OutputList(values)
             }
         }
-        RequestedOutputCount::CurrentFunctionNargout => outcome.flow,
+        RequestedOutputCount::CurrentFunctionNargout
+        | RequestedOutputCount::DestinationSequenceCardinality => match flow.kind() {
+            ValueSequenceKind::Single => first_runtime_flow_value(flow),
+            ValueSequenceKind::CommaSeparated => RuntimeFlow::OutputList(flow.into_values()),
+        },
     };
-    outcome
+    Ok(outcome)
+}
+
+fn first_runtime_flow_value(sequence: runmat_value::ValueSequence) -> crate::abi::RuntimeFlow {
+    sequence
+        .into_values()
+        .into_iter()
+        .next()
+        .map(crate::abi::RuntimeFlow::Single)
+        .unwrap_or(crate::abi::RuntimeFlow::NoValue)
 }
 
 fn resolve_source_identity(
@@ -1865,20 +1964,80 @@ async fn resolve_path_source_input(
 
 #[cfg(test)]
 mod tests {
+    use super::apply_requested_output_policy;
     #[cfg(not(target_arch = "wasm32"))]
     use super::discover_known_project_symbols;
     #[cfg(not(target_arch = "wasm32"))]
     use super::source_input_text;
     #[cfg(not(target_arch = "wasm32"))]
     use crate::abi::SourceInput;
+    use crate::abi::{ExecutionOutcome, RuntimeFlow};
     #[cfg(not(target_arch = "wasm32"))]
     use crate::RunError;
+    use runmat_hir::RequestedOutputCount;
+    use runmat_value::Value;
     #[cfg(not(target_arch = "wasm32"))]
     use std::fs;
     #[cfg(not(target_arch = "wasm32"))]
     use std::path::{Path, PathBuf};
     #[cfg(not(target_arch = "wasm32"))]
     use std::sync::Arc;
+
+    #[test]
+    fn requested_output_policy_maps_checked_zero_one_and_many_results() {
+        let outcome = |flow| ExecutionOutcome {
+            flow,
+            ..ExecutionOutcome::default()
+        };
+
+        let zero = apply_requested_output_policy(
+            outcome(RuntimeFlow::OutputList(vec![Value::Num(1.0)])),
+            &RequestedOutputCount::Zero,
+        )
+        .unwrap();
+        assert!(matches!(zero.flow, RuntimeFlow::NoValue));
+
+        let one = apply_requested_output_policy(
+            outcome(RuntimeFlow::OutputList(vec![
+                Value::Num(1.0),
+                Value::Num(2.0),
+            ])),
+            &RequestedOutputCount::One,
+        )
+        .unwrap();
+        assert!(matches!(one.flow, RuntimeFlow::Single(Value::Num(1.0))));
+
+        let many = apply_requested_output_policy(
+            outcome(RuntimeFlow::Single(Value::Num(1.0))),
+            &RequestedOutputCount::Exactly(3),
+        )
+        .unwrap();
+        assert!(matches!(
+            many.flow,
+            RuntimeFlow::OutputList(ref values) if values == &[Value::Num(1.0)]
+        ));
+    }
+
+    #[test]
+    fn requested_output_policy_rejects_legacy_sequences_at_any_depth() {
+        for flow in [
+            RuntimeFlow::Single(Value::OutputList(vec![Value::Num(1.0)])),
+            RuntimeFlow::OutputList(vec![Value::OutputList(vec![Value::Num(1.0)])]),
+        ] {
+            let error = apply_requested_output_policy(
+                ExecutionOutcome {
+                    flow,
+                    ..ExecutionOutcome::default()
+                },
+                &RequestedOutputCount::Zero,
+            )
+            .unwrap_err();
+            let RunError::Runtime(error) = error else {
+                panic!("expected runtime error");
+            };
+            assert_eq!(error.identifier(), Some("RunMat:NestedLegacyOutputList"));
+        }
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     struct CwdGuard {

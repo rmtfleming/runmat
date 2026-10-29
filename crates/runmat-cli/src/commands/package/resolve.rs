@@ -107,6 +107,8 @@ fn native_capabilities() -> BTreeSet<HostCapability> {
     [
         HostCapability::Network,
         HostCapability::NativeLibrary,
+        HostCapability::Mex,
+        HostCapability::Jvm,
         HostCapability::Subprocess,
     ]
     .into_iter()

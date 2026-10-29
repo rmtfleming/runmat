@@ -213,6 +213,7 @@ pub const FUSION_SPEC: BuiltinFusionSpec = BuiltinFusionSpec {
 
 #[runtime_builtin(
     name = "ode23",
+    execution_stack = "process",
     category = "math/ode",
     summary = "Solve nonstiff ODE systems using adaptive Bogacki-Shampine 3(2) integration.",
     keywords = "ode23,ode,nonstiff,bogacki-shampine,adaptive step",
@@ -270,7 +271,7 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-y)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(-y)) })
             },
         )));
 
@@ -300,13 +301,13 @@ mod tests {
                     Value::Num(n) => *n,
                     other => panic!("expected scalar state, got {other:?}"),
                 };
-                Box::pin(async move { Ok(Value::Num(-y)) })
+                Box::pin(async move { crate::sequence::single_value_sequence(Value::Num(-y)) })
             },
         )));
 
         let out = block_on(ode23_builtin(
             Value::BoundFunctionHandle {
-                name: "ode_decay".to_string(),
+                name: "ode_decay".into(),
                 function: 55,
             },
             Value::Tensor(Tensor::new(vec![0.0, 1.0], vec![1, 2]).unwrap()),

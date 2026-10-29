@@ -86,7 +86,15 @@ impl Driver {
             }
             DriverCommand::ResizePool { pool_id, request } => {
                 let pool = self.pool_mut(pool_id)?;
-                let decision = request.decide(&pool.spec, pool.workers.len() as u32)?;
+                let available_workers = pool
+                    .workers
+                    .values()
+                    .filter(|worker| worker.accepts_work())
+                    .count();
+                let available_workers = u32::try_from(available_workers).map_err(|_| {
+                    RunnerError::Invalid("pool worker count exceeds the supported range".into())
+                })?;
+                let decision = request.decide(&pool.spec, available_workers)?;
                 if decision != ResizeDecision::Unchanged {
                     pool.state = PoolState::Resizing;
                     actions.push(DriverAction::ResizePool {
@@ -100,11 +108,13 @@ impl Driver {
                 }
             }
             DriverCommand::RegisterWorker(spec) => self.register_worker(spec)?,
+            DriverCommand::ActivateWorker(worker_id) => self.activate_worker(worker_id)?,
             DriverCommand::DrainWorker(worker_id) => self.drain_worker(worker_id)?,
             DriverCommand::WorkerLost(worker_id) => {
                 self.worker_lost(worker_id, &mut actions)?;
             }
             DriverCommand::Submit(submission) => self.submit(*submission)?,
+            DriverCommand::SubmitBatch(submissions) => self.submit_batch(submissions)?,
             DriverCommand::BackendReport(report) => {
                 self.apply_backend_report(report, &mut actions)?;
             }
@@ -125,6 +135,41 @@ impl Driver {
                     .filter(|(_, task)| scopes.contains(&task.submission.request.scope_id))
                     .map(|(task_id, _)| *task_id)
                     .collect::<Vec<_>>();
+                for task_id in tasks {
+                    self.cancel_task(task_id, now_millis, &mut actions)?;
+                }
+            }
+            DriverCommand::CancelGang {
+                gang,
+                reason,
+                now_millis,
+            } => {
+                gang.validate()
+                    .map_err(|error| RunnerError::Invalid(error.to_string()))?;
+                let tasks = self
+                    .snapshot
+                    .tasks
+                    .iter()
+                    .filter_map(|(task_id, task)| {
+                        match &task.submission.request.invocation_context {
+                            runmat_execution::ProgramInvocationContext::SpmdTask { task }
+                                if task.gang == gang =>
+                            {
+                                Some(*task_id)
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                if tasks.is_empty() {
+                    return Err(RunnerError::Invalid(
+                        "SPMD gang has no tasks in this driver".into(),
+                    ));
+                }
+                self.emit(DriverEventKind::GangCancelled {
+                    gang_id: gang.id,
+                    reason,
+                });
                 for task_id in tasks {
                     self.cancel_task(task_id, now_millis, &mut actions)?;
                 }

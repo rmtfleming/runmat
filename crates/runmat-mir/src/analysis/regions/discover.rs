@@ -191,12 +191,15 @@ fn build_region(
     let mut operations = Vec::with_capacity(run.operations.len());
     for (block, position) in &run.operations {
         let statement = statement(body, *block, *position)?;
-        let (statement_effects, statement_capabilities) = statement_contract(statement, summaries);
+        let statement_point = point(function, *block, *position)?;
+        let facts = store.local_facts_at(statement_point, body.locals.len());
+        let (statement_effects, statement_capabilities) =
+            crate::analysis::inference::statement_contract_with_facts(statement, summaries, &facts);
         effects.0.extend(statement_effects.0);
         capabilities.0.extend(statement_capabilities.0);
         span_start = span_start.min(statement.span.start);
         span_end = span_end.max(statement.span.end);
-        operations.push(point(function, *block, *position)?);
+        operations.push(statement_point);
     }
 
     let mut facts = BTreeMap::new();
@@ -257,6 +260,8 @@ fn statement_is_pure(
                 MirOutputTarget::Discard | MirOutputTarget::Place(MirPlace::Local(_))
             )
         }),
+        MirStmtKind::SequenceAssign { .. } => false,
+        MirStmtKind::CaptureSequence { .. } => false,
         MirStmtKind::Expr(_) => true,
         MirStmtKind::PlaceMutation(_)
         | MirStmtKind::WorkspaceEffect { .. }
@@ -292,6 +297,7 @@ fn rvalue_calls_are_pure(value: &MirRvalue) -> bool {
         }
         MirRvalue::Future { .. }
         | MirRvalue::Spawn(_)
+        | MirRvalue::SubscriptChain(_)
         | MirRvalue::Distributed(_)
         | MirRvalue::Collective(_) => false,
         _ => true,

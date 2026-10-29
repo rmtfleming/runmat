@@ -61,13 +61,30 @@ pub async fn execute(
         .with_context(|| format!("failed to read compile entrypoint `{}`", file.display()))?;
     let mut session =
         super::session::create_session(false, false, config, "failed to create compile session")?;
-    let _project_lease = install_project_for_source(&mut session, &file, cli).await?;
+    let project = install_project_for_source(&mut session, &file, cli).await?;
     let source = runmat_core::ExecutableSource::new("root", file.to_string_lossy(), source_text);
     let unit = session
         .compile_executable_unit(source, None)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
-    let program_link_plan = runmat_aot::compile::build_program_link_plan(&unit, &runtime, policy)?;
+    let python_required = unit.requires_python_runtime();
+    let foreign_artifacts = if let Some(project) = project.as_ref() {
+        super::package::prepare_foreign_artifacts(
+            &project.resolved.frozen,
+            config,
+            python_required,
+        )?
+    } else if python_required {
+        super::package::prepare_python_runtime(config)?
+    } else {
+        super::package::PreparedForeignArtifacts::empty()
+    };
+    let program_link_plan = runmat_aot::compile::build_program_link_plan_with_interop(
+        &unit,
+        &runtime,
+        policy,
+        foreign_artifacts.interop.clone(),
+    )?;
     if explain_link {
         print_link_explanation(&program_link_plan);
     }
@@ -90,6 +107,11 @@ pub async fn execute(
                 _ => runmat_native_codegen::aot::AotRuntimeBindingMode::Dynamic,
             },
             retained_builtin_bindings: program_link_plan.retained_builtin_bindings.clone(),
+            interop: program_link_plan.interop.clone(),
+            native_interfaces: foreign_artifacts.native_interfaces,
+            mex_artifacts: foreign_artifacts.mex_artifacts,
+            java_artifacts: foreign_artifacts.java_artifacts,
+            python_artifacts: foreign_artifacts.python_artifacts,
         },
     )?;
     let output = output.unwrap_or_else(|| default_output(&file));
@@ -149,6 +171,14 @@ fn print_link_explanation(plan: &runmat_aot::compile::ProgramLinkPlan) {
                 binding.name, binding.variant, binding.native_symbol
             );
         }
+    }
+    for adapter in &plan.interop.adapters {
+        println!(
+            "Retained foreign adapter {} v{} with {} exact artifact(s)",
+            adapter.adapter,
+            adapter.minimum_version,
+            adapter.artifact_identities.len()
+        );
     }
     if !plan.omitted_runtime_families.is_empty() {
         println!(

@@ -1,10 +1,14 @@
 mod arithmetic;
 mod arrays;
+mod call_output_sequence;
 mod calls;
 mod control_flow;
 mod exceptions;
 mod indexing;
 mod object;
+mod parallel;
+mod prepared_outputs;
+pub(crate) use parallel::encode_spmd_output;
 mod stack;
 
 use crate::bytecode::Instr;
@@ -14,7 +18,7 @@ use crate::runtime::workspace::{
 };
 use runmat_runtime::RuntimeError;
 use runmat_value::{ObjectInstance, StructValue, Tensor, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub use arrays::{
     create_matrix, create_matrix_dynamic, create_range, pack_to_col, pack_to_row, unpack,
@@ -50,6 +54,7 @@ pub enum DispatchHandled {
 
 pub struct DispatchMeta<'a> {
     pub instr: &'a Instr,
+    pub bytecode: &'a crate::bytecode::Bytecode,
     pub var_names: &'a HashMap<usize, String>,
     pub function_registry: &'a crate::bytecode::FunctionRegistry,
     pub source_id: Option<runmat_hir::SourceId>,
@@ -61,6 +66,7 @@ pub struct DispatchMeta<'a> {
 pub struct DispatchState<'a> {
     pub stack: &'a mut Vec<Value>,
     pub vars: &'a mut Vec<Value>,
+    pub sequence_register: &'a mut SequenceState,
     pub context: &'a mut crate::bytecode::program::ExecutionContext,
     pub try_stack: &'a mut Vec<crate::interpreter::state::ActiveTryHandler>,
     pub last_exception: &'a mut Option<runmat_value::MException>,
@@ -69,6 +75,377 @@ pub struct DispatchState<'a> {
     pub persistent_aliases: &'a mut HashMap<usize, String>,
     pub missing_input_slots: &'a mut HashSet<usize>,
     pub pc: &'a mut usize,
+}
+
+/// A verified transient window in the operand stack.
+///
+/// Sequence-producing bytecode must be followed immediately by its consuming
+/// store. Keeping only the stack window here makes its values ordinary VM GC
+/// roots while preventing a comma-separated sequence from becoming a language
+/// `Value` that can escape into a variable or workspace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SequenceRegister {
+    pub start: usize,
+    pub len: usize,
+}
+
+#[derive(Default)]
+pub struct SequenceState {
+    pub assignment: Option<SequenceRegister>,
+    call_outputs: Option<SequenceRegister>,
+    captures: BTreeMap<usize, SequenceRegister>,
+    output_targets: Vec<PreparedOutputTarget>,
+    expected_output_targets: Option<usize>,
+    destination_builder: Option<(usize, runmat_runtime::sequence::SequenceDestinationBuilder)>,
+    prepared_index_component_count: Option<usize>,
+    contextual_indices: Vec<(usize, Vec<usize>)>,
+    subscript_receivers: Vec<(
+        runmat_runtime::object::protocol::PreparedSubscriptReceiver,
+        usize,
+        usize,
+    )>,
+}
+
+pub(super) enum PreparedOutputTarget {
+    Fixed,
+    Discard,
+    Sequence {
+        root_slot: usize,
+        endpoint: runmat_runtime::sequence::PreparedSequenceDestination,
+    },
+}
+
+impl SequenceState {
+    pub(super) fn begin_output_assignment(
+        &mut self,
+        target_count: usize,
+    ) -> Result<(), RuntimeError> {
+        if self.expected_output_targets.is_some() || !self.output_targets.is_empty() {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "output-assignment destination state was overwritten before consumption",
+            ));
+        }
+        self.output_targets.clear();
+        self.destination_builder = None;
+        self.prepared_index_component_count = None;
+        self.expected_output_targets = Some(target_count);
+        Ok(())
+    }
+
+    pub(super) fn push_output_target(&mut self, target: PreparedOutputTarget) {
+        self.output_targets.push(target);
+    }
+
+    pub(super) fn begin_destination(
+        &mut self,
+        root_slot: usize,
+        root: &Value,
+    ) -> Result<(), RuntimeError> {
+        if self.destination_builder.is_some() {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "a prepared destination path is already live",
+            ));
+        }
+        self.destination_builder = Some((
+            root_slot,
+            runmat_runtime::sequence::SequenceDestinationBuilder::new(root),
+        ));
+        Ok(())
+    }
+
+    pub(super) fn destination_builder_mut(
+        &mut self,
+    ) -> Result<&mut runmat_runtime::sequence::SequenceDestinationBuilder, RuntimeError> {
+        self.destination_builder
+            .as_mut()
+            .map(|(_, builder)| builder)
+            .ok_or_else(|| {
+                crate::interpreter::errors::mex(
+                    "RunMat:CommaSeparatedListState",
+                    "no prepared destination path is live",
+                )
+            })
+    }
+
+    pub(super) fn begin_index_selectors(&mut self, count: usize) -> Result<(), RuntimeError> {
+        if self.prepared_index_component_count.replace(count).is_some() {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "prepared index-selector context was overwritten",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish_index_selectors(&mut self, count: usize) -> Result<(), RuntimeError> {
+        if self.prepared_index_component_count.take() != Some(count) {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "prepared index-selector context is incomplete or inconsistent",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn index_selector_count(&self) -> Result<usize, RuntimeError> {
+        self.prepared_index_component_count.ok_or_else(|| {
+            crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "no prepared index-selector context is live",
+            )
+        })
+    }
+
+    pub(super) fn begin_contextual_index(
+        &mut self,
+        component_count: usize,
+        shape: Vec<usize>,
+    ) -> Result<(), RuntimeError> {
+        self.contextual_indices.push((component_count, shape));
+        Ok(())
+    }
+
+    pub(super) fn contextual_index_extent(&self, component: usize) -> Result<usize, RuntimeError> {
+        let (count, shape) = self.contextual_indices.last().ok_or_else(|| {
+            crate::interpreter::errors::mex(
+                "RunMat:ContextualIndexState",
+                "contextual end was evaluated without an index context",
+            )
+        })?;
+        runmat_runtime::indexing::shape::selector_extent(shape, *count, component)
+    }
+
+    pub(super) fn finish_contextual_index(
+        &mut self,
+        component_count: usize,
+    ) -> Result<(), RuntimeError> {
+        let Some((count, _)) = self.contextual_indices.pop() else {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:ContextualIndexState",
+                "contextual index state is not live",
+            ));
+        };
+        if count != component_count {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:ContextualIndexState",
+                "contextual index component count changed during evaluation",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn push_subscript_receiver(
+        &mut self,
+        receiver: runmat_runtime::object::protocol::PreparedSubscriptReceiver,
+        prefix_start: usize,
+        stack_index: usize,
+    ) {
+        self.subscript_receivers
+            .push((receiver, prefix_start, stack_index));
+    }
+
+    pub(super) fn subscript_receiver(
+        &self,
+    ) -> Result<&runmat_runtime::object::protocol::PreparedSubscriptReceiver, RuntimeError> {
+        self.subscript_receivers
+            .last()
+            .map(|entry| &entry.0)
+            .ok_or_else(|| {
+                crate::interpreter::errors::mex(
+                    "RunMat:SubscriptPathState",
+                    "contextual subscript end has no prepared receiver",
+                )
+            })
+    }
+
+    pub(super) fn pop_subscript_receiver(
+        &mut self,
+    ) -> Result<
+        (
+            runmat_runtime::object::protocol::PreparedSubscriptReceiver,
+            usize,
+            usize,
+        ),
+        RuntimeError,
+    > {
+        self.subscript_receivers.pop().ok_or_else(|| {
+            crate::interpreter::errors::mex(
+                "RunMat:SubscriptPathState",
+                "contextual subscript receiver was already consumed",
+            )
+        })
+    }
+
+    pub(super) fn take_destination_builder(
+        &mut self,
+    ) -> Result<(usize, runmat_runtime::sequence::SequenceDestinationBuilder), RuntimeError> {
+        if self.prepared_index_component_count.is_some() {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "prepared index-selector context remains live",
+            ));
+        }
+        self.destination_builder.take().ok_or_else(|| {
+            crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "no prepared destination path is live",
+            )
+        })
+    }
+
+    pub(super) fn output_layout(
+        &self,
+    ) -> Result<runmat_runtime::sequence::DestinationLayout, RuntimeError> {
+        if self.expected_output_targets != Some(self.output_targets.len()) {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "output-assignment destination plan is incomplete",
+            ));
+        }
+        runmat_runtime::sequence::DestinationLayout::new(self.output_targets.iter().map(|target| {
+            match target {
+                PreparedOutputTarget::Fixed => {
+                    runmat_runtime::sequence::DestinationCardinality::Fixed
+                }
+                PreparedOutputTarget::Discard => {
+                    runmat_runtime::sequence::DestinationCardinality::Discard
+                }
+                PreparedOutputTarget::Sequence { endpoint, .. } => {
+                    runmat_runtime::sequence::DestinationCardinality::Sequence(
+                        endpoint.cardinality(),
+                    )
+                }
+            }
+        }))
+    }
+
+    pub(super) fn take_output_targets(&mut self) -> Vec<PreparedOutputTarget> {
+        self.expected_output_targets = None;
+        std::mem::take(&mut self.output_targets)
+    }
+
+    pub fn capture(
+        &mut self,
+        slot: usize,
+        stack: &mut Vec<Value>,
+        values: Vec<Value>,
+    ) -> Result<(), RuntimeError> {
+        if self.captures.contains_key(&slot) {
+            return Err(crate::interpreter::errors::mex(
+                "RunMat:CommaSeparatedListState",
+                "captured sequence slot was overwritten before consumption",
+            ));
+        }
+        let window = SequenceRegister {
+            start: stack.len(),
+            len: values.len(),
+        };
+        stack.extend(values);
+        self.captures.insert(slot, window);
+        Ok(())
+    }
+
+    pub fn take_captures(
+        &mut self,
+        stack: &mut Vec<Value>,
+        slots: &[usize],
+    ) -> Result<HashMap<usize, Vec<Value>>, RuntimeError> {
+        let mut seen = BTreeSet::new();
+        let mut windows = Vec::with_capacity(slots.len());
+        for slot in slots {
+            if !seen.insert(*slot) {
+                return Err(crate::interpreter::errors::mex(
+                    "RunMat:CommaSeparatedListState",
+                    "call references the same captured sequence more than once",
+                ));
+            }
+            let window = self.captures.get(slot).copied().ok_or_else(|| {
+                crate::interpreter::errors::mex(
+                    "RunMat:CommaSeparatedListState",
+                    "call references an unavailable captured sequence",
+                )
+            })?;
+            let end = window.start.checked_add(window.len).ok_or_else(|| {
+                crate::interpreter::errors::mex(
+                    "RunMat:CommaSeparatedListState",
+                    "captured sequence bounds overflowed",
+                )
+            })?;
+            if end > stack.len() {
+                return Err(crate::interpreter::errors::mex(
+                    "RunMat:CommaSeparatedListState",
+                    "captured sequence is outside the operand stack",
+                ));
+            }
+            windows.push((*slot, window));
+        }
+        windows.sort_by_key(|(_, window)| std::cmp::Reverse(window.start));
+        for pair in windows.windows(2) {
+            let later = pair[0].1;
+            let earlier = pair[1].1;
+            let earlier_end = earlier.start + earlier.len;
+            if earlier_end > later.start {
+                return Err(crate::interpreter::errors::mex(
+                    "RunMat:CommaSeparatedListState",
+                    "captured sequence stack windows overlap",
+                ));
+            }
+        }
+        let mut values = HashMap::with_capacity(windows.len());
+        for (slot, window) in windows {
+            self.captures.remove(&slot);
+            let end = window.start + window.len;
+            values.insert(slot, stack.drain(window.start..end).collect());
+            for remaining in self.captures.values_mut() {
+                if remaining.start >= end {
+                    remaining.start -= window.len;
+                }
+            }
+            if let Some(assignment) = self.assignment.as_mut() {
+                if assignment.start >= end {
+                    assignment.start -= window.len;
+                }
+            }
+        }
+        Ok(values)
+    }
+
+    pub fn clear(&mut self, stack: &mut Vec<Value>) {
+        let mut windows = self.captures.values().copied().collect::<Vec<_>>();
+        if let Some(window) = self.assignment.take() {
+            windows.push(window);
+        }
+        if let Some(window) = self.call_outputs.take() {
+            windows.push(window);
+        }
+        windows.sort_by_key(|window| std::cmp::Reverse(window.start));
+        for window in windows {
+            if let Some(end) = window.start.checked_add(window.len) {
+                if end <= stack.len() {
+                    stack.drain(window.start..end);
+                }
+            }
+        }
+        self.captures.clear();
+        self.output_targets.clear();
+        self.expected_output_targets = None;
+        self.destination_builder = None;
+        self.prepared_index_component_count = None;
+        self.contextual_indices.clear();
+        let mut receiver_roots = self
+            .subscript_receivers
+            .drain(..)
+            .map(|(_, _, index)| index)
+            .collect::<Vec<_>>();
+        receiver_roots.sort_unstable_by(|left, right| right.cmp(left));
+        for index in receiver_roots {
+            if index < stack.len() {
+                stack.remove(index);
+            }
+        }
+    }
 }
 
 pub struct DispatchHooks<'a> {
@@ -81,7 +458,79 @@ pub struct DispatchHooks<'a> {
     pub store_local_after_fallback_store: &'a mut dyn FnMut(&str, usize, &Value),
 }
 
-fn requested_outputs_from_slot(vars: &[Value], slot: usize) -> Result<usize, RuntimeError> {
+fn materialize_aggregate_rows(
+    stack: &mut Vec<Value>,
+    sequence_state: &mut SequenceState,
+    row_lengths: &[usize],
+    elements: &[crate::bytecode::AggregateElementSpec],
+) -> Result<Vec<Vec<Value>>, RuntimeError> {
+    let expected_elements = row_lengths
+        .iter()
+        .try_fold(0usize, |total, length| total.checked_add(*length));
+    if expected_elements != Some(elements.len()) {
+        return Err(crate::interpreter::errors::mex(
+            "AggregateShapeMismatch",
+            "aggregate row boundaries do not match the element plan",
+        ));
+    }
+    let capture_slots = elements
+        .iter()
+        .filter_map(|element| match element {
+            crate::bytecode::AggregateElementSpec::CapturedSequence { slot } => Some(*slot),
+            crate::bytecode::AggregateElementSpec::Single => None,
+        })
+        .collect::<Vec<_>>();
+    let mut captures = sequence_state.take_captures(stack, &capture_slots)?;
+    let single_count = elements
+        .iter()
+        .filter(|element| matches!(element, crate::bytecode::AggregateElementSpec::Single))
+        .count();
+    let split = stack.len().checked_sub(single_count).ok_or_else(|| {
+        crate::interpreter::errors::mex("StackUnderflow", "aggregate operand stack underflow")
+    })?;
+    let mut singles = stack
+        .drain(split..)
+        .collect::<std::collections::VecDeque<_>>();
+    let mut rows = Vec::with_capacity(row_lengths.len());
+    let mut element_offset = 0usize;
+    for &row_length in row_lengths {
+        let row_end = element_offset.checked_add(row_length).ok_or_else(|| {
+            crate::interpreter::errors::mex(
+                "AggregateShapeMismatch",
+                "aggregate row boundary overflow",
+            )
+        })?;
+        let mut row = Vec::new();
+        for element in &elements[element_offset..row_end] {
+            match element {
+                crate::bytecode::AggregateElementSpec::Single => {
+                    row.push(singles.pop_front().ok_or_else(|| {
+                        crate::interpreter::errors::mex(
+                            "StackUnderflow",
+                            "aggregate operand stack underflow",
+                        )
+                    })?);
+                }
+                crate::bytecode::AggregateElementSpec::CapturedSequence { slot } => {
+                    row.extend(captures.remove(slot).ok_or_else(|| {
+                        crate::interpreter::errors::mex(
+                            "CommaSeparatedListState",
+                            "aggregate sequence was consumed more than once",
+                        )
+                    })?);
+                }
+            }
+        }
+        rows.push(row);
+        element_offset = row_end;
+    }
+    Ok(rows)
+}
+
+pub(super) fn requested_outputs_from_slot(
+    vars: &[Value],
+    slot: usize,
+) -> Result<usize, RuntimeError> {
     let value = vars.get(slot).ok_or_else(|| {
         crate::interpreter::errors::mex(
             "OutputCountSlotOutOfBounds",
@@ -111,12 +560,12 @@ fn requested_outputs_from_slot(vars: &[Value], slot: usize) -> Result<usize, Run
     }
 }
 
-fn initialize_object_with_defaults(class_name: &str) -> ObjectInstance {
+fn initialize_object_with_defaults(class_name: &runmat_types::ClassIdentity) -> ObjectInstance {
     let empty_default = || Value::Tensor(Tensor::new(vec![], vec![0, 0]).expect("empty tensor"));
     if let Some(def) = runmat_runtime::class_registry::get_class(class_name) {
         let mut chain: Vec<runmat_runtime::class_registry::RuntimeClass> = Vec::new();
         let mut visited = HashSet::new();
-        let mut cursor: Option<String> = Some(def.name.clone());
+        let mut cursor = Some(def.name.clone());
         while let Some(name) = cursor {
             if !visited.insert(name.clone()) {
                 break;
@@ -134,7 +583,7 @@ fn initialize_object_with_defaults(class_name: &str) -> ObjectInstance {
             for (property_name, property_def) in class_def.properties {
                 if !property_def.is_static {
                     object.properties.insert(
-                        property_name,
+                        property_name.to_string(),
                         property_def.default_value.unwrap_or_else(empty_default),
                     );
                 }
@@ -142,7 +591,7 @@ fn initialize_object_with_defaults(class_name: &str) -> ObjectInstance {
         }
         object
     } else {
-        ObjectInstance::new(class_name.to_string())
+        ObjectInstance::new(class_name.clone())
     }
 }
 
@@ -163,110 +612,6 @@ fn pop_aggregate_literal_values(
     Ok(values)
 }
 
-fn execution_error(error: runmat_runtime::execution::ExecutionServiceError) -> RuntimeError {
-    crate::interpreter::errors::mex("ExecutionService", &error.to_string())
-}
-
-fn create_async_future_value(
-    context: &crate::bytecode::program::ExecutionContext,
-    function: runmat_hir::FunctionId,
-    requested_outputs: usize,
-    arguments: Vec<Value>,
-    function_registry: &crate::bytecode::FunctionRegistry,
-) -> Result<Value, RuntimeError> {
-    runmat_runtime::execution::validate_spawn_capture(&Value::OutputList(arguments.clone()))?;
-    let program = context
-        .runtime
-        .execution()
-        .requires_program_capture()
-        .then(|| {
-            serde_json::to_vec(function_registry).map_err(|error| {
-                crate::interpreter::errors::mex(
-                    "ExecutionProgram",
-                    &format!("failed to capture the exact async program: {error}"),
-                )
-            })
-        })
-        .transpose()?;
-    context
-        .runtime
-        .execution()
-        .create_future(runmat_runtime::execution::DeferredCall {
-            function: function.0,
-            arguments,
-            requested_outputs,
-            program_revision: context.runtime.program_revision().cloned(),
-            program,
-        })
-        .map(Value::Future)
-        .map_err(execution_error)
-}
-
-async fn await_execution_value(
-    context: &crate::bytecode::program::ExecutionContext,
-    value: Value,
-    function_registry: &crate::bytecode::FunctionRegistry,
-) -> Result<Value, RuntimeError> {
-    use runmat_runtime::execution::AwaitAction;
-
-    let mut value = value;
-    loop {
-        match context
-            .runtime
-            .execution()
-            .begin_await(value)
-            .map_err(execution_error)?
-        {
-            AwaitAction::Passthrough(value) | AwaitAction::Completed(value) => return Ok(value),
-            AwaitAction::Pending(pending) => {
-                yield_once().await;
-                value = pending;
-            }
-            AwaitAction::ExecuteFuture { handle, call } => {
-                let descriptor = runmat_runtime::call::descriptor::CallableDescriptor::resolved(
-                    runmat_hir::CallableIdentity::BoundFunction(runmat_hir::FunctionId(
-                        call.function,
-                    )),
-                    call.arguments,
-                    call.requested_outputs,
-                    runmat_hir::CallableFallbackPolicy::None,
-                    runmat_runtime::call::descriptor::CallableCallKind::Direct,
-                );
-                let result =
-                    runmat_runtime::call::descriptor::execute_callable_descriptor(descriptor)
-                        .await
-                        .map(|value| {
-                            calls::normalize_requested_outputs(value, call.requested_outputs)
-                        });
-                let stored = result.as_ref().map(Clone::clone).map_err(|error| {
-                    runmat_runtime::execution::ExecutionServiceError::Failed(error.to_string())
-                });
-                context
-                    .runtime
-                    .execution()
-                    .complete_future(&handle, stored)
-                    .map_err(execution_error)?;
-                let _ = function_registry;
-                return result;
-            }
-        }
-    }
-}
-
-async fn yield_once() {
-    let mut yielded = false;
-    futures::future::poll_fn(|context| {
-        if yielded {
-            std::task::Poll::Ready(())
-        } else {
-            yielded = true;
-            context.waker().wake_by_ref();
-            std::task::Poll::Pending
-        }
-    })
-    .await;
-}
-
 #[cfg(feature = "native-accel")]
 fn clear_popped_value_residency_excluding_live_values(
     popped: &Value,
@@ -278,9 +623,7 @@ fn clear_popped_value_residency_excluding_live_values(
     live.extend(stack.iter().cloned());
     live.extend(vars.iter().cloned());
     live.extend(context.locals.iter().cloned());
-    if let Err(err) =
-        crate::accel::residency::clear_value_excluding(popped, &Value::OutputList(live))
-    {
+    if let Err(err) = crate::accel::residency::clear_value_excluding_values(popped, &live) {
         log::warn!("failed to clear popped GPU residency: {err}");
     }
 }
@@ -296,9 +639,7 @@ fn clear_scope_value_residency_excluding_live_values(
     live.extend(stack.iter().cloned());
     live.extend(vars.iter().cloned());
     live.extend(context.locals.iter().cloned());
-    if let Err(err) =
-        crate::accel::residency::clear_value_excluding(dropped_local, &Value::OutputList(live))
-    {
+    if let Err(err) = crate::accel::residency::clear_value_excluding_values(dropped_local, &live) {
         log::warn!("failed to clear dropped local GPU residency: {err}");
     }
 }
@@ -319,9 +660,7 @@ fn clear_overwritten_var_residency_excluding_live_values(
         }
     }
     live.extend(context.locals.iter().cloned());
-    if let Err(err) =
-        crate::accel::residency::clear_value_excluding(overwritten, &Value::OutputList(live))
-    {
+    if let Err(err) = crate::accel::residency::clear_value_excluding_values(overwritten, &live) {
         log::warn!("failed to clear overwritten variable GPU residency: {err}");
     }
 }
@@ -342,9 +681,7 @@ fn clear_overwritten_local_residency_excluding_live_values(
             live.push(value.clone());
         }
     }
-    if let Err(err) =
-        crate::accel::residency::clear_value_excluding(overwritten, &Value::OutputList(live))
-    {
+    if let Err(err) = crate::accel::residency::clear_value_excluding_values(overwritten, &live) {
         log::warn!("failed to clear overwritten local GPU residency: {err}");
     }
 }
@@ -356,6 +693,7 @@ pub async fn dispatch_instruction(
 ) -> Result<Option<DispatchHandled>, RuntimeError> {
     let DispatchMeta {
         instr,
+        bytecode,
         var_names,
         function_registry,
         source_id,
@@ -366,6 +704,7 @@ pub async fn dispatch_instruction(
     let DispatchState {
         stack,
         vars,
+        sequence_register,
         context,
         try_stack,
         last_exception,
@@ -376,7 +715,7 @@ pub async fn dispatch_instruction(
         pc,
     } = state;
     let DispatchHooks {
-        clear_value_residency,
+        clear_value_residency: _fallback_clear_value_residency,
         store_var_before_overwrite,
         store_var_after_store,
         store_local_before_local_overwrite,
@@ -384,6 +723,38 @@ pub async fn dispatch_instruction(
         store_local_after_store,
         store_local_after_fallback_store,
     } = hooks;
+    if let Some(handled) = parallel::dispatch(
+        instr,
+        stack,
+        vars,
+        pc,
+        sequence_register,
+        parallel::ParallelDispatchContext {
+            bytecode,
+            execution: context,
+            function_registry,
+            current_function_name,
+        },
+    )
+    .await?
+    {
+        return Ok(Some(handled));
+    }
+    if prepared_outputs::dispatch(
+        instr,
+        stack,
+        vars,
+        sequence_register,
+        current_function_name,
+        store_var_before_overwrite,
+        store_var_after_store,
+    )
+    .await?
+    {
+        return Ok(Some(DispatchHandled::Generic(
+            DispatchDecision::FallThrough,
+        )));
+    }
     match instr {
         _ if indexing::dispatch_indexing(
             instr,
@@ -391,7 +762,8 @@ pub async fn dispatch_instruction(
             vars,
             function_registry,
             *pc,
-            &mut *clear_value_residency,
+            &context.runtime,
+            sequence_register,
         )
         .await? =>
         {
@@ -399,9 +771,24 @@ pub async fn dispatch_instruction(
                 DispatchDecision::FallThrough,
             )))
         }
-        _ if object::dispatch_object(instr, stack, current_function_name).await? => Ok(Some(
-            DispatchHandled::Generic(DispatchDecision::FallThrough),
-        )),
+        _ if object::dispatch_object(
+            instr,
+            stack,
+            sequence_register,
+            object::ObjectDispatchContext {
+                vars,
+                runtime: &context.runtime,
+                current_function_name,
+                bytecode,
+                call_counts,
+            },
+        )
+        .await? =>
+        {
+            Ok(Some(DispatchHandled::Generic(
+                DispatchDecision::FallThrough,
+            )))
+        }
         _ if arithmetic::dispatch_arithmetic(instr, stack).await? => Ok(Some(
             DispatchHandled::Generic(DispatchDecision::FallThrough),
         )),
@@ -717,7 +1104,7 @@ pub async fn dispatch_instruction(
                     #[cfg(feature = "native-accel")]
                     clear_scope_value_residency_excluding_live_values(&value, stack, vars, context);
                     #[cfg(not(feature = "native-accel"))]
-                    clear_value_residency(&value);
+                    _fallback_clear_value_residency(&value);
                 }
             }
             Ok(Some(DispatchHandled::Generic(
@@ -795,6 +1182,17 @@ pub async fn dispatch_instruction(
                 DispatchDecision::FallThrough,
             )))
         }
+        Instr::CreateMatrixFromSequences {
+            row_lengths,
+            elements,
+            ..
+        } => {
+            let rows = materialize_aggregate_rows(stack, sequence_register, row_lengths, elements)?;
+            stack.push(runmat_runtime::create_matrix_from_values(&rows).await?);
+            Ok(Some(DispatchHandled::Generic(
+                DispatchDecision::FallThrough,
+            )))
+        }
         Instr::CreateMatrixDynamic(num_rows) => {
             create_matrix_dynamic(stack, *num_rows, |rows_data| async move {
                 runmat_runtime::create_matrix_from_values(&rows_data).await
@@ -824,6 +1222,28 @@ pub async fn dispatch_instruction(
             elems.reverse();
             stack.push(runmat_runtime::object::cell::create_cell_2d(
                 elems, *rows, *cols,
+            )?);
+            Ok(Some(DispatchHandled::Generic(
+                DispatchDecision::FallThrough,
+            )))
+        }
+        Instr::CreateCellFromSequences {
+            row_lengths,
+            elements,
+            ..
+        } => {
+            let rows = materialize_aggregate_rows(stack, sequence_register, row_lengths, elements)?;
+            let columns = rows.first().map_or(0, Vec::len);
+            if rows.iter().any(|row| row.len() != columns) {
+                return Err(crate::interpreter::errors::mex(
+                    "CellLiteralShapeMismatch",
+                    "cell literal rows realize different widths after comma-separated-list expansion",
+                ));
+            }
+            let row_count = rows.len();
+            let values = rows.into_iter().flatten().collect();
+            stack.push(runmat_runtime::object::cell::create_cell_2d(
+                values, row_count, columns,
             )?);
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
@@ -875,7 +1295,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                BuiltinHandling::Completed => {}
+                BuiltinHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, *out_count)?;
+                }
                 BuiltinHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -912,7 +1334,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                BuiltinHandling::Completed => {}
+                BuiltinHandling::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
+                }
                 BuiltinHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -938,7 +1362,11 @@ pub async fn dispatch_instruction(
                 args,
             )
             .await?;
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(
+                stack,
+                runmat_runtime::call::arguments::adapt_legacy_builtin_result(result)?,
+                *out_count,
+            )?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -959,7 +1387,11 @@ pub async fn dispatch_instruction(
                 args,
             )
             .await?;
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(
+                stack,
+                runmat_runtime::call::arguments::adapt_legacy_builtin_result(result)?,
+                *out_count,
+            )?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -975,8 +1407,8 @@ pub async fn dispatch_instruction(
             match crate::call::feval::execute_feval(func_val, args, *out_count, function_registry)
                 .await?
             {
-                crate::call::feval::FevalDispatch::Completed(result) => {
-                    stack.push(calls::normalize_requested_outputs(result, *out_count));
+                crate::call::feval::FevalDispatch::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, *out_count)?;
                 }
             }
             Ok(Some(DispatchHandled::Generic(
@@ -995,8 +1427,8 @@ pub async fn dispatch_instruction(
             match crate::call::feval::execute_feval(func_val, args, out_count, function_registry)
                 .await?
             {
-                crate::call::feval::FevalDispatch::Completed(result) => {
-                    stack.push(calls::normalize_requested_outputs(result, out_count));
+                crate::call::feval::FevalDispatch::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
                 }
             }
             Ok(Some(DispatchHandled::Generic(
@@ -1004,7 +1436,9 @@ pub async fn dispatch_instruction(
             )))
         }
         Instr::CallFevalExpandMultiOutput(specs, out_count) => {
-            let args = build_feval_expand_multi_args(stack, specs).await?;
+            let args =
+                build_feval_expand_multi_args(stack, specs, sequence_register, &context.runtime)
+                    .await?;
             let func_val = crate::interpreter::stack::pop_value(stack)?;
             let _function_input_callsite_guard =
                 runmat_runtime::callsite::push_function_input_callsite(
@@ -1014,8 +1448,8 @@ pub async fn dispatch_instruction(
             match crate::call::feval::execute_feval(func_val, args, *out_count, function_registry)
                 .await?
             {
-                crate::call::feval::FevalDispatch::Completed(result) => {
-                    stack.push(calls::normalize_requested_outputs(result, *out_count));
+                crate::call::feval::FevalDispatch::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, *out_count)?;
                 }
             }
             Ok(Some(DispatchHandled::Generic(
@@ -1024,7 +1458,9 @@ pub async fn dispatch_instruction(
         }
         Instr::CallFevalExpandMultiOutputUsingOutputSlot(specs, out_count_slot) => {
             let out_count = requested_outputs_from_slot(vars.as_slice(), *out_count_slot)?;
-            let args = build_feval_expand_multi_args(stack, specs).await?;
+            let args =
+                build_feval_expand_multi_args(stack, specs, sequence_register, &context.runtime)
+                    .await?;
             let func_val = crate::interpreter::stack::pop_value(stack)?;
             let _function_input_callsite_guard =
                 runmat_runtime::callsite::push_function_input_callsite(
@@ -1034,72 +1470,10 @@ pub async fn dispatch_instruction(
             match crate::call::feval::execute_feval(func_val, args, out_count, function_registry)
                 .await?
             {
-                crate::call::feval::FevalDispatch::Completed(result) => {
-                    stack.push(calls::normalize_requested_outputs(result, out_count));
+                crate::call::feval::FevalDispatch::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
                 }
             }
-            Ok(Some(DispatchHandled::Generic(
-                DispatchDecision::FallThrough,
-            )))
-        }
-        Instr::CreateSemanticFuture(function, arg_count, out_count) => {
-            let args = crate::call::builtins::collect_call_args(stack, *arg_count)?;
-            stack.push(create_async_future_value(
-                context,
-                *function,
-                *out_count,
-                args,
-                function_registry,
-            )?);
-            Ok(Some(DispatchHandled::Generic(
-                DispatchDecision::FallThrough,
-            )))
-        }
-        Instr::CreateSemanticFutureExpandMultiOutput(function, specs, out_count) => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
-            stack.push(create_async_future_value(
-                context,
-                *function,
-                *out_count,
-                args,
-                function_registry,
-            )?);
-            Ok(Some(DispatchHandled::Generic(
-                DispatchDecision::FallThrough,
-            )))
-        }
-        Instr::Spawn => {
-            let value = stack.pop().ok_or_else(|| {
-                crate::interpreter::errors::mex(
-                    "StackUnderflow",
-                    "spawn instruction expected a value on the stack",
-                )
-            })?;
-            let Value::Future(future) = value else {
-                return Err(crate::interpreter::errors::mex(
-                    "SpawnOperandInvalid",
-                    "spawn expects a lazy future produced by an async call",
-                ));
-            };
-            let task = context
-                .runtime
-                .execution()
-                .spawn(&future)
-                .map_err(execution_error)?;
-            stack.push(Value::Task(task));
-            Ok(Some(DispatchHandled::Generic(
-                DispatchDecision::FallThrough,
-            )))
-        }
-        Instr::Await => {
-            let value = stack.pop().ok_or_else(|| {
-                crate::interpreter::errors::mex(
-                    "StackUnderflow",
-                    "await instruction expected a value on the stack",
-                )
-            })?;
-            let value = await_execution_value(context, value, function_registry).await?;
-            stack.push(value);
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1127,7 +1501,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, out_count)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1163,7 +1539,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1212,7 +1590,7 @@ pub async fn dispatch_instruction(
             if captures_updated {
                 refresh_workspace_state(vars);
             }
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(stack, result, *out_count)?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1255,7 +1633,7 @@ pub async fn dispatch_instruction(
             if captures_updated {
                 refresh_workspace_state(vars);
             }
-            stack.push(calls::normalize_requested_outputs(result, out_count));
+            sequence_register.stage_call_output_sequence(stack, result)?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1288,7 +1666,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, out_count)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1329,7 +1709,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1375,7 +1757,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, out_count)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1422,7 +1806,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1435,11 +1821,17 @@ pub async fn dispatch_instruction(
             )))
         }
         Instr::CallBuiltinExpandMultiOutput(name, specs, out_count) => {
-            let args = build_builtin_expand_multi_args(stack, specs).await?;
+            let args =
+                build_builtin_expand_multi_args(stack, specs, sequence_register, &context.runtime)
+                    .await?;
             let _output_guard = runmat_runtime::output_context::push_output_count(*out_count);
             let result =
                 runmat_runtime::call_builtin_async_with_outputs(name, &args, *out_count).await?;
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(
+                stack,
+                runmat_runtime::call::arguments::adapt_legacy_builtin_result(result)?,
+                *out_count,
+            )?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1450,7 +1842,13 @@ pub async fn dispatch_instruction(
             specs,
             out_count,
         } => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             let _output_guard = runmat_runtime::output_context::push_output_count(*out_count);
             let result = runmat_runtime::call_super_constructor(
                 current_class.clone(),
@@ -1458,7 +1856,11 @@ pub async fn dispatch_instruction(
                 args,
             )
             .await?;
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(
+                stack,
+                runmat_runtime::call::arguments::adapt_legacy_builtin_result(result)?,
+                *out_count,
+            )?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1470,7 +1872,13 @@ pub async fn dispatch_instruction(
             specs,
             out_count,
         } => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             let _output_guard = runmat_runtime::output_context::push_output_count(*out_count);
             let result = runmat_runtime::call_super_method(
                 current_class.clone(),
@@ -1479,7 +1887,11 @@ pub async fn dispatch_instruction(
                 args,
             )
             .await?;
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(
+                stack,
+                runmat_runtime::call::arguments::adapt_legacy_builtin_result(result)?,
+                *out_count,
+            )?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1490,7 +1902,13 @@ pub async fn dispatch_instruction(
             specs,
             out_count,
         } => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             match handle_prepared_user_function_call(
                 calls::UserCallContext {
                     stack,
@@ -1513,7 +1931,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, out_count)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1533,7 +1953,13 @@ pub async fn dispatch_instruction(
             specs,
             out_count,
         } => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             match handle_workspace_first_prepared_call(
                 calls::WorkspaceFirstCallContext {
                     stack,
@@ -1559,7 +1985,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, out_count)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1580,7 +2008,13 @@ pub async fn dispatch_instruction(
             out_count_slot,
         } => {
             let out_count = requested_outputs_from_slot(vars.as_slice(), *out_count_slot)?;
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             match handle_workspace_first_prepared_call(
                 calls::WorkspaceFirstCallContext {
                     stack,
@@ -1606,7 +2040,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    sequence_register.stage_call_output_sequence(stack, sequence)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1619,7 +2055,13 @@ pub async fn dispatch_instruction(
             )))
         }
         Instr::CallSemanticFunctionExpandMultiOutput(function, specs, out_count) => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             match handle_prepared_user_function_call(
                 calls::UserCallContext {
                     stack,
@@ -1642,7 +2084,9 @@ pub async fn dispatch_instruction(
             )
             .await?
             {
-                UserCallHandling::Completed => {}
+                UserCallHandling::Completed(sequence) => {
+                    calls::publish_fixed_outputs(stack, sequence, out_count)?;
+                }
                 UserCallHandling::Caught => {
                     return Ok(Some(DispatchHandled::Generic(
                         DispatchDecision::ContinueLoop,
@@ -1660,7 +2104,13 @@ pub async fn dispatch_instruction(
             specs,
             out_count,
         } => {
-            let args = build_user_function_expand_multi_args(stack, specs).await?;
+            let args = build_user_function_expand_multi_args(
+                stack,
+                specs,
+                sequence_register,
+                &context.runtime,
+            )
+            .await?;
             let mut call_args = Vec::with_capacity(capture_slots.len() + args.len());
             for slot in capture_slots {
                 call_args.push(vars.get(*slot).cloned().unwrap_or(Value::Num(0.0)));
@@ -1686,7 +2136,7 @@ pub async fn dispatch_instruction(
             if captures_updated {
                 refresh_workspace_state(vars);
             }
-            stack.push(calls::normalize_requested_outputs(result, *out_count));
+            calls::publish_fixed_outputs(stack, result, *out_count)?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1697,7 +2147,7 @@ pub async fn dispatch_instruction(
             arg_count,
             out_count,
         } => {
-            handle_method_or_member_index_multi_call(
+            let handling = handle_method_or_member_index_multi_call(
                 stack,
                 identity.clone(),
                 *fallback_policy,
@@ -1706,6 +2156,9 @@ pub async fn dispatch_instruction(
                 current_function_name,
             )
             .await?;
+            if let calls::MethodHandling::Outputs(sequence) = handling {
+                calls::publish_fixed_outputs(stack, sequence, *out_count)?;
+            }
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1716,21 +2169,28 @@ pub async fn dispatch_instruction(
             specs,
             out_count,
         } => {
-            handle_method_or_member_index_expand_multi_call(
+            let handling = handle_method_or_member_index_expand_multi_call(
                 stack,
-                identity.clone(),
-                *fallback_policy,
-                specs,
-                *out_count,
-                current_function_name,
+                sequence_register,
+                calls::MethodExpandCallContext {
+                    identity: identity.clone(),
+                    fallback_policy: *fallback_policy,
+                    specs,
+                    requested_outputs: *out_count,
+                    current_function_name,
+                    runtime: &context.runtime,
+                },
             )
             .await?;
+            if let calls::MethodHandling::Outputs(sequence) = handling {
+                calls::publish_fixed_outputs(stack, sequence, *out_count)?;
+            }
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
         }
         Instr::LoadMethod(name) => {
-            handle_load_method(stack, name.clone(), current_function_name)?;
+            handle_load_method(stack, name.0.clone(), current_function_name)?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1776,7 +2236,7 @@ pub async fn dispatch_instruction(
             )))
         }
         Instr::LoadStaticProperty(class_name, prop) => {
-            handle_load_static_property(stack, class_name, prop)?;
+            handle_load_static_property(stack, class_name, prop.display_name())?;
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,
             )))
@@ -1789,7 +2249,7 @@ pub async fn dispatch_instruction(
             if let Some(value) = crate::runtime::workspace::workspace_lookup(name) {
                 stack.push(value);
             } else {
-                handle_load_static_property(stack, class_name, property)?;
+                handle_load_static_property(stack, class_name, property.display_name())?;
             }
             Ok(Some(DispatchHandled::Generic(
                 DispatchDecision::FallThrough,

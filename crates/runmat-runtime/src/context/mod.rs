@@ -14,14 +14,19 @@ pub mod legacy;
 
 pub use capability::{RuntimeCapability, RuntimeCapabilityError};
 pub use runtime::{
-    RuntimeContext, RuntimeLanguageMode, DEFAULT_CALLSTACK_LIMIT, DEFAULT_ERROR_NAMESPACE,
+    ProgramExecutionAssignmentGuard, ProgramExecutionJobGuard, RuntimeContext,
+    RuntimeContextLocalId, RuntimeExecutionStack, RuntimeExecutionStackGuard, RuntimeLanguageMode,
+    DEFAULT_CALLSTACK_LIMIT, DEFAULT_ERROR_NAMESPACE,
 };
 pub use scope::{ContextFuture, RuntimeContextGuard};
 pub use services::{
     ForeignCall, HostInteraction, NativeCapability, ParallelCapability, RuntimeAccelerationService,
-    RuntimeBuiltinService, RuntimeCallRequest, RuntimeCallService, RuntimeErrorService,
-    RuntimeForeignService, RuntimeHostService, RuntimeNativeService, RuntimeObjectService,
-    RuntimeParallelResources, RuntimeParallelService, RuntimePlacementService, RuntimeServicePorts,
-    RuntimeWorkspaceService,
+    RuntimeBuiltinService, RuntimeCallRequest, RuntimeCallRouter, RuntimeCallService,
+    RuntimeCollectiveService, RuntimeDistributedCallRequest, RuntimeDistributedInvocation,
+    RuntimeDistributedRetirement, RuntimeDistributedService, RuntimeDistributedSnapshot,
+    RuntimeErrorService, RuntimeForeignService, RuntimeHostService, RuntimeNativeService,
+    RuntimeObjectService, RuntimeParallelResources, RuntimeParallelService,
+    RuntimePlacementService, RuntimeServiceFuture, RuntimeServicePorts, RuntimeSpmdAdmission,
+    RuntimeSpmdOutput, RuntimeSpmdRetainedOutput, RuntimeSpmdService, RuntimeWorkspaceService,
 };
 pub(crate) use state::RuntimeContextState;

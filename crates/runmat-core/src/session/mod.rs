@@ -51,6 +51,7 @@ fn runtime_language_mode(mode: CompatMode) -> runmat_runtime::context::RuntimeLa
 
 mod compile;
 mod config;
+mod dynamic;
 mod executable;
 mod init;
 mod project;
@@ -78,6 +79,17 @@ pub struct RunMatSession {
     next_semantic_function_id: usize,
     /// Canonically compiled functions discovered through the runtime search path.
     dynamic_function_cache: Arc<Mutex<HashMap<PathBuf, DynamicFunctionCacheEntry>>>,
+    /// Loaded C MEX modules and their persistent state, scoped to this session.
+    #[cfg(not(target_arch = "wasm32"))]
+    mex_runtime: std::rc::Rc<runmat_runtime::foreign::MexRuntimeSession>,
+    #[cfg(not(target_arch = "wasm32"))]
+    foreign_runtime: std::rc::Rc<runmat_runtime::foreign::ForeignRuntime>,
+    #[cfg(not(target_arch = "wasm32"))]
+    native_ffi_adapter: std::rc::Rc<runmat_runtime::foreign::NativeFfiAdapter>,
+    #[cfg(not(target_arch = "wasm32"))]
+    java_adapter: std::rc::Rc<runmat_runtime::foreign::JavaAdapter>,
+    #[cfg(not(target_arch = "wasm32"))]
+    python_adapter: std::rc::Rc<runmat_runtime::foreign::PythonAdapter>,
     /// Session-scoped production native entry publication and invalidation.
     #[cfg(not(target_arch = "wasm32"))]
     generic_native_cache: crate::generic_native::GenericNativeCache,
@@ -123,6 +135,15 @@ pub struct RunMatSession {
     diary_state: runmat_runtime::console::DiaryStateSnapshot,
     /// Preloaded companion statements discovered asynchronously by the request path.
     pending_companion_source_discovery: Option<compile::CompanionSourceDiscovery>,
+}
+
+impl RunMatSession {
+    /// Drive one callback from session-owned native work. Interactive hosts
+    /// poll this future alongside their next command or input event.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn service_background_once(&self) -> bool {
+        self.mex_runtime.service_background_once().await
+    }
 }
 
 pub(crate) struct PreparedExecution {
@@ -196,6 +217,10 @@ impl Drop for ActiveExecutionGuard {
 
 impl Drop for RunMatSession {
     fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(error) = self.mex_runtime.shutdown(self.runtime_context.clone()) {
+            tracing::warn!(%error, "could not finish MEX lifecycle during session shutdown");
+        }
         self.runtime_context
             .execution()
             .drain_scope(runmat_execution::CancellationReason::Shutdown);

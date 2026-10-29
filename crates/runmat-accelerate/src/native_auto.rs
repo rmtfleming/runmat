@@ -1712,6 +1712,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::SymbolicArray(_) => "SymbolicArray",
         Value::Cell(_) => "Cell",
         Value::Struct(_) => "Struct",
+        Value::StructArray(_) => "StructArray",
         Value::ObjectArray(_) => "ObjectArray",
         Value::Object(_) => "Object",
         Value::HandleObject(_) => "HandleObject",
@@ -1730,6 +1731,8 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Task(_) => "Task",
         Value::Pool(_) => "Pool",
         Value::Job(_) => "Job",
+        Value::Distributed(_) => "Distributed",
+        Value::Composite(_) => "Composite",
         Value::Foreign(_) => "Foreign",
     }
 }

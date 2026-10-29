@@ -45,10 +45,53 @@ pub fn execute(input: AotProcessInput) -> Result<(), String> {
         runmat_runtime::execution::RuntimeExecutionService::new(),
     ))
     .with_program_revision(Some(assembly.program.clone()));
+    let ports = runtime
+        .service_ports()
+        .clone()
+        .with_call(Rc::new(runmat_runtime::context::RuntimeCallRouter));
+    runtime = runtime.with_service_ports(ports);
     if let Some(builtins) = crate::builtin::resolve(&program, input.builtin_resolver)? {
         let ports = runtime.service_ports().clone().with_builtin(builtins);
         runtime = runtime.with_service_ports(ports);
     }
+    let foreign = Rc::new(runmat_runtime::foreign::ForeignRuntime::new(
+        runmat_runtime::foreign::ForeignPlatform::Native,
+    ));
+    let native_ffi = runmat_runtime::foreign::NativeFfiAdapter::new(foreign.handles().clone())
+        .map_err(|error| error.to_string())?;
+    native_ffi
+        .set_isolation_policy(runmat_runtime::foreign::NativeFfiIsolationPolicy::isolated(
+            None,
+        ))
+        .map_err(|error| error.to_string())?;
+    foreign
+        .register_adapter(native_ffi.clone())
+        .map_err(|error| error.to_string())?;
+    let java = runmat_runtime::foreign::JavaAdapter::new(foreign.handles().clone())
+        .map_err(|error| error.to_string())?;
+    foreign
+        .register_adapter(java.clone())
+        .map_err(|error| error.to_string())?;
+    let python = runmat_runtime::foreign::PythonAdapter::new(foreign.handles().clone())
+        .map_err(|error| error.to_string())?;
+    foreign
+        .register_adapter(python.clone())
+        .map_err(|error| error.to_string())?;
+    let mex = Rc::new(runmat_runtime::foreign::MexRuntimeSession::new());
+    foreign
+        .register_adapter(mex.clone())
+        .map_err(|error| error.to_string())?;
+    let _native_interfaces =
+        crate::native_interfaces::install(&input.native_interfaces, &native_ffi)?;
+    let _mex_artifacts = crate::mex_artifacts::install(&input.mex_artifacts, &mex)?;
+    let _java_artifacts = crate::java_artifacts::install(&input.java_artifacts, &java)?;
+    crate::python_artifacts::install(&input.python_artifacts, &python)?;
+    foreign
+        .admit(&assembly.requirements.interop)
+        .map_err(|error| format!("standalone interop admission failed: {error}"))?;
+    let ports = runtime.service_ports().clone().with_foreign(foreign);
+    runtime = runtime.with_service_ports(ports);
+    let mut mex_guard = crate::mex::install(&runtime, mex);
     let mut entrypoints = BTreeMap::new();
     for function in &assembly.functions {
         // SAFETY: the generated resolver has the exact declared C ABI. It
@@ -85,38 +128,50 @@ pub fn execute(input: AotProcessInput) -> Result<(), String> {
         .map_err(|error| format!("standalone native host initialization failed: {error}"))?,
     );
 
-    let execution = futures::executor::block_on(async {
-        if assembly.executable_identity.entrypoint_kind == ExecutableEntrypointKind::Script {
-            let local_names = function
-                .locals
-                .iter()
-                .filter_map(|local| local.binding.zip(local.name.clone()))
-                .collect();
-            crate::program::invoke_workspace(
-                Rc::clone(&executor),
-                &program,
-                entrypoint,
-                NativeWorkspaceInput {
-                    local_names,
-                    ..NativeWorkspaceInput::default()
-                },
-                requested_outputs,
-                runtime,
-            )
-            .await
-        } else {
-            crate::program::invoke(
-                Rc::clone(&executor),
-                &program,
-                entrypoint,
-                Vec::new(),
-                requested_outputs,
-                runtime,
-            )
-            .await
-        }
-    })
-    .map_err(|error| format!("standalone native execution failed: {error}"))?;
+    let async_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("standalone async runtime initialization failed: {error}"))?;
+    let (execution, native_lifecycle, mex_lifecycle) = async_runtime.block_on(async {
+        let execution =
+            if assembly.executable_identity.entrypoint_kind == ExecutableEntrypointKind::Script {
+                let local_names = function
+                    .locals
+                    .iter()
+                    .filter_map(|local| local.binding.zip(local.name.clone()))
+                    .collect();
+                crate::program::invoke_workspace(
+                    Rc::clone(&executor),
+                    &program,
+                    entrypoint,
+                    NativeWorkspaceInput {
+                        local_names,
+                        ..NativeWorkspaceInput::default()
+                    },
+                    requested_outputs,
+                    runtime,
+                )
+                .await
+            } else {
+                crate::program::invoke(
+                    Rc::clone(&executor),
+                    &program,
+                    entrypoint,
+                    Vec::new(),
+                    requested_outputs,
+                    runtime,
+                )
+                .await
+            };
+        let native_lifecycle = native_ffi.shutdown().await;
+        let mex_lifecycle = mex_guard.shutdown_gracefully().await;
+        (execution, native_lifecycle, mex_lifecycle)
+    });
+    let execution =
+        execution.map_err(|error| format!("standalone native execution failed: {error}"))?;
+    native_lifecycle
+        .map_err(|error| format!("standalone native-library shutdown failed: {error}"))?;
+    mex_lifecycle.map_err(|error| format!("standalone MEX shutdown failed: {error}"))?;
     if let Some(expression) = execution.expression {
         crate::output::value(&expression);
     } else {

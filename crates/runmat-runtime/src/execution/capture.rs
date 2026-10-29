@@ -7,6 +7,7 @@ use crate::RuntimeError;
 
 /// Validate values captured by a lazy future before they can cross a spawn boundary.
 pub fn validate_spawn_capture(value: &Value) -> Result<(), RuntimeError> {
+    super::storable::validate_storable_value(value)?;
     for_each_gpu_handle(value, &mut |handle| {
         let provider = runmat_accelerate_api::provider_for_handle(handle).ok_or_else(|| {
             crate::runtime_error::semantic_error(
@@ -36,6 +37,15 @@ pub fn validate_spawn_capture(value: &Value) -> Result<(), RuntimeError> {
     })
 }
 
+/// Validate an aggregate capture without manufacturing a language value to
+/// represent the executor-owned collection.
+pub fn validate_spawn_captures(values: &[Value]) -> Result<(), RuntimeError> {
+    for value in values {
+        validate_spawn_capture(value)?;
+    }
+    Ok(())
+}
+
 fn for_each_gpu_handle(
     value: &Value,
     operation: &mut impl FnMut(&GpuTensorHandle) -> Result<(), RuntimeError>,
@@ -57,6 +67,15 @@ fn visit_gpu_handles(
             }
             Ok(())
         }
+        Value::StructArray(array) => {
+            let mut result = Ok(());
+            array.for_each_value(|value| {
+                if result.is_ok() {
+                    result = visit_gpu_handles(value, operation, visited_handles);
+                }
+            });
+            result
+        }
         Value::Object(value) => {
             for value in value.properties.values() {
                 visit_gpu_handles(value, operation, visited_handles)?;
@@ -65,7 +84,7 @@ fn visit_gpu_handles(
         }
         Value::ObjectArray(value) => visit_values(value.data(), operation, visited_handles),
         Value::Closure(value) => visit_values(&value.captures, operation, visited_handles),
-        Value::OutputList(values) => visit_values(values, operation, visited_handles),
+        Value::OutputList(_) => unreachable!("storable validation rejects transient sequences"),
         Value::HandleObject(handle) => {
             let address = runmat_gc::gc_handle_addr(&handle.target);
             if visited_handles.insert(address) {
@@ -100,6 +119,8 @@ fn visit_gpu_handles(
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_) => Ok(()),
     }
 }
@@ -122,7 +143,7 @@ mod tests {
         AccelDownloadFuture, AccelProvider, HostTensorView, SpawnHandleConcurrency,
         ThreadProviderGuard,
     };
-    use runmat_value::{CellArray, HandleRef, StructValue};
+    use runmat_value::{CellArray, HandleRef, StructArray, StructValue};
 
     struct RejectProvider;
     static REJECT_PROVIDER: RejectProvider = RejectProvider;
@@ -206,6 +227,30 @@ mod tests {
     }
 
     #[test]
+    fn spawn_capture_rejects_transient_sequences_before_recursive_traversal() {
+        let nested = Value::Cell(
+            CellArray::new(vec![Value::OutputList(vec![Value::Num(1.0)])], 1, 1)
+                .expect("nested capture"),
+        );
+        let error = validate_spawn_capture(&nested).expect_err("transient capture must fail");
+        assert_eq!(
+            error.identifier(),
+            Some("RunMat:TransientSequenceNotStorable")
+        );
+
+        let closure = Value::Closure(runmat_value::Closure {
+            function_name: "capture_target".into(),
+            bound_function: None,
+            captures: vec![Value::OutputList(Vec::new())],
+        });
+        let error = validate_spawn_capture(&closure).expect_err("transient closure must fail");
+        assert_eq!(
+            error.identifier(),
+            Some("RunMat:TransientSequenceNotStorable")
+        );
+    }
+
+    #[test]
     fn spawn_capture_recurses_through_cells_closures_and_handle_objects() {
         let _guard = ThreadProviderGuard::set(Some(&REJECT_PROVIDER));
         let cell = Value::Cell(
@@ -238,5 +283,40 @@ mod tests {
             validate_spawn_capture(&object).unwrap_err().identifier(),
             Some("RunMat:SpawnGpuHandleUnsupported")
         );
+    }
+
+    #[test]
+    fn spawn_capture_recurses_through_nd_structure_arrays() {
+        let _guard = ThreadProviderGuard::set(Some(&REJECT_PROVIDER));
+        let element = |payload: Value, nested: Value| {
+            let mut value = StructValue::new();
+            value.insert("payload", payload);
+            value.insert("nested", nested);
+            value
+        };
+        let array = StructArray::with_fields(
+            vec!["payload".into(), "nested".into()],
+            vec![
+                element(Value::Num(1.0), Value::Num(2.0)),
+                element(Value::Num(3.0), gpu(41, 51)),
+            ],
+            vec![1, 1, 2],
+        )
+        .expect("N-D structure array");
+        assert_eq!(
+            validate_spawn_capture(&Value::StructArray(array))
+                .unwrap_err()
+                .identifier(),
+            Some("RunMat:SpawnGpuHandleUnsupported")
+        );
+
+        let empty = StructArray::with_fields(
+            vec!["payload".into(), "nested".into()],
+            Vec::new(),
+            vec![0, 2],
+        )
+        .expect("empty structure array");
+        validate_spawn_capture(&Value::StructArray(empty))
+            .expect("empty structure array has no handles");
     }
 }

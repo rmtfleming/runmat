@@ -4,7 +4,7 @@ use runmat_execution::value::{ValuePayload, ValueRef};
 use runmat_execution::{OutputContract, ProgramRevision};
 use runmat_execution_artifact::{
     ExecutableForm, ProgramArtifact, ProgramBuildRecipe, ProgramExecutionRequest, ProgramTarget,
-    PROGRAM_BUILD_RECIPE_SCHEMA_VERSION, PROGRAM_EXECUTION_REQUEST_SCHEMA_V1,
+    PROGRAM_BUILD_RECIPE_SCHEMA_VERSION, PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
 };
 use runmat_geometry_core::{
     decode_geometry_document, encode_geometry_document, GeometryDocument, GeometryModel,
@@ -233,6 +233,8 @@ impl MeshingHostWorkload {
             },
             execution_mode: MESHING_HOST_EXECUTION_MODE.into(),
             target: ProgramTarget::portable(MESHING_HOST_TARGET_PROFILE),
+            interop: runmat_types::InteropManifest::empty(),
+            accelerators: Vec::new(),
             features: Default::default(),
             compile_options: std::collections::BTreeSet::from([workload_option]),
             source_objects: Vec::new(),
@@ -244,10 +246,16 @@ impl MeshingHostWorkload {
             executable_bytes,
         )?;
         let request = ProgramExecutionRequest {
-            schema_version: PROGRAM_EXECUTION_REQUEST_SCHEMA_V1,
+            schema_version: PROGRAM_EXECUTION_REQUEST_SCHEMA_VERSION,
             recipe,
             artifact,
-            function: 0,
+            callable: runmat_execution::ProgramCallable::semantic(
+                runmat_execution::ProgramFunctionId(0),
+                None,
+            ),
+            context: runmat_execution::ProgramInvocationContext::Direct,
+            assignment: None,
+            job_id: None,
             arguments: input_roots
                 .iter()
                 .cloned()
@@ -275,7 +283,9 @@ impl MeshingHostWorkload {
             .iter()
             .map(|value| match value {
                 ValuePayload::Object(root) => Ok((**root).clone()),
-                ValuePayload::Inline(_) => Err(MeshingExecutionError::Invalid(
+                ValuePayload::Inline(_)
+                | ValuePayload::Distributed(_)
+                | ValuePayload::Composite(_) => Err(MeshingExecutionError::Invalid(
                     "meshing host inputs must be externalized root manifests".into(),
                 )),
             })

@@ -1,9 +1,9 @@
 //! MATLAB-compatible `full` conversion for sparse matrix values.
 
-use runmat_builtins::catalog::definitions::{
+use runmat_builtins::BuiltinErrorDescriptor;
+use runmat_builtins::{
     FULL_ERROR_INTERNAL, FULL_ERROR_INVALID_INPUT, FULL_INTEGER_SPARSE_EXTENSION,
 };
-use runmat_builtins::BuiltinErrorDescriptor;
 use runmat_macros::runtime_builtin;
 use runmat_value::{SparseTensor, Value};
 
@@ -94,10 +94,10 @@ async fn full_builtin(value: Value) -> BuiltinResult<Value> {
         Value::String(_) | Value::StringArray(_) => Err(invalid_input("string")),
         Value::Symbolic(_) | Value::SymbolicArray(_) => Err(invalid_input("sym")),
         Value::Cell(_) => Err(invalid_input("cell")),
-        Value::Struct(_) => Err(invalid_input("struct")),
-        Value::ObjectArray(array) => Err(invalid_input(array.class_name())),
-        Value::Object(obj) => Err(invalid_input(&obj.class_name)),
-        Value::HandleObject(handle) => Err(invalid_input(&handle.class_name)),
+        Value::Struct(_) | Value::StructArray(_) => Err(invalid_input("struct")),
+        Value::ObjectArray(array) => Err(invalid_input(array.class_name().display_name())),
+        Value::Object(obj) => Err(invalid_input(obj.class_name.display_name())),
+        Value::HandleObject(handle) => Err(invalid_input(handle.class_name.display_name())),
         Value::Listener(_) => Err(invalid_input("event.listener")),
         Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
@@ -109,7 +109,9 @@ async fn full_builtin(value: Value) -> BuiltinResult<Value> {
         | Value::Future(_)
         | Value::Task(_)
         | Value::Pool(_)
-        | Value::Job(_) => Err(invalid_input("MException")),
+        | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_) => Err(invalid_input("MException")),
         Value::Foreign(_) => Err(invalid_input("foreign")),
         Value::OutputList(_) => Err(invalid_input("OutputList")),
     }
@@ -120,6 +122,17 @@ fn full_from_sparse(sparse: SparseTensor) -> BuiltinResult<Value> {
         return sparse
             .to_dense_logical()
             .map(Value::LogicalArray)
+            .map_err(|err| {
+                full_error_with_detail(
+                    &FULL_ERROR_INTERNAL,
+                    format!("failed to densify sparse input: {err}"),
+                )
+            });
+    }
+    if sparse.is_complex() {
+        return sparse
+            .to_dense_complex()
+            .map(Value::ComplexTensor)
             .map_err(|err| {
                 full_error_with_detail(
                     &FULL_ERROR_INTERNAL,
@@ -145,8 +158,8 @@ pub(crate) mod tests {
         AccelProvider as _, HostIntegerDataOwned, HostIntegerDataView, HostIntegerTensorView,
         HostTensorView,
     };
-    use runmat_builtins::catalog::definitions::{FULL_EXTENSIONS, FULL_INTEGER_CAPABILITIES};
     use runmat_builtins::BuiltinIntegerInputAvailability;
+    use runmat_builtins::{FULL_EXTENSIONS, FULL_INTEGER_CAPABILITIES};
     use runmat_value::{CellArray, IntegerStorage, SparseTensor, Tensor, Value};
 
     fn run_full(value: Value) -> BuiltinResult<Value> {
@@ -304,7 +317,14 @@ pub(crate) mod tests {
     fn full_uses_canonical_catalog_contract_without_legacy_registration() {
         let entry = runmat_builtins::builtin_catalog_entry_by_name("full")
             .expect("canonical full catalog entry");
-        assert_eq!(entry.contract.inference_rule.0, "array.full");
+        assert_eq!(
+            entry.contract.inference_rule,
+            runmat_builtins::BuiltinInferenceRule::Array(
+                runmat_builtins::ArrayInferenceRule::Creation(
+                    runmat_builtins::ArrayCreationInferenceRule::Full,
+                ),
+            )
+        );
         assert!(runmat_builtins::builtin_function_by_name("full").is_none());
     }
 
@@ -350,6 +370,35 @@ pub(crate) mod tests {
         };
         assert_eq!(dense.shape, vec![3, 2]);
         assert_eq!(dense.data, vec![1, 0, 1, 0, 1, 0]);
+    }
+
+    #[test]
+    fn full_preserves_complex_sparse_values_and_shape() {
+        let sparse = SparseTensor::new_complex(
+            3,
+            2,
+            vec![0, 2, 3],
+            vec![0, 2, 1],
+            vec![(1.0, -2.0), (-0.0, 4.0), (5.0, 6.0)],
+        )
+        .expect("complex sparse");
+        let Value::ComplexTensor(dense) =
+            run_full(Value::SparseTensor(sparse)).expect("full complex sparse")
+        else {
+            panic!("expected dense complex tensor");
+        };
+        assert_eq!(dense.shape, vec![3, 2]);
+        assert_eq!(
+            dense.materialize_f64(),
+            vec![
+                (1.0, -2.0),
+                (0.0, 0.0),
+                (-0.0, 4.0),
+                (0.0, 0.0),
+                (5.0, 6.0),
+                (0.0, 0.0)
+            ]
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

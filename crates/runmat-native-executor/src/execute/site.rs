@@ -82,7 +82,19 @@ pub(super) fn execute(
         {
             return Ok(NativeSiteOutcome::exit());
         }
-        let outcome = execute_terminator(state, call, block.id, &block.terminator, exit)?;
+        let outcome = match execute_terminator(state, call, block.id, &block.terminator, exit) {
+            Ok(outcome) => {
+                state.finish_contextual_site();
+                outcome
+            }
+            Err(NativeExecutorError::CallSuspended) => {
+                return super::call_suspension::publish(state, call, request, exit);
+            }
+            Err(error) => {
+                state.finish_contextual_site();
+                return Err(error);
+            }
+        };
         refresh_frame_roots(state, call)?;
         Ok(outcome)
     } else {
@@ -120,6 +132,21 @@ pub(super) fn execute(
         )? {
             return Ok(NativeSiteOutcome::exit());
         }
+        if request.phase == NativeSitePhase::TERMINATOR_RVALUE && instruction.site.ordinal == 0 {
+            if let NativeTerminatorKind::ParFor { region, .. } = &block.terminator.kind {
+                super::deoptimization::install_exit_for_target(
+                    state,
+                    call,
+                    &instruction.site,
+                    frame_state,
+                    super::deoptimization::NativeTransfer::interpreter_slow_path(
+                        parallel_region_token(*region),
+                    ),
+                    exit,
+                )?;
+                return Ok(NativeSiteOutcome::exit());
+            }
+        }
         if request.phase == NativeSitePhase::RVALUE {
             if let Some(outcome) = super::region::checkpoint(state, request, exit)? {
                 return Ok(outcome);
@@ -133,7 +160,18 @@ pub(super) fn execute(
             && state.has_for_loop(block.id)
             && matches!(block.terminator.kind, NativeTerminatorKind::For { .. });
         if !retained_for_iterable {
-            execute_instruction(state, &instruction)?;
+            match execute_instruction(state, &instruction) {
+                Ok(()) => state.finish_contextual_site(),
+                Err(NativeExecutorError::CallSuspended) => {
+                    return super::call_suspension::publish(state, call, request, exit);
+                }
+                Err(error) => {
+                    state.finish_contextual_site();
+                    return Err(error);
+                }
+            }
+        } else {
+            state.finish_contextual_site();
         }
         refresh_frame_roots(state, call)?;
         Ok(NativeSiteOutcome::continue_execution())
@@ -150,6 +188,8 @@ fn enter_site(
 ) -> NativeExecutorResult<()> {
     state.hit_coverage(site);
     state.current_source = runtime_source(source);
+    state.current_request = Some(request);
+    state.begin_contextual_site(request)?;
     state.enter_site_block(runmat_native_codegen::NativeBlockId(request.block));
     // SAFETY: NativeCall was validated before entry and its frame/resume
     // backing allocations live for the complete synchronous invocation.
@@ -198,6 +238,46 @@ fn execute_instruction(
     instruction: &NativeInstruction,
 ) -> NativeExecutorResult<()> {
     match &instruction.operation {
+        NativeOperation::Rvalue {
+            value,
+            result: runmat_native_codegen::NativeRvalueResult::MultiAssignment(targets),
+        } if targets
+            .targets
+            .iter()
+            .any(|target| matches!(target, runmat_mir::MirOutputTarget::Sequence(_))) =>
+        {
+            let prepared = match state.prepared_multi_assignment.take() {
+                Some(prepared) => prepared,
+                None => super::mutation::PreparedMultiAssignment::prepare(state, targets)?,
+            };
+            let results = match evaluate_rvalue(state, value, prepared.cardinality(), None) {
+                Ok(results) => results,
+                Err(error) => {
+                    // A suspending RHS resumes this exact rvalue site. Retain the
+                    // already-materialized targets so selector and protocol
+                    // preparation is never replayed before completion routing.
+                    state.prepared_multi_assignment = Some(prepared);
+                    return Err(error);
+                }
+            };
+            let prepared = prepared.bind_values(state, results)?;
+            state.prepared_multi_assignment = Some(prepared);
+        }
+        NativeOperation::Rvalue {
+            value,
+            result: runmat_native_codegen::NativeRvalueResult::SequenceAssignment(target),
+        } => {
+            if state.sequence_assignment_register.is_some() {
+                return Err(NativeExecutorError::Host(
+                    "native sequence register was overwritten before consumption".into(),
+                ));
+            }
+            let (destination, count) = super::mutation::prepare_sequence_assignment(state, target)?;
+            let results = evaluate_rvalue(state, value, count, None)?;
+            state.sequence_assignment_register = Some(
+                super::mutation::PreparedSequenceAssignment::with_values(destination, results)?,
+            );
+        }
         NativeOperation::Rvalue { value, .. } => {
             let output_local = (instruction.outputs.len() == 1)
                 .then(|| instruction.outputs[0].local)
@@ -242,8 +322,13 @@ fn execute_statement(
                 state.record_expression(value);
             }
         }
+        MirStmtKind::CaptureSequence {
+            destination,
+            source,
+        } => super::call::capture_sequence(state, *destination, source)?,
         MirStmtKind::Assign { .. }
         | MirStmtKind::MultiAssign { .. }
+        | MirStmtKind::SequenceAssign { .. }
         | MirStmtKind::PlaceMutation(_) => {
             return Err(NativeExecutorError::Host(
                 "native mutation statement was not consumed by its semantic adapter".into(),
@@ -443,12 +528,27 @@ fn execute_terminator(
                 }
             }
         }
-        NativeTerminatorKind::ParFor { .. } | NativeTerminatorKind::Spmd { .. } => {
-            Err(NativeExecutorError::UnsupportedSite(
-                "parallel terminator requires the R27 native parallel executor".into(),
-            ))
+        NativeTerminatorKind::ParFor { region, .. } => {
+            super::deoptimization::install_exit_for_target(
+                state,
+                call,
+                &terminator.site,
+                &terminator.frame_state,
+                super::deoptimization::NativeTransfer::interpreter_slow_path(
+                    parallel_region_token(*region),
+                ),
+                exit,
+            )?;
+            Ok(NativeSiteOutcome::exit())
         }
+        NativeTerminatorKind::Spmd { .. } => Err(NativeExecutorError::UnsupportedSite(
+            "SPMD terminator requires the distributed native executor".into(),
+        )),
     }
+}
+
+fn parallel_region_token(region: runmat_types::ParallelRegionId) -> u64 {
+    (u64::from(region.0.function.0) << 32) | u64::from(region.0.ordinal)
 }
 
 fn return_local_value(
@@ -531,6 +631,10 @@ pub(super) fn redirect_exception(
     state: &mut HostState,
     exception: runmat_runtime::native::NativeException,
 ) -> NativeExecutorResult<Option<runmat_runtime::native::NativeSiteRequest>> {
+    state.sequence_assignment_register = None;
+    state.prepared_multi_assignment = None;
+    state.captured_sequences.clear();
+    state.finish_contextual_site();
     let Some(handler) = state.take_exception_handler() else {
         return Ok(None);
     };

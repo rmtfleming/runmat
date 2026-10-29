@@ -1,16 +1,17 @@
 use crate::RuntimeError;
 use runmat_thread_local::runmat_thread_local;
 use runmat_types::{CallableFallbackPolicy, CallableIdentity, SourceId};
-use runmat_value::Value;
+use runmat_value::{Value, ValueSequence};
 use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub type UserFunctionFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>>>;
+pub type UserFunctionFuture = Pin<Box<dyn Future<Output = Result<ValueSequence, RuntimeError>>>>;
 pub type DynamicFunctionLoadFuture =
-    Pin<Box<dyn Future<Output = Option<Result<Value, RuntimeError>>>>>;
+    Pin<Box<dyn Future<Output = Option<Result<ValueSequence, RuntimeError>>>>>;
+pub type DynamicFunctionClearFuture = Pin<Box<dyn Future<Output = Result<(), RuntimeError>>>>;
 pub type FunctionInvoker = dyn Fn(usize, &[Value], usize) -> UserFunctionFuture;
 #[derive(Debug, Clone)]
 pub struct ExternalFunctionCall {
@@ -25,8 +26,37 @@ pub type LexicalFunctionFuture =
 pub type LexicalFunctionInvoker =
     dyn Fn(crate::call::lexical::LexicalCall) -> LexicalFunctionFuture;
 pub type FunctionResolver = dyn Fn(&str) -> Option<usize> + Send + Sync;
-pub type DynamicFunctionLoader =
-    dyn Fn(String, Vec<Value>, usize) -> DynamicFunctionLoadFuture + Send + Sync;
+
+/// The point in callable resolution at which a session-backed loader runs.
+///
+/// Native callable artifacts such as MEX modules have language-defined
+/// precedence over source functions. Ordinary dynamically discovered source
+/// files are consulted only after the analyzed semantic registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DynamicFunctionLoadPhase {
+    BeforeSemantic,
+    AfterSemantic,
+}
+
+pub type DynamicFunctionLoader = dyn Fn(
+    crate::context::RuntimeContext,
+    String,
+    Vec<Value>,
+    usize,
+    DynamicFunctionLoadPhase,
+) -> DynamicFunctionLoadFuture;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DynamicFunctionClearRequest {
+    All,
+    NativeExtensions,
+    Named(String),
+}
+
+pub type DynamicFunctionClearer = dyn Fn(
+    crate::context::RuntimeContext,
+    DynamicFunctionClearRequest,
+) -> DynamicFunctionClearFuture;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFunctionInfo {
@@ -402,7 +432,7 @@ pub async fn try_call_semantic_function(
     function: usize,
     args: &[Value],
     requested_outputs: usize,
-) -> Option<Result<Value, RuntimeError>> {
+) -> Option<Result<ValueSequence, RuntimeError>> {
     let invoker = current_semantic_function_invoker();
     let invoker = invoker?;
     Some(invoker(function, args, requested_outputs).await)
@@ -410,7 +440,7 @@ pub async fn try_call_semantic_function(
 
 pub async fn try_call_external_function(
     call: ExternalFunctionCall,
-) -> Option<Result<Value, RuntimeError>> {
+) -> Option<Result<ValueSequence, RuntimeError>> {
     let invoker = current_external_function_invoker()?;
     Some(invoker(call).await)
 }
@@ -426,7 +456,7 @@ pub async fn try_call_semantic_function_by_name(
     name: &str,
     args: &[Value],
     requested_outputs: usize,
-) -> Option<Result<Value, RuntimeError>> {
+) -> Option<Result<ValueSequence, RuntimeError>> {
     let function = resolve_semantic_function_by_name(name)?;
     try_call_semantic_function(function, args, requested_outputs).await
 }
@@ -440,14 +470,19 @@ pub async fn try_load_and_call_dynamic_function(
     name: String,
     args: Vec<Value>,
     requested_outputs: usize,
-) -> Option<Result<Value, RuntimeError>> {
-    let loader = crate::context::legacy::active()?
-        .state()
-        .call
-        .borrow()
-        .dynamic_loader
-        .clone()?;
-    loader(name, args, requested_outputs).await
+    phase: DynamicFunctionLoadPhase,
+) -> Option<Result<ValueSequence, RuntimeError>> {
+    let context = crate::context::legacy::active()?;
+    let loader = context.state().call.borrow().dynamic_loader.clone()?;
+    loader(context, name, args, requested_outputs, phase).await
+}
+
+pub async fn try_clear_dynamic_functions(
+    request: DynamicFunctionClearRequest,
+) -> Option<Result<(), RuntimeError>> {
+    let context = crate::context::legacy::active()?;
+    let clearer = context.state().call.borrow().dynamic_clearer.clone()?;
+    Some(clearer(context, request).await)
 }
 
 fn source_functions_in_catalog(
@@ -471,7 +506,7 @@ fn active_state() -> Option<std::rc::Rc<crate::context::RuntimeContextState>> {
 
 pub async fn try_call_semantic_descriptor(
     request: CallableRequest,
-) -> Option<Result<Value, RuntimeError>> {
+) -> Option<Result<ValueSequence, RuntimeError>> {
     let CallableRequest {
         identity,
         fallback_policy,
@@ -485,12 +520,62 @@ pub async fn try_call_semantic_descriptor(
         return None;
     }
     let name = fallback_policy.resolution_name_for(&identity)?;
+    if matches!(identity, CallableIdentity::ExternalName(_)) {
+        if let Some(context) = crate::context::legacy::active() {
+            if let Some(result) = crate::foreign::try_invoke_clibgen(
+                context.clone(),
+                &name,
+                args.clone(),
+                requested_outputs,
+            )
+            .await
+            {
+                return Some(result);
+            }
+            if let Some(result) = crate::foreign::try_invoke_clib(
+                context.clone(),
+                &name,
+                args.clone(),
+                requested_outputs,
+            )
+            .await
+            {
+                return Some(result);
+            }
+            if let Some(result) =
+                crate::foreign::try_invoke_python(context, &name, args.clone(), requested_outputs)
+                    .await
+            {
+                return Some(result);
+            }
+        }
+    }
     if matches!(identity, CallableIdentity::DynamicName(_))
-        && crate::class_registry::get_class(&name).is_some()
+        && runmat_types::ClassIdentity::new(name.clone())
+            .ok()
+            .and_then(|identity| crate::class_registry::get_class(&identity))
+            .is_some()
     {
         // Constructor calls for class names must flow through runtime constructor dispatch,
         // not generic semantic name resolution.
         return None;
+    }
+    if matches!(
+        identity,
+        CallableIdentity::DynamicName(_)
+            | CallableIdentity::Imported(_)
+            | CallableIdentity::ExternalName(_)
+    ) {
+        if let Some(result) = try_load_and_call_dynamic_function(
+            name.clone(),
+            args.clone(),
+            requested_outputs,
+            DynamicFunctionLoadPhase::BeforeSemantic,
+        )
+        .await
+        {
+            return Some(result);
+        }
     }
     if let Some(result) = try_call_semantic_function_by_name(&name, &args, requested_outputs).await
     {
@@ -502,7 +587,28 @@ pub async fn try_call_semantic_descriptor(
             | CallableIdentity::Imported(_)
             | CallableIdentity::ExternalName(_)
     ) {
-        return try_load_and_call_dynamic_function(name, args, requested_outputs).await;
+        if let Some(result) = try_load_and_call_dynamic_function(
+            name.clone(),
+            args.clone(),
+            requested_outputs,
+            DynamicFunctionLoadPhase::AfterSemantic,
+        )
+        .await
+        {
+            return Some(result);
+        }
+    }
+    if matches!(
+        identity,
+        CallableIdentity::ExternalName(_) | CallableIdentity::Imported(_)
+    ) {
+        if let Some(context) = crate::context::legacy::active() {
+            if let Some(result) =
+                crate::foreign::try_invoke_java(context, &name, args, requested_outputs).await
+            {
+                return Some(result);
+            }
+        }
     }
     None
 }
@@ -521,7 +627,7 @@ mod lexical_tests {
                 assert_eq!(call.arguments, vec![Value::Num(2.0)]);
                 call.captures[0].value = Value::Num(5.0);
                 Ok(LexicalCallResult {
-                    value: Value::Num(7.0),
+                    outputs: runmat_value::ValueSequence::single(Value::Num(7.0)).unwrap(),
                     captures: call.captures,
                 })
             })
@@ -537,7 +643,7 @@ mod lexical_tests {
         }))
         .expect("lexical invoker is installed")
         .expect("lexical call succeeds");
-        assert_eq!(result.value, Value::Num(7.0));
+        assert_eq!(result.outputs.into_values(), vec![Value::Num(7.0)]);
         assert_eq!(result.captures[0].value, Value::Num(5.0));
         drop(guard);
         assert!(current_lexical_function_invoker().is_none());
@@ -547,7 +653,7 @@ mod lexical_tests {
     fn external_invoker_preserves_identity_kind_and_restores_scope() {
         assert!(current_external_function_invoker().is_none());
         let guard = install_external_function_invoker(Some(Arc::new(|call| {
-            Box::pin(async move {
+            crate::sequence::single_value_future(async move {
                 assert_eq!(call.function, 0);
                 assert_eq!(call.display_name, "published");
                 assert_eq!(call.arguments, vec![Value::Num(2.0)]);
@@ -564,7 +670,7 @@ mod lexical_tests {
             }))
             .expect("external invoker is installed")
             .expect("external call succeeds");
-        assert_eq!(result, Value::Num(12.0));
+        assert_eq!(result.into_values(), vec![Value::Num(12.0)]);
         drop(guard);
         assert!(current_external_function_invoker().is_none());
     }

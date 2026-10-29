@@ -1,6 +1,8 @@
 mod batch;
 mod cluster;
 mod job;
+mod mex;
+mod native_interface;
 mod package;
 mod parse;
 mod remote;
@@ -14,6 +16,8 @@ pub use cluster::{
     NodeStateArg, NodeTrustTier,
 };
 pub use job::{JobCommand, JobRecoveryCommand};
+pub use mex::MexArgs;
+pub use native_interface::{NativeInterfaceCommand, NativeInterfacePrepareArgs};
 pub use package::{
     PackageCacheCommand, PackageCommand, PackageInspectArgs, PackageKeyCommand, PackageKeyTarget,
     PackageProjectArgs, PackagePublishArgs,

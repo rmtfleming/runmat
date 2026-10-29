@@ -4,7 +4,8 @@ use runmat_execution::value::{
 };
 use runmat_value::{
     CellArray, CharArray, Closure, ComplexTensor, IntValue, IntegerComplexStorage, IntegerStorage,
-    LogicalArray, MException, SparseTensor, StringArray, StructValue, Tensor, Value,
+    LogicalArray, MException, ObjectInstance, SparseTensor, StringArray, StructValue, Tensor,
+    Value,
 };
 
 use super::ValueCodecError;
@@ -17,11 +18,20 @@ pub fn decode_inline_value(payload: &ValuePayload) -> Result<Value, ValueCodecEr
 }
 
 fn decode(payload: &ValuePayload, path: &str) -> Result<Value, ValueCodecError> {
-    let ValuePayload::Inline(value) = payload else {
-        return Err(ValueCodecError::unsupported(
-            path,
-            "object references require an execution object-store decoder",
-        ));
+    let value = match payload {
+        ValuePayload::Inline(value) => value,
+        ValuePayload::Distributed(handle) => {
+            return Ok(Value::Distributed(handle.clone()));
+        }
+        ValuePayload::Composite(handle) => {
+            return Ok(Value::Composite(handle.clone()));
+        }
+        ValuePayload::Object(_) => {
+            return Err(ValueCodecError::unsupported(
+                path,
+                "object references require an execution object-store decoder",
+            ));
+        }
     };
     match value.as_ref() {
         InlineValue::Null => Err(ValueCodecError::unsupported(
@@ -94,19 +104,43 @@ fn decode(payload: &ValuePayload, path: &str) -> Result<Value, ValueCodecError> 
             }
             Ok(Value::Struct(value))
         }
-        InlineValue::OutputList(values) => Ok(Value::OutputList(
-            values
-                .iter()
-                .enumerate()
-                .map(|(index, value)| decode(value, &format!("{path}[{index}]")))
-                .collect::<Result<_, _>>()?,
-        )),
         InlineValue::Exception(value) => decode_exception(value, path),
         InlineValue::Callable(value) => decode_callable(value, path),
-        InlineValue::ImmutableValueClass(_) => Err(ValueCodecError::unsupported(
-            path,
-            "the registered immutable value-class codec is unavailable in this runtime",
-        )),
+        InlineValue::ImmutableValueClass(value) => {
+            if value.schema_version != 1 {
+                return Err(ValueCodecError::unsupported(
+                    path,
+                    "the immutable value-class schema version is unavailable in this runtime",
+                ));
+            }
+            let class_identity = runmat_types::ClassIdentity::new(&value.type_identity)
+                .map_err(|error| ValueCodecError::invalid(path, error.to_string()))?;
+            if !crate::parallel::codistributor::is_supported_class(&class_identity) {
+                return Err(ValueCodecError::unsupported(
+                    path,
+                    "the immutable value-class codec is not registered in this runtime",
+                ));
+            }
+            let mut object = ObjectInstance::new(class_identity);
+            for field in &value.fields {
+                if object
+                    .properties
+                    .insert(
+                        field.name.clone(),
+                        decode(&field.value, &format!("{path}.{}", field.name))?,
+                    )
+                    .is_some()
+                {
+                    return Err(ValueCodecError::invalid(
+                        path,
+                        "immutable value-class fields must be unique",
+                    ));
+                }
+            }
+            crate::parallel::codistributor::validate_definition(&object)
+                .map_err(|error| ValueCodecError::invalid(path, error.to_string()))?;
+            Ok(Value::Object(object))
+        }
     }
 }
 
@@ -210,10 +244,32 @@ fn decode_sparse(value: &SparseValue, path: &str) -> Result<Value, ValueCodecErr
             row_indices,
             decode_f32(&value.little_endian_data, path)?,
         ),
-        ElementType::Logical
-        | ElementType::ComplexF64
-        | ElementType::ComplexF32
-        | ElementType::ComplexI8
+        ElementType::ComplexF64 => {
+            let words = decode_words::<8>(&value.little_endian_data, path)?;
+            let values = words
+                .chunks_exact(2)
+                .map(|pair| (f64::from_bits(pair[0]), f64::from_bits(pair[1])))
+                .collect();
+            SparseTensor::new_complex(rows, columns, column_offsets, row_indices, values)
+        }
+        ElementType::ComplexF32 => {
+            let components = decode_f32(&value.little_endian_data, path)?;
+            let values = components
+                .chunks_exact(2)
+                .map(|pair| (pair[0], pair[1]))
+                .collect();
+            SparseTensor::new_complex_f32(rows, columns, column_offsets, row_indices, values)
+        }
+        ElementType::Logical => {
+            if value.little_endian_data.iter().any(|entry| *entry != 1) {
+                return Err(ValueCodecError::invalid(
+                    path,
+                    "logical sparse payload contains a stored false value",
+                ));
+            }
+            SparseTensor::new_logical(rows, columns, column_offsets, row_indices)
+        }
+        ElementType::ComplexI8
         | ElementType::ComplexI16
         | ElementType::ComplexI32
         | ElementType::ComplexI64

@@ -59,14 +59,47 @@ pub fn value_fact(value: &Value) -> ValueFact {
                 &value.shape,
             )
         }
-        Value::Struct(value) => scalar(ValueKindFact::Struct(StructFact {
-            fields: value
+        Value::Struct(value) => scalar(ValueKindFact::Struct(StructFact::scalar(
+            value
                 .fields
                 .iter()
                 .map(|(name, value)| (name.clone(), value_fact(value)))
                 .collect(),
-            fields_complete: true,
-        })),
+            true,
+        ))),
+        Value::StructArray(value) => {
+            let fields = value
+                .field_names()
+                .map(|name| {
+                    let joined = value
+                        .field_values(name)
+                        .into_iter()
+                        .flatten()
+                        .map(value_fact)
+                        .reduce(|left, right| runmat_types::FactJoin::join(&left, &right))
+                        .unwrap_or_else(|| ValueFact::unknown(DynamicReason::RuntimeValue));
+                    (name.clone(), joined)
+                })
+                .collect();
+            dense(
+                ValueKindFact::Struct(StructFact::array(
+                    fields,
+                    true,
+                    value
+                        .elements()
+                        .map(|element| {
+                            element
+                                .fields
+                                .iter()
+                                .map(|(name, value)| (name.clone(), value_fact(value)))
+                                .collect()
+                        })
+                        .collect(),
+                    true,
+                )),
+                value.shape(),
+            )
+        }
         Value::GpuTensor(value) => {
             let kind = gpu_kind(value);
             ValueFact {
@@ -90,7 +123,7 @@ pub fn value_fact(value: &Value) -> ValueFact {
             }
         }
         Value::Object(value) => object(
-            &value.class_name,
+            value.class_name.clone(),
             value
                 .properties
                 .iter()
@@ -101,7 +134,7 @@ pub fn value_fact(value: &Value) -> ValueFact {
             ShapeFact::Scalar,
         ),
         Value::ObjectArray(value) => object(
-            value.class_name(),
+            value.class_name().clone(),
             BTreeMap::new(),
             false,
             value
@@ -111,14 +144,14 @@ pub fn value_fact(value: &Value) -> ValueFact {
             shape(value.shape()),
         ),
         Value::HandleObject(value) => object(
-            &value.class_name,
+            value.class_name.clone(),
             BTreeMap::new(),
             false,
             true,
             ShapeFact::Scalar,
         ),
         Value::Listener(value) => object(
-            &value.target_class_name,
+            value.target_class_name.clone(),
             BTreeMap::new(),
             false,
             true,
@@ -150,24 +183,70 @@ pub fn value_fact(value: &Value) -> ValueFact {
         Value::ClassRef(name) => scalar(ValueKindFact::ClassReference(
             runmat_types::ClassReferenceFact {
                 class: None,
-                runtime_class: Some(qualified_name(name)),
+                runtime_class: Some(name.clone()),
             },
         )),
         Value::MException(value) => scalar(ValueKindFact::Exception(ExceptionFact {
             identifier: Some(value.identifier.clone()),
         })),
         Value::Future(_) => execution(ExecutionFact::Future {
-            output: Box::new(ValueFact::unknown(DynamicReason::RuntimeValue)),
+            output: runmat_types::ValueSequenceFact::single(ValueFact::unknown(
+                DynamicReason::RuntimeValue,
+            )),
             state: runmat_types::FutureStateFact::Unknown,
         }),
         Value::Task(_) => execution(ExecutionFact::Task {
-            output: Box::new(ValueFact::unknown(DynamicReason::RuntimeValue)),
+            output: runmat_types::ValueSequenceFact::single(ValueFact::unknown(
+                DynamicReason::RuntimeValue,
+            )),
             spawn_safety: runmat_types::SpawnSafetyFact::RequiresIsolation,
         }),
         Value::Pool(_) => execution(ExecutionFact::Pool),
         Value::Job(_) => execution(ExecutionFact::Job {
-            output: Box::new(ValueFact::unknown(DynamicReason::RuntimeValue)),
+            output: runmat_types::ValueSequenceFact::single(ValueFact::unknown(
+                DynamicReason::RuntimeValue,
+            )),
         }),
+        Value::Distributed(handle) => ValueFact {
+            kind: ValueKindFact::Distributed(runmat_types::DistributedFact {
+                id: handle.contract,
+                owner: handle.owner,
+                scheme: Some(handle.scheme.clone()),
+                value: Box::new(handle.value.clone()),
+                materializable: handle.materializable,
+            }),
+            shape: shape_u64(&handle.global_shape),
+            storage: StorageFact::Opaque,
+            layout: LayoutFact::Unknown,
+            contiguity: ContiguityFact::Unknown,
+            view: ViewFact::Unknown,
+            residency: ResidencyFact::Remote {
+                pool: Some(handle.pool.id.to_string()),
+            },
+            alias: AliasFact::Identity,
+            mutation: MutationFact::HandleSemantics,
+            certainty: CertaintyFact::Proven,
+            invalidation: InvalidationVector::default(),
+        },
+        Value::Composite(handle) => ValueFact {
+            kind: ValueKindFact::Composite(runmat_types::CompositeFact {
+                owner: handle.owner_region,
+                labs: handle.gang.labs,
+                value: Box::new(handle.value.clone()),
+            }),
+            shape: ShapeFact::Scalar,
+            storage: StorageFact::Opaque,
+            layout: LayoutFact::Unknown,
+            contiguity: ContiguityFact::Unknown,
+            view: ViewFact::Unknown,
+            residency: ResidencyFact::Remote {
+                pool: Some(handle.gang.pool.id.to_string()),
+            },
+            alias: AliasFact::Identity,
+            mutation: MutationFact::HandleSemantics,
+            certainty: CertaintyFact::Proven,
+            invalidation: InvalidationVector::default(),
+        },
         Value::Foreign(reference) => {
             let mut fact = fact(
                 ValueKindFact::Foreign(ForeignFact {
@@ -206,6 +285,12 @@ fn numeric_scalar(class: NumericClass, domain: NumericDomain) -> ValueFact {
     scalar(numeric_kind(class, domain))
 }
 
+/// Describe one host scalar read from numeric runtime storage without cloning
+/// or materializing the value that owns that storage.
+pub(crate) fn numeric_storage_scalar_fact(class: NumericDType, domain: NumericDomain) -> ValueFact {
+    numeric_scalar(dtype_class(class), domain)
+}
+
 fn numeric_kind(class: NumericClass, domain: NumericDomain) -> ValueKindFact {
     ValueKindFact::Numeric(NumericFact { class, domain })
 }
@@ -216,6 +301,20 @@ fn scalar(kind: ValueKindFact) -> ValueFact {
 
 fn dense(kind: ValueKindFact, dimensions: &[usize]) -> ValueFact {
     fact(kind, shape(dimensions), StorageFact::Dense)
+}
+
+fn shape_u64(dimensions: &[u64]) -> ShapeFact {
+    ShapeFact::Shaped {
+        dims: dimensions
+            .iter()
+            .copied()
+            .map(|dimension| {
+                usize::try_from(dimension)
+                    .map(DimensionFact::Known)
+                    .unwrap_or(DimensionFact::Unknown)
+            })
+            .collect(),
+    }
 }
 
 fn sparse(kind: ValueKindFact, dimensions: &[usize]) -> ValueFact {
@@ -239,7 +338,7 @@ fn fact(kind: ValueKindFact, shape: ShapeFact, storage: StorageFact) -> ValueFac
 }
 
 fn object(
-    class_name: &str,
+    class_name: runmat_types::ClassIdentity,
     properties: BTreeMap<String, ValueFact>,
     properties_complete: bool,
     handle_semantics: bool,
@@ -248,7 +347,7 @@ fn object(
     let mut fact = fact(
         ValueKindFact::Object(ObjectFact {
             class: None,
-            runtime_class: Some(qualified_name(class_name)),
+            runtime_class: Some(class_name),
             properties,
             properties_complete,
             handle_semantics: Some(handle_semantics),
@@ -268,8 +367,13 @@ fn callable(identity: CallableIdentity) -> ValueFact {
 }
 
 fn callable_kind(identity: CallableIdentity) -> CallableFact {
+    let capabilities = match &identity {
+        CallableIdentity::Builtin(name) => runmat_builtins::builtin_required_capabilities(&name.0),
+        _ => Default::default(),
+    };
     CallableFact {
         identity: Some(identity),
+        capabilities,
         parameters: Vec::new(),
         parameters_complete: false,
         outputs: Vec::new(),
@@ -354,11 +458,9 @@ fn gpu_kind(handle: &runmat_accelerate_api::GpuTensorHandle) -> Option<ValueKind
         .or_else(|| match runmat_accelerate_api::handle_precision(handle) {
             Some(ProviderPrecision::F32) => Some(NumericClass::Single),
             Some(ProviderPrecision::F64) => Some(NumericClass::Double),
-            None => match runmat_accelerate_api::handle_class_name(handle).as_deref() {
-                Some("single") => Some(NumericClass::Single),
-                Some("double") => Some(NumericClass::Double),
-                _ => None,
-            },
+            None => runmat_accelerate_api::handle_class_identity(handle)
+                .as_ref()
+                .and_then(NumericClass::from_class_identity),
         })?;
     let domain = match runmat_accelerate_api::handle_storage(handle) {
         GpuTensorStorage::Real => NumericDomain::Real,
@@ -373,7 +475,7 @@ mod tests {
     use runmat_accelerate_api::{
         clear_handle_metadata, GpuTensorHandle, GpuTensorStorage, NumericElementType,
     };
-    use runmat_value::{CellArray, ForeignRef, Tensor};
+    use runmat_value::{CellArray, ForeignRef, ForeignResourceKey, Tensor};
 
     #[test]
     fn preserves_recursive_numeric_class_and_shape() {
@@ -442,19 +544,21 @@ mod tests {
 
     #[test]
     fn foreign_reference_preserves_static_type_and_lifecycle_without_live_identity() {
-        let value = Value::Foreign(ForeignRef {
-            host_identity: "worker-7".into(),
-            handle: 91,
-            generation: 4,
-            type_identity: runmat_types::ForeignTypeIdentity {
+        let value = Value::Foreign(ForeignRef::detached(
+            ForeignResourceKey {
+                host_identity: "worker-7".into(),
+                handle: 91,
+                generation: 4,
+            },
+            runmat_types::ForeignTypeIdentity {
                 family: "java".into(),
                 name: "java.lang.StringBuilder".into(),
                 version: 2,
             },
-            ownership: ForeignOwnership::Shared,
-            affinity: ForeignAffinity::OriginProcess,
-            lifetime: ForeignLifetime::Session,
-        });
+            ForeignOwnership::Shared,
+            ForeignAffinity::OriginProcess,
+            ForeignLifetime::Session,
+        ));
 
         let fact = value_fact(&value);
         assert_eq!(

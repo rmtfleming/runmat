@@ -7,7 +7,8 @@ use runmat_accelerate_api::{
     IntegerElementType,
 };
 use runmat_value::{
-    ComplexStorage, ComplexTensor, IntValue, NumericDType, NumericStorage, Tensor, Value,
+    ComplexElement, ComplexStorage, ComplexTensor, IntValue, NumericDType, NumericStorage, Tensor,
+    Value,
 };
 use rustfft::FftPlanner;
 use std::borrow::Cow;
@@ -125,6 +126,7 @@ pub fn parse_length(value: &Value, builtin: &str) -> BuiltinResult<Option<usize>
         | Value::SparseTensor(_)
         | Value::Cell(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::GpuTensor(_)
         | Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
@@ -141,6 +143,8 @@ pub fn parse_length(value: &Value, builtin: &str) -> BuiltinResult<Option<usize>
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(builtin_error(
             builtin,
@@ -610,7 +614,7 @@ fn host_to_complex_tensor_with_precision(
                 .map(|(re, im)| (re as f32, im as f32))
                 .collect(),
         ),
-        runmat_accelerate_api::ProviderPrecision::F64 => ComplexStorage::F64(values),
+        runmat_accelerate_api::ProviderPrecision::F64 => ComplexStorage::F64(values.into()),
     };
     ComplexTensor::from_complex_storage(storage, shape)
         .map_err(|e| builtin_error(builtin, format!("{builtin}: {e}")))
@@ -779,8 +783,8 @@ pub fn transform_complex_tensor(
         trim_trailing_ones(&mut out_shape, origin_rank);
         return ComplexTensor::from_complex_storage(
             match output_dtype {
-                NumericDType::F32 => ComplexStorage::F32(Vec::new()),
-                NumericDType::F64 => ComplexStorage::F64(Vec::new()),
+                NumericDType::F32 => ComplexStorage::F32(Vec::<ComplexElement<f32>>::new().into()),
+                NumericDType::F64 => ComplexStorage::F64(Vec::<ComplexElement<f64>>::new().into()),
                 _ => unreachable!("FFT output is single or double"),
             },
             out_shape,
@@ -798,8 +802,8 @@ pub fn transform_complex_tensor(
         trim_trailing_ones(&mut out_shape, origin_rank.max(dim_index + 1));
         return ComplexTensor::from_complex_storage(
             match output_dtype {
-                NumericDType::F32 => ComplexStorage::F32(Vec::new()),
-                NumericDType::F64 => ComplexStorage::F64(Vec::new()),
+                NumericDType::F32 => ComplexStorage::F32(Vec::<ComplexElement<f32>>::new().into()),
+                NumericDType::F64 => ComplexStorage::F64(Vec::<ComplexElement<f64>>::new().into()),
                 _ => unreachable!("FFT output is single or double"),
             },
             out_shape,
@@ -1358,6 +1362,7 @@ fn dims_from_value(value: &Value, builtin: &str) -> BuiltinResult<Vec<usize>> {
         | Value::SymbolicArray(_)
         | Value::Cell(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::ObjectArray(_)
         | Value::Object(_)
         | Value::HandleObject(_)
@@ -1373,6 +1378,8 @@ fn dims_from_value(value: &Value, builtin: &str) -> BuiltinResult<Vec<usize>> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(builtin_error(
             builtin,
@@ -1494,10 +1501,13 @@ mod tests {
         let input = Tensor::from_f32(vec![0.1, -2.0], vec![1, 2]).unwrap();
         let complex = tensor_to_complex_tensor(input, "fft").expect("complex input");
         assert_eq!(
-            complex.as_f32_slice(),
-            Some(&[(0.1_f32, 0.0), (-2.0_f32, 0.0)][..])
+            complex.as_f32_slice().map(|values| values
+                .iter()
+                .copied()
+                .map(<(f32, f32)>::from)
+                .collect::<Vec<_>>()),
+            Some(vec![(0.1_f32, 0.0), (-2.0_f32, 0.0)])
         );
-
         let transformed =
             transform_complex_tensor(complex, None, None, TransformDirection::Forward, "fft")
                 .expect("single FFT");

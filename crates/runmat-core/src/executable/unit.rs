@@ -31,6 +31,7 @@ impl ExecutableUnit {
             .map(|region| region.contract.clone())
             .collect::<Vec<_>>();
         bytecode.install_regions(&region_contracts)?;
+        bytecode.install_parallel_regions(&mir, &analysis.parallel)?;
         let coverage = CoveragePlan::instrument(&source, &revision, &source_map, &mut bytecode);
         let layout = bytecode
             .layout
@@ -101,6 +102,13 @@ impl ExecutableUnit {
         runmat_mir::analysis::analyze_reachability(&self.mir, &names)
     }
 
+    /// Whether the executable's closed, statically visible surface requires
+    /// the Python foreign runtime. Dynamic calls remain represented by the
+    /// reachability report's unknown edges and are not guessed here.
+    pub fn requires_python_runtime(&self) -> bool {
+        reachability_requires_python(&self.reachability_report())
+    }
+
     /// Exact VM layout shared by interpreter state materialization and native frames.
     pub fn vm_layout(&self) -> &runmat_vm::VmAssemblyLayout {
         &self.layout
@@ -161,10 +169,11 @@ impl ExecutableUnit {
     /// Interactive VM publication may remap its registry identities into the
     /// session namespace; native compilation retains the immutable MIR identity.
     pub(crate) fn native_function_id(&self, name: &str) -> Option<runmat_hir::FunctionId> {
-        self.mir
-            .functions
-            .iter()
-            .find_map(|(function, metadata)| (metadata.name.0 == name).then_some(*function))
+        self.mir.functions.iter().find_map(|(function, metadata)| {
+            (metadata.kind != runmat_hir::FunctionKind::SyntheticEntrypoint
+                && metadata.name.0 == name)
+                .then_some(*function)
+        })
     }
 
     pub(crate) fn procedure_input_count(&self, name: &str) -> Option<usize> {
@@ -181,4 +190,16 @@ impl ExecutableUnit {
     pub(crate) fn functions(&self) -> &runmat_vm::FunctionRegistry {
         &self.functions
     }
+}
+
+pub fn reachability_requires_python(report: &runmat_mir::analysis::ReachabilityReport) -> bool {
+    report.nodes.iter().any(|node| {
+        node.symbol.starts_with("py.")
+            || matches!(
+                node.symbol.to_ascii_lowercase().as_str(),
+                "pyenv" | "pyrun" | "pyrunfile" | "pyargs"
+            )
+            || (node.kind == runmat_mir::analysis::ReachabilityNodeKind::ArtifactDependency
+                && node.symbol == "python")
+    })
 }

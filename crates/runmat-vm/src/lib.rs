@@ -14,11 +14,21 @@ pub(crate) mod ops;
 mod program_execution;
 pub(crate) mod runtime;
 
-pub use bytecode::{compile, compile_semantic_function_registry};
 pub use bytecode::{
-    AsyncMetadata, AwaitSite, Bytecode, BytecodeRegion, BytecodeRegionBoundary, EmitLabel,
-    FunctionBytecode, FunctionRegistry, Instr, SpawnSite, StackEffect, BYTECODE_SCHEMA_VERSION,
-    FUNCTION_REGISTRY_SCHEMA_VERSION,
+    compile, compile_semantic_function_registry, compile_semantic_function_registry_with_analysis,
+    compile_with_analysis,
+};
+pub use bytecode::{
+    decode_interpreter_program_v2, decode_interpreter_script_v2, encode_interpreter_program_v2,
+    encode_interpreter_script_v2, InterpreterPayloadError, InterpreterPayloadForm,
+    InterpreterRevisionField,
+};
+pub use bytecode::{
+    AsyncMetadata, AwaitSite, Bytecode, BytecodeCodistributedOverload, BytecodeCollectiveOp,
+    BytecodeDistributedBuildValidation, BytecodeDistributedOp, BytecodeParallelVariable,
+    BytecodeParforRegion, BytecodeRegion, BytecodeRegionBoundary, BytecodeSpmdHeader,
+    BytecodeSpmdRegion, EmitLabel, FunctionBytecode, FunctionRegistry, Instr, SpawnSite,
+    StackEffect, BYTECODE_SCHEMA_VERSION, FUNCTION_REGISTRY_SCHEMA_VERSION,
 };
 #[cfg(feature = "native-accel")]
 pub use bytecode::{
@@ -32,12 +42,17 @@ pub use interpreter::runner::{
     invoke_semantic_function_value_in_context,
 };
 pub use interpreter::runner::{interpret_resume_in_context, prepare_native_execution_metadata};
-pub use interpreter::state::{InterpreterOutcome, InterpreterResumeState, InterpreterState};
+pub use interpreter::state::{
+    InterpreterCompletionBoundary, InterpreterOutcome, InterpreterResumeState, InterpreterState,
+};
 pub use layout::{
     derive_layout, remap_layout_function_ids, LayoutError, VmAssemblyLayout, VmEntrypointLayout,
     VmFunctionLayout, VmSlotId, VM_LAYOUT_SCHEMA_VERSION,
 };
-pub use program_execution::{execute_program_request, materialize_deferred_call};
+pub use program_execution::{
+    execute_deferred_program_in_context, execute_program_request,
+    execute_program_request_with_context, materialize_deferred_call,
+};
 pub use runtime::workspace::{
     push_pending_workspace, take_updated_workspace_assigned_report, take_updated_workspace_state,
     PendingWorkspaceGuard, WorkspaceAssignedReport,

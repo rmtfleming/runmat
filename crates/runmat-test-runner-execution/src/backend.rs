@@ -102,6 +102,7 @@ impl<B: WorkerBackend> WorkerBackend for ExecutionWorkerBackend<B> {
                     id: worker_id,
                     pool_id,
                     resources: self.config.worker_resources.clone(),
+                    host: crate::capability::host_inventory(&revision),
                 }))
                 .map_err(runner_error)?;
             Ok(ExecutionWorkerSession {
@@ -140,7 +141,7 @@ impl<B: WorkerBackend> WorkerBackend for ExecutionWorkerBackend<B> {
             let execution = self.inner.execute(&session.inner, request).await;
             let report = match &execution {
                 Ok(_) => AttemptReport::Succeeded {
-                    result: AttemptSuccess {
+                    result: AttemptSuccess::Values {
                         outputs: vec![runmat_execution::value::ValuePayload::Inline(Box::new(
                             runmat_execution::value::InlineValue::Null,
                         ))],
@@ -200,7 +201,7 @@ impl<B: WorkerBackend> WorkerBackend for ExecutionWorkerBackend<B> {
             {
                 let report = if execution.is_some() {
                     AttemptReport::Succeeded {
-                        result: AttemptSuccess {
+                        result: AttemptSuccess::Values {
                             outputs: vec![runmat_execution::value::ValuePayload::Inline(Box::new(
                                 runmat_execution::value::InlineValue::Null,
                             ))],

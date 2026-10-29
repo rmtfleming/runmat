@@ -378,8 +378,8 @@ fn assemble_typed_integer_sparse_blocks(args: &[Value]) -> Option<BuiltinResult<
                 (
                     sparse.rows,
                     sparse.cols,
-                    sparse.col_ptrs.clone(),
-                    sparse.row_indices.clone(),
+                    sparse.col_ptrs.to_vec(),
+                    sparse.row_indices.to_vec(),
                     storage.exact_values(),
                     storage.clone(),
                 )
@@ -431,7 +431,7 @@ fn assemble_typed_integer_sparse_blocks(args: &[Value]) -> Option<BuiltinResult<
         };
 
         if let Some(existing) = prototype.as_ref() {
-            if existing.class_name() != storage.class_name() {
+            if existing.numeric_dtype() != storage.numeric_dtype() {
                 return Some(Err(error_with_detail(
                     &ERROR_INVALID_INPUT,
                     "blkdiag: typed sparse integer blocks require every input to use the same integer class",
@@ -634,7 +634,7 @@ fn assemble_typed_complex_integer_blocks(args: &[Value]) -> Option<BuiltinResult
             )));
         };
         if let Some(existing) = prototype {
-            if existing.class_name() != storage.class_name() {
+            if existing.numeric_dtype() != storage.numeric_dtype() {
                 return Some(Err(error_with_detail(
                     &ERROR_INVALID_INPUT,
                     "typed complex integer blkdiag inputs must all use the same integer class",
@@ -755,7 +755,7 @@ impl Block {
             Value::LogicalArray(array) => {
                 validate_matrix_shape(&array.shape)?;
                 if array.shape.is_empty() {
-                    return LogicalArray::new(array.data, vec![1, 1])
+                    return LogicalArray::from_host_buffer(array.data, vec![1, 1])
                         .map(Self::Logical)
                         .map_err(|detail| error_with_detail(&ERROR_INVALID_INPUT, detail));
                 }
@@ -1643,7 +1643,7 @@ mod tests {
                     .iter()
                     .enumerate()
                     .filter_map(|(row, value)| (!value.is_zero()).then_some(row))
-                    .collect(),
+                    .collect::<Vec<_>>(),
                 storage
                     .from_exact_values_like(nonzero.clone())
                     .expect("typed sparse storage"),
@@ -1794,17 +1794,19 @@ mod tests {
                 assert_eq!(out.shape, vec![3, 2]);
                 assert_eq!(out.numeric_dtype(), NumericDType::F32);
                 assert_eq!(
-                    out.as_f32_slice(),
-                    Some(
-                        &[
-                            (9.0, 0.0),
-                            (0.0, 0.0),
-                            (0.0, 0.0),
-                            (0.0, 0.0),
-                            (1.0, 2.0),
-                            (3.0, -4.0),
-                        ][..]
-                    )
+                    out.as_f32_slice().map(|values| values
+                        .iter()
+                        .copied()
+                        .map(<(f32, f32)>::from)
+                        .collect::<Vec<_>>()),
+                    Some(vec![
+                        (9.0, 0.0),
+                        (0.0, 0.0),
+                        (0.0, 0.0),
+                        (0.0, 0.0),
+                        (1.0, 2.0),
+                        (3.0, -4.0),
+                    ])
                 );
             }
             other => panic!("expected complex tensor, got {other:?}"),

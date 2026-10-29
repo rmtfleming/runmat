@@ -1,14 +1,15 @@
 use sha2::{Digest, Sha256};
 
 use crate::{
-    builtin_catalog_entries, builtin_constant_catalog_entries, builtin_functions,
-    canonical_catalog_fingerprint, AccelTag, BuiltinCompletionPolicy, BuiltinOutputMode,
-    BuiltinParamArity, BuiltinParamType, Type, TypeResolverKind,
+    builtin_catalog_aliases, builtin_catalog_entries, builtin_constant_catalog_entries,
+    builtin_functions, canonical_catalog_fingerprint, AccelTag, BuiltinCompletionPolicy,
+    BuiltinOutputMode, BuiltinParamArity, BuiltinParamType, Type, TypeResolverKind,
+    BUILTIN_CATALOG_SCHEMA_VERSION,
 };
 
 /// Bump when execution-relevant builtin behavior changes in a way the
 /// declarative catalog cannot observe, such as type-resolver semantics.
-pub const BUILTIN_CATALOG_SCHEMA: u32 = 3;
+pub const BUILTIN_CATALOG_SCHEMA: u32 = BUILTIN_CATALOG_SCHEMA_VERSION;
 
 /// Return a target-independent fingerprint of the builtin execution contract.
 ///
@@ -20,11 +21,11 @@ pub fn builtin_catalog_fingerprint() -> [u8; 32] {
     functions.sort_unstable_by_key(|function| function.name);
 
     let mut hash = Sha256::new();
-    field(&mut hash, b"runmat-builtin-catalog-v3");
+    field(&mut hash, b"runmat-builtin-catalog");
     number(&mut hash, BUILTIN_CATALOG_SCHEMA as u64);
     field(
         &mut hash,
-        &canonical_catalog_fingerprint(builtin_catalog_entries())
+        &canonical_catalog_fingerprint(builtin_catalog_entries(), builtin_catalog_aliases())
             .expect("static builtin catalog must serialize"),
     );
     let constants = builtin_constant_catalog_entries();
@@ -44,6 +45,13 @@ pub fn builtin_catalog_fingerprint() -> [u8; 32] {
             encode_type(&mut hash, ty);
         }
         encode_type(&mut hash, &function.return_type);
+        field(
+            &mut hash,
+            match function.execution_stack {
+                crate::ExecutionStackRequirement::Any => b"stack:any",
+                crate::ExecutionStackRequirement::Process => b"stack:process",
+            },
+        );
         field(
             &mut hash,
             match function.type_resolver {
@@ -123,6 +131,7 @@ fn encode_parameters(hash: &mut Sha256, parameters: &[crate::BuiltinParamDescrip
                 BuiltinParamType::StyleSpec => b"style-spec",
                 BuiltinParamType::PropertyName => b"property-name",
                 BuiltinParamType::PropertyValue => b"property-value",
+                BuiltinParamType::Callable => b"callable",
             },
         );
         field(
@@ -202,7 +211,10 @@ fn encode_type(hash: &mut Sha256, ty: &Type) {
         }
         Type::Object { class_name, shape } => {
             field(hash, b"object");
-            optional(hash, class_name.as_deref());
+            optional(
+                hash,
+                class_name.as_ref().map(|identity| identity.display_name()),
+            );
             encode_shape(hash, shape);
         }
         Type::OutputList(types) => {

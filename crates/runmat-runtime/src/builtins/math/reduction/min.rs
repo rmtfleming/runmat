@@ -1064,6 +1064,7 @@ fn materialize_for_min(name: &str, value: Value) -> BuiltinResult<InputData> {
         | Value::Object(_)
         | Value::HandleObject(_)
         | Value::Struct(_)
+        | Value::StructArray(_)
         | Value::Listener(_) => Err(min_invalid_input(format!("{name}: unsupported input type"))),
         Value::FunctionHandle(_)
         | Value::ExternalFunctionHandle(_)
@@ -1076,6 +1077,8 @@ fn materialize_for_min(name: &str, value: Value) -> BuiltinResult<InputData> {
         | Value::Task(_)
         | Value::Pool(_)
         | Value::Job(_)
+        | Value::Distributed(_)
+        | Value::Composite(_)
         | Value::Foreign(_)
         | Value::OutputList(_) => Err(min_invalid_input(format!("{name}: unsupported input type"))),
     }
@@ -2185,7 +2188,7 @@ fn elementwise_complex_min(
                 values.push(if origin == 1.0 { a } else { b });
                 indices[offset] = origin;
             }
-            ComplexStorage::$variant(values)
+            ComplexStorage::$variant(values.into())
         }};
     }
 
@@ -2206,7 +2209,7 @@ fn elementwise_complex_min(
                 values.push(value);
                 indices[offset] = origin;
             }
-            ComplexStorage::F64(values)
+            ComplexStorage::F64(values.into())
         }
     };
 
@@ -2638,7 +2641,7 @@ pub(crate) mod tests {
         };
         assert_eq!(
             values.into_complex_storage(),
-            ComplexStorage::F32(vec![(1.0, 2.0)])
+            ComplexStorage::F32(vec![(1.0, 2.0)].into())
         );
     }
 
@@ -2745,7 +2748,7 @@ pub(crate) mod tests {
         };
         assert_eq!(
             values.into_complex_storage(),
-            ComplexStorage::F32(vec![(4.0, 0.0), (1.0, 0.0)])
+            ComplexStorage::F32(vec![(4.0, 0.0), (1.0, 0.0)].into())
         );
     }
 

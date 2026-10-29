@@ -180,7 +180,7 @@ pub(crate) fn ensure_option_extensions(
 }
 
 fn ensure_exact_binary64_integer(name: &str, value: &Value, role: &str) -> BuiltinResult<()> {
-    let exact = crate::builtins::math::trigonometry::cos::integer_is_exact_f64;
+    let exact = crate::builtins::common::validation::integer_is_exact_f64;
     let valid = match value {
         Value::Int(value) => exact(value),
         Value::Tensor(tensor) => tensor
@@ -369,9 +369,7 @@ pub(crate) fn option_f64(
     };
     let parsed = match value {
         Value::Num(n) => *n,
-        Value::Int(i) if crate::builtins::math::trigonometry::cos::integer_is_exact_f64(i) => {
-            i.to_f64()
-        }
+        Value::Int(i) if crate::builtins::common::validation::integer_is_exact_f64(i) => i.to_f64(),
         Value::Int(_) => {
             return Err(optim_error(
                 builtin,
@@ -693,7 +691,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "decay".to_string(),
+                name: "decay".into(),
                 function: 42,
             }
         );
@@ -710,7 +708,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "pkg.decay".to_string(),
+                name: "pkg.decay".into(),
                 function: 43,
             }
         );
@@ -737,7 +735,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "decay".to_string(),
+                name: "decay".into(),
                 function: 45,
             }
         );
@@ -753,7 +751,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "decay".to_string(),
+                name: "decay".into(),
                 function: 145,
             }
         );
@@ -771,7 +769,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "pkg.decay".to_string(),
+                name: "pkg.decay".into(),
                 function: 46,
             }
         );
@@ -789,7 +787,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "pkg.decay".to_string(),
+                name: "pkg.decay".into(),
                 function: 146,
             }
         );
@@ -806,7 +804,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "decay".to_string(),
+                name: "decay".into(),
                 function: 47,
             }
         );
@@ -823,7 +821,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::BoundFunctionHandle {
-                name: "decay".to_string(),
+                name: "decay".into(),
                 function: 147,
             }
         );
@@ -836,7 +834,7 @@ mod tests {
                 (name == "decay").then_some(48)
             })));
         let raw = Value::Closure(Closure {
-            function_name: "decay".to_string(),
+            function_name: "decay".into(),
             bound_function: None,
             captures: vec![Value::Num(9.0)],
         });
@@ -844,7 +842,7 @@ mod tests {
         assert_eq!(
             canonical,
             Value::Closure(Closure {
-                function_name: "decay".to_string(),
+                function_name: "decay".into(),
                 bound_function: Some(48),
                 captures: vec![Value::Num(9.0)],
             })
@@ -854,7 +852,7 @@ mod tests {
     #[test]
     fn callback_handle_canonicalizer_keeps_name_only_closure_without_resolver() {
         let raw = Value::Closure(Closure {
-            function_name: "decay".to_string(),
+            function_name: "decay".into(),
             bound_function: None,
             captures: vec![Value::Num(9.0)],
         });

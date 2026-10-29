@@ -1,25 +1,16 @@
-use crate::call::closures::{
-    caller_class_for_function, method_access_permitted, resolve_method_semantic_function_id,
-};
+use crate::call::closures::method_access_permitted;
 use crate::call::descriptor::{
     execute_callable_descriptor, try_execute_callable_descriptor, CallableCallKind,
     CallableDescriptor,
 };
 use crate::call::identity::external_qualified_identity;
-use crate::object::indexing::{
-    build_matlab_substruct_arg, class_name_from_base, ObjectIndexDescriptor, ObjectIndexOp,
-};
+use crate::object::indexing::{ObjectIndexOp, ObjectSubscript, ObjectSubscriptPath};
 use crate::runtime_error::semantic_error;
 use crate::RuntimeError;
-use runmat_types::{CallableFallbackPolicy, CallableIdentity, MethodId, QualifiedName, SymbolName};
+use runmat_types::{
+    CallableFallbackPolicy, CallableIdentity, ClassIdentity, MethodId, QualifiedName, SymbolName,
+};
 use runmat_value::Value;
-
-fn caller_has_internal_class_access(caller_function_name: Option<&str>, class_name: &str) -> bool {
-    caller_class_for_function(caller_function_name).is_some_and(|caller_class| {
-        crate::class_registry::is_class_or_subclass(&caller_class, class_name)
-            || crate::class_registry::is_class_or_subclass(class_name, &caller_class)
-    })
-}
 
 fn method_member_name(identity: &CallableIdentity) -> Option<String> {
     match identity {
@@ -67,62 +58,8 @@ fn runtime_named_identity(name: &str) -> (CallableIdentity, CallableFallbackPoli
     }
 }
 
-fn method_function_identity(
-    owner: &str,
-    method_name: &str,
-    function_name: &str,
-) -> (CallableIdentity, CallableFallbackPolicy) {
-    let trimmed = function_name.trim();
-    if let Some(function) = resolve_method_semantic_function_id(owner, method_name, trimmed) {
-        return (
-            CallableIdentity::BoundFunction(runmat_types::FunctionId(function)),
-            CallableFallbackPolicy::None,
-        );
-    }
-    if !trimmed.is_empty() && runmat_builtins::builtin_name_is_known(trimmed) {
-        return runtime_named_identity(trimmed);
-    }
-    if trimmed.is_empty() {
-        return (
-            external_qualified_identity(owner, method_name),
-            CallableFallbackPolicy::ExternalBoundary,
-        );
-    }
-    if trimmed.contains('.') {
-        return runtime_named_identity(trimmed);
-    }
-    (
-        external_qualified_identity(owner, trimmed),
-        CallableFallbackPolicy::ExternalBoundary,
-    )
-}
-
-fn is_operator_overload_name(name: &str) -> bool {
-    matches!(
-        name,
-        "plus"
-            | "minus"
-            | "times"
-            | "mtimes"
-            | "rdivide"
-            | "mrdivide"
-            | "ldivide"
-            | "mldivide"
-            | "power"
-            | "mpower"
-            | "uminus"
-            | "uplus"
-            | "lt"
-            | "le"
-            | "gt"
-            | "ge"
-            | "eq"
-            | "ne"
-            | "and"
-            | "or"
-            | "xor"
-            | "not"
-    )
+fn is_operator_overload_method(name: &runmat_types::MethodName) -> bool {
+    runmat_types::OperatorOverloadMethod::from_name(name).is_some()
 }
 
 fn is_receiver_validation_error(err: &RuntimeError) -> bool {
@@ -135,7 +72,7 @@ async fn call_identity_with_policy(
     args: Vec<Value>,
     requested_outputs: usize,
     fallback_policy: CallableFallbackPolicy,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     Box::pin(execute_callable_descriptor(CallableDescriptor::resolved(
         identity,
         args,
@@ -151,7 +88,7 @@ async fn try_call_identity_with_policy(
     args: Vec<Value>,
     requested_outputs: usize,
     fallback_policy: CallableFallbackPolicy,
-) -> Result<Option<Value>, RuntimeError> {
+) -> Result<Option<runmat_value::ValueSequence>, RuntimeError> {
     Box::pin(try_execute_callable_descriptor(
         CallableDescriptor::resolved(
             identity,
@@ -166,20 +103,35 @@ async fn try_call_identity_with_policy(
 
 async fn call_member_index_on_object_like(
     receiver: Value,
-    class_name: &str,
+    class_name: &ClassIdentity,
     name: String,
     args: Vec<Value>,
     requested_outputs: usize,
     caller_function_name: Option<&str>,
-) -> Result<Value, RuntimeError> {
-    if args.is_empty()
-        && crate::class_registry::get_class(class_name)
-            .is_some_and(|class_def| class_defines_member_subsref(&class_def))
-        && !caller_has_internal_class_access(caller_function_name, class_name)
-    {
-        return Box::pin(call_object_member_subsref(receiver, name)).await;
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
+    if args.is_empty() {
+        let access = crate::object::protocol::ObjectAccessContext::from_legacy_function_name(
+            caller_function_name,
+        );
+        if let crate::object::protocol::ProtocolResolution::Method(method) =
+            crate::object::protocol::resolve_object_protocol(
+                &receiver,
+                crate::object::protocol::ObjectProtocol::Subsref,
+                &access,
+            )?
+        {
+            return crate::object::protocol::invoke_resolved_object_protocol(
+                &crate::object::protocol::ProtocolResolution::Method(method),
+                receiver,
+                ObjectSubscriptPath::single(ObjectSubscript::member(name)),
+                requested_outputs,
+            )
+            .await;
+        }
     }
-    if let Some((m, owner)) = crate::class_registry::lookup_method(class_name, &name) {
+    let method_name = runmat_types::MethodName::from(name.as_str());
+    if let Some(bound) = crate::class_registry::lookup_bound_method(class_name, &method_name) {
+        let m = &bound.declaration;
         if m.is_static {
             return Err(semantic_error(
                 "MethodStaticOnInstance",
@@ -189,7 +141,7 @@ async fn call_member_index_on_object_like(
                 ),
             ));
         }
-        if !method_access_permitted(&owner, &m.access, caller_function_name) {
+        if !method_access_permitted(&bound.declaring_class, &m.access, caller_function_name) {
             return Err(semantic_error(
                 "MethodPrivate",
                 format!("Method '{}' is private", name),
@@ -198,15 +150,19 @@ async fn call_member_index_on_object_like(
         let mut full_args = Vec::with_capacity(1 + args.len());
         full_args.push(receiver.clone());
         full_args.extend(args.iter().cloned());
-        let (identity, fallback_policy) = method_function_identity(&owner, &name, &m.function_name);
-        return call_identity_with_policy(identity, full_args, requested_outputs, fallback_policy)
-            .await;
+        return call_identity_with_policy(
+            bound.callable,
+            full_args,
+            requested_outputs,
+            bound.fallback,
+        )
+        .await;
     }
 
     let mut method_args = Vec::with_capacity(1 + args.len());
     method_args.push(receiver.clone());
     method_args.extend(args.iter().cloned());
-    let qualified_identity = external_qualified_identity(class_name, &name);
+    let qualified_identity = external_qualified_identity(class_name.display_name(), &name);
     if let Some(v) = try_call_identity_with_policy(
         qualified_identity.clone(),
         method_args.clone(),
@@ -220,7 +176,7 @@ async fn call_member_index_on_object_like(
     // Prevent recursive re-entry for operator overloading (e.g. builtin `plus` calling back
     // into object dispatch). If class-qualified lookup fails, surface the miss to arithmetic
     // fallback instead of resolving unqualified operator names at runtime.
-    if is_operator_overload_name(&name) {
+    if is_operator_overload_method(&method_name) {
         return call_identity_with_policy(
             qualified_identity,
             method_args,
@@ -270,7 +226,12 @@ async fn call_member_index_on_object_like(
         ));
     }
 
-    call_getfield_with_indices(receiver, name, args, requested_outputs).await
+    call_getfield_with_indices(receiver, name, args, requested_outputs)
+        .await
+        .and_then(|value| {
+            runmat_value::ValueSequence::single(value)
+                .map_err(crate::sequence::sequence_error_to_runtime)
+        })
 }
 
 pub async fn call_rhs_operator_method_ordered_with_outputs(
@@ -279,7 +240,7 @@ pub async fn call_rhs_operator_method_ordered_with_outputs(
     name: String,
     requested_outputs: usize,
     caller_function_name: Option<&str>,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     let class_name = match &rhs {
         Value::Object(obj) => obj.class_name.clone(),
         Value::HandleObject(handle) => handle.class_name.clone(),
@@ -292,7 +253,9 @@ pub async fn call_rhs_operator_method_ordered_with_outputs(
     };
 
     let method_args = vec![lhs.clone(), rhs.clone()];
-    if let Some((m, owner)) = crate::class_registry::lookup_method(&class_name, &name) {
+    let method_name = runmat_types::MethodName::from(name.as_str());
+    if let Some(bound) = crate::class_registry::lookup_bound_method(&class_name, &method_name) {
+        let m = &bound.declaration;
         if m.is_static {
             return Err(semantic_error(
                 "MethodStaticOnInstance",
@@ -302,13 +265,14 @@ pub async fn call_rhs_operator_method_ordered_with_outputs(
                 ),
             ));
         }
-        if !method_access_permitted(&owner, &m.access, caller_function_name) {
+        if !method_access_permitted(&bound.declaring_class, &m.access, caller_function_name) {
             return Err(semantic_error(
                 "MethodPrivate",
                 format!("Method '{}' is private", name),
             ));
         }
-        let (identity, fallback_policy) = method_function_identity(&owner, &name, &m.function_name);
+        let identity = bound.callable;
+        let fallback_policy = bound.fallback;
         return match call_identity_with_policy(
             identity.clone(),
             method_args,
@@ -318,7 +282,10 @@ pub async fn call_rhs_operator_method_ordered_with_outputs(
         .await
         {
             Ok(v) => Ok(v),
-            Err(err) if is_receiver_validation_error(&err) && is_operator_overload_name(&name) => {
+            Err(err)
+                if is_receiver_validation_error(&err)
+                    && is_operator_overload_method(&method_name) =>
+            {
                 call_identity_with_policy(
                     identity,
                     vec![rhs.clone(), lhs.clone()],
@@ -331,7 +298,7 @@ pub async fn call_rhs_operator_method_ordered_with_outputs(
         };
     }
 
-    let qualified_identity = external_qualified_identity(&class_name, &name);
+    let qualified_identity = external_qualified_identity(class_name.display_name(), &name);
     let ordered_result = call_identity_with_policy(
         qualified_identity.clone(),
         method_args.clone(),
@@ -384,15 +351,17 @@ pub async fn call_object_operator_method(
     method: &str,
     arg: Value,
 ) -> Result<Value, RuntimeError> {
-    call_method_or_member_index_with_outputs(
-        base,
-        CallableIdentity::Method(MethodId(method.to_string())),
-        vec![arg],
-        1,
-        None,
-        CallableFallbackPolicy::ObjectDispatch,
+    require_single(
+        call_method_or_member_index_with_outputs(
+            base,
+            CallableIdentity::Method(MethodId(method.to_string())),
+            vec![arg],
+            1,
+            None,
+            CallableFallbackPolicy::ObjectDispatch,
+        )
+        .await?,
     )
-    .await
 }
 
 pub async fn call_rhs_object_operator_method_ordered(
@@ -400,7 +369,10 @@ pub async fn call_rhs_object_operator_method_ordered(
     rhs: Value,
     method: &str,
 ) -> Result<Value, RuntimeError> {
-    call_rhs_operator_method_ordered_with_outputs(lhs, rhs, method.to_string(), 1, None).await
+    require_single(
+        call_rhs_operator_method_ordered_with_outputs(lhs, rhs, method.to_string(), 1, None)
+            .await?,
+    )
 }
 
 pub async fn call_object_named_method_with_outputs(
@@ -408,7 +380,7 @@ pub async fn call_object_named_method_with_outputs(
     method: String,
     args: Vec<Value>,
     requested_outputs: usize,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     call_method_or_member_index_with_outputs(
         base,
         CallableIdentity::Method(MethodId(method.clone())),
@@ -424,7 +396,7 @@ pub async fn call_object_property_getter_with_outputs(
     base: Value,
     field: &str,
     requested_outputs: usize,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     call_object_named_method_with_outputs(
         base,
         crate::object_property_getter_name(field),
@@ -439,7 +411,7 @@ pub async fn call_object_property_setter_with_outputs(
     field: &str,
     value: Value,
     requested_outputs: usize,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     call_object_named_method_with_outputs(
         base,
         crate::object_property_setter_name(field),
@@ -455,7 +427,34 @@ async fn call_object_member_method(
     field: String,
     rhs: Option<Value>,
 ) -> Result<Value, RuntimeError> {
-    call_object_index_descriptor_method(ObjectIndexDescriptor::member(base, op, field, rhs)).await
+    let resolution = resolve_object_index_protocol(&base, op, None)?;
+    let path = ObjectSubscriptPath::single(ObjectSubscript::member(field));
+    match op {
+        ObjectIndexOp::Subsref => require_single(
+            invoke_resolved_object_index_path_method(&resolution, base, path, 1).await?,
+        ),
+        ObjectIndexOp::Subsasgn => {
+            let crate::object::protocol::ProtocolResolution::Method(method) = resolution else {
+                return Err(semantic_error(
+                    "MissingObjectProtocol",
+                    "object does not define subsasgn",
+                ));
+            };
+            let rhs = rhs.ok_or_else(|| {
+                semantic_error(
+                    "InvalidObjectAssignment",
+                    "object assignment is missing its RHS",
+                )
+            })?;
+            crate::object::protocol::invoke_resolved_object_assignment(
+                &method,
+                base,
+                path,
+                vec![rhs],
+            )
+            .await
+        }
+    }
 }
 
 pub async fn call_object_member_subsref(base: Value, field: String) -> Result<Value, RuntimeError> {
@@ -470,68 +469,32 @@ pub async fn call_object_member_subsasgn(
     call_object_member_method(base, ObjectIndexOp::Subsasgn, field, Some(rhs)).await
 }
 
-pub fn class_defines_member_subsref(class: &crate::class_registry::RuntimeClass) -> bool {
-    crate::class_registry::lookup_method(&class.name, ObjectIndexOp::Subsref.protocol_name())
-        .is_some()
+pub fn resolve_object_index_protocol(
+    base: &Value,
+    op: ObjectIndexOp,
+    caller_function_name: Option<&str>,
+) -> Result<crate::object::protocol::ProtocolResolution, RuntimeError> {
+    let protocol = match op {
+        ObjectIndexOp::Subsref => crate::object::protocol::ObjectProtocol::Subsref,
+        ObjectIndexOp::Subsasgn => crate::object::protocol::ObjectProtocol::Subsasgn,
+    };
+    let access = crate::object::protocol::ObjectAccessContext::from_legacy_function_name(
+        caller_function_name,
+    );
+    crate::object::protocol::resolve_object_protocol(base, protocol, &access)
 }
 
-pub fn class_defines_member_subsasgn(class: &crate::class_registry::RuntimeClass) -> bool {
-    crate::class_registry::lookup_method(&class.name, ObjectIndexOp::Subsasgn.protocol_name())
-        .is_some()
-}
-
-pub async fn call_object_index_descriptor_method(
-    descriptor: ObjectIndexDescriptor,
-) -> Result<Value, RuntimeError> {
-    call_object_index_descriptor_method_with_outputs(descriptor, 1).await
-}
-
-pub async fn call_object_index_descriptor_method_with_outputs(
-    descriptor: ObjectIndexDescriptor,
+pub async fn invoke_resolved_object_index_path_method(
+    resolution: &crate::object::protocol::ProtocolResolution,
+    base: Value,
+    path: ObjectSubscriptPath,
     requested_outputs: usize,
-) -> Result<Value, RuntimeError> {
-    if let Some(class_name) = class_name_from_base(descriptor.base()) {
-        if let Some((method, owner)) =
-            crate::class_registry::lookup_method(class_name, descriptor.operation().protocol_name())
-        {
-            let mut semantic_args = vec![
-                descriptor.base().clone(),
-                build_matlab_substruct_arg(&descriptor)?,
-            ];
-            if let Some(rhs) = descriptor.rhs() {
-                semantic_args.push(rhs.clone());
-            }
-            if let Some(result) = crate::user_functions::try_call_semantic_function_by_name(
-                &method.function_name,
-                &semantic_args,
-                requested_outputs,
-            )
-            .await
-            {
-                return result;
-            }
-            let owner_qualified = format!("{}.{}", owner, descriptor.operation().protocol_name());
-            if owner_qualified != method.function_name {
-                if let Some(result) = crate::user_functions::try_call_semantic_function_by_name(
-                    &owner_qualified,
-                    &semantic_args,
-                    requested_outputs,
-                )
-                .await
-                {
-                    return result;
-                }
-            }
-        }
-    }
-    let (base, method, args) = descriptor.into_method_invocation()?;
-    call_method_or_member_index_with_outputs(
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
+    crate::object::protocol::invoke_resolved_object_protocol(
+        resolution,
         base,
-        CallableIdentity::Method(MethodId(method.clone())),
-        args,
+        path,
         requested_outputs,
-        None,
-        CallableFallbackPolicy::ObjectDispatch,
     )
     .await
 }
@@ -543,7 +506,7 @@ pub async fn call_method_or_member_index_with_outputs(
     requested_outputs: usize,
     caller_function_name: Option<&str>,
     _fallback_policy: CallableFallbackPolicy,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     let name = method_member_name(&identity).ok_or_else(|| {
         semantic_error(
             "MethodCallCalleeInvalid",
@@ -552,13 +515,13 @@ pub async fn call_method_or_member_index_with_outputs(
             ),
         )
     })?;
-    call_method_or_member_index_named_with_outputs(
+    Box::pin(call_method_or_member_index_named_with_outputs(
         base,
         name,
         args,
         requested_outputs,
         caller_function_name,
-    )
+    ))
     .await
 }
 
@@ -568,34 +531,35 @@ pub async fn call_method_or_member_index_named_with_outputs(
     args: Vec<Value>,
     requested_outputs: usize,
     caller_function_name: Option<&str>,
-) -> Result<Value, RuntimeError> {
+) -> Result<runmat_value::ValueSequence, RuntimeError> {
     match base {
         Value::Object(obj) => {
             let class_name = obj.class_name.clone();
-            call_member_index_on_object_like(
+            Box::pin(call_member_index_on_object_like(
                 Value::Object(obj),
                 &class_name,
                 name,
                 args,
                 requested_outputs,
                 caller_function_name,
-            )
+            ))
             .await
         }
         Value::HandleObject(handle) => {
             let class_name = handle.class_name.clone();
-            call_member_index_on_object_like(
+            Box::pin(call_member_index_on_object_like(
                 Value::HandleObject(handle),
                 &class_name,
                 name,
                 args,
                 requested_outputs,
                 caller_function_name,
-            )
+            ))
             .await
         }
         Value::ClassRef(cls) => {
-            if let Some((m, owner)) = crate::class_registry::lookup_method(&cls, &name) {
+            let method_name = runmat_types::MethodName::from(name.as_str());
+            if let Some((m, owner)) = crate::class_registry::lookup_method(&cls, &method_name) {
                 if !m.is_static {
                     return Err(semantic_error(
                         "MethodNotStatic",
@@ -624,7 +588,7 @@ pub async fn call_method_or_member_index_named_with_outputs(
                 ));
             }
 
-            let qualified_identity = external_qualified_identity(&cls, &name);
+            let qualified_identity = external_qualified_identity(cls.display_name(), &name);
             call_identity_with_policy(
                 qualified_identity,
                 args,
@@ -633,8 +597,30 @@ pub async fn call_method_or_member_index_named_with_outputs(
             )
             .await
         }
-        other => call_getfield_with_indices(other, name, args, requested_outputs).await,
+        Value::Foreign(reference) => {
+            crate::foreign::invoke_foreign_method(reference, name, args, requested_outputs).await
+        }
+        other => call_getfield_with_indices(other, name, args, requested_outputs)
+            .await
+            .and_then(|value| {
+                runmat_value::ValueSequence::single(value)
+                    .map_err(crate::sequence::sequence_error_to_runtime)
+            }),
     }
+}
+
+fn require_single(sequence: runmat_value::ValueSequence) -> Result<Value, RuntimeError> {
+    use crate::sequence::ResolveValueSequence;
+    let mut values = sequence.resolve(
+        runmat_types::SequenceUse::RequireSingle,
+        crate::sequence::SequenceResolutionContext::default(),
+    )?;
+    values.pop().ok_or_else(|| {
+        semantic_error(
+            "CommaSeparatedListRequiresSingleValue",
+            "object operation requires one value",
+        )
+    })
 }
 
 fn build_cell_array_with_shape(

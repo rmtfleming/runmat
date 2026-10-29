@@ -17,7 +17,6 @@
 //! `runmat_gc::gc_with_value_mut` (the write-back story from
 //! `specs/015-input-parsing/plan.md`; no side registry).
 
-use std::cell::Cell;
 use std::collections::HashMap;
 
 use crate::class_registry::{RuntimeClass, RuntimeMethod, RuntimeProperty};
@@ -32,6 +31,8 @@ use runmat_value::{CharArray, HandleRef, ObjectInstance, StructValue, Value};
 use crate::{BuiltinResult, RuntimeError};
 
 const CLASS_NAME: &str = "inputParser";
+const CLASS_IDENTITY: runmat_types::StaticClassIdentity =
+    runmat_types::StaticClassIdentity::new(CLASS_NAME);
 const BUILTIN_CONSTRUCTOR: &str = "inputParser";
 const BUILTIN_ADD_REQUIRED: &str = "inputParser.addRequired";
 const BUILTIN_ADD_PARAMETER: &str = "inputParser.addParameter";
@@ -261,16 +262,16 @@ pub const INPUT_PARSER_PARSE_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
 // ---------------------------------------------------------------------------
 
 static INPUT_PARSER_CLASS_REGISTERED: crate::class_registry::ClassRegistration =
-    crate::class_registry::ClassRegistration::new(CLASS_NAME);
+    crate::class_registry::ClassRegistration::new(CLASS_IDENTITY);
 
 fn ensure_input_parser_class_registered() {
     INPUT_PARSER_CLASS_REGISTERED.ensure(|| {
         let mut properties = HashMap::new();
         for name in [PROP_RESULTS, PROP_USING_DEFAULTS] {
             properties.insert(
-                name.to_string(),
+                name.into(),
                 RuntimeProperty {
-                    name: name.to_string(),
+                    name: name.into(),
                     is_static: false,
                     is_constant: false,
                     is_dependent: false,
@@ -289,20 +290,20 @@ fn ensure_input_parser_class_registered() {
             ("parse", BUILTIN_PARSE),
         ] {
             methods.insert(
-                name.to_string(),
+                name.into(),
                 RuntimeMethod {
-                    name: name.to_string(),
+                    name: name.into(),
                     is_static: false,
                     is_abstract: false,
                     is_sealed: false,
                     access: MemberAccess::Public,
-                    function_name: function_name.to_string(),
+                    function_name: function_name.into(),
                     implicit_class_argument: None,
                 },
             );
         }
         crate::class_registry::register_class(RuntimeClass {
-            name: CLASS_NAME.to_string(),
+            name: CLASS_IDENTITY.into(),
             parent: None,
             properties,
             methods,
@@ -373,7 +374,7 @@ fn argument_name(value: &Value, builtin: &'static str) -> BuiltinResult<String> 
 fn parser_handle(value: &Value, builtin: &'static str) -> BuiltinResult<HandleRef> {
     match value {
         Value::HandleObject(handle) => {
-            if handle.class_name != CLASS_NAME {
+            if !handle.class_name.is(CLASS_IDENTITY) {
                 return Err(ip_error_detail(
                     &IP_ERROR_INVALID_RECEIVER,
                     builtin,
@@ -404,7 +405,7 @@ fn parser_handle(value: &Value, builtin: &'static str) -> BuiltinResult<HandleRe
 /// `write_parser_props`).
 fn parser_object(handle: &HandleRef, builtin: &'static str) -> BuiltinResult<ObjectInstance> {
     match runmat_gc::gc_clone_value(&handle.target) {
-        Ok(Value::Object(obj)) if obj.class_name == CLASS_NAME => Ok(obj),
+        Ok(Value::Object(obj)) if obj.class_name.is(CLASS_IDENTITY) => Ok(obj),
         Ok(other) => Err(ip_internal(
             builtin,
             format!("unexpected handle storage shape {other:?}"),
@@ -506,7 +507,7 @@ fn input_parser_builtin(args: Vec<Value>) -> crate::BuiltinResult<Value> {
         ));
     }
     ensure_input_parser_class_registered();
-    let mut obj = ObjectInstance::new(CLASS_NAME.to_string());
+    let mut obj = ObjectInstance::new(CLASS_IDENTITY);
     // Pre-parse values are unobserved; documented independent choices
     // (spec.md): Results = empty struct, UsingDefaults = 1x0 cell.
     obj.properties
@@ -522,7 +523,7 @@ fn input_parser_builtin(args: Vec<Value>) -> crate::BuiltinResult<Value> {
     let gc = runmat_gc::gc_allocate(Value::Object(obj))
         .map_err(|e| ip_internal(BUILTIN_CONSTRUCTOR, format!("gc allocation failed: {e}")))?;
     Ok(Value::HandleObject(HandleRef {
-        class_name: CLASS_NAME.to_string(),
+        class_name: CLASS_IDENTITY.owned(),
         target: gc,
         valid: true,
     }))
@@ -865,7 +866,8 @@ pub(crate) mod tests {
     #[test]
     fn registration_discoverable_class_and_builtins() {
         let _p = construct();
-        let class_def = crate::class_registry::get_class(CLASS_NAME).expect("class registered");
+        let class_def =
+            crate::class_registry::get_class(&CLASS_IDENTITY.owned()).expect("class registered");
         for method in ["addRequired", "addParameter", "parse"] {
             assert!(class_def.methods.contains_key(method), "missing {method}");
         }

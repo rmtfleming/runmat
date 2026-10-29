@@ -3,6 +3,7 @@ use runmat_accelerate_api::{
     HostNumericDataView, HostNumericTensorOwned, HostNumericTensorView, HostTensorOwned,
     IntegerElementType, NumericElementType, ProviderPrecision,
 };
+use runmat_types::{standard, ClassIdentity};
 use runmat_value::{
     ComplexStorage, ComplexTensor, IntegerStorage, LogicalArray, NumericDType, Tensor, Value,
 };
@@ -31,6 +32,25 @@ pub fn integer_storage_from_owned(data: HostIntegerDataOwned) -> IntegerStorage 
 pub fn exact_provider_for_handle(handle: &GpuTensorHandle) -> Option<&'static dyn AccelProvider> {
     runmat_accelerate_api::provider_for_handle(handle)
         .filter(|provider| provider.device_id() == handle.device_id)
+}
+
+/// Resolve one exact owner for two resident operands.
+///
+/// Device identifiers are provider-local, so matching identifiers alone do not
+/// establish shared ownership. Both handles must resolve to the same registered
+/// provider instance and the same device before a binary hook may consume them.
+pub fn exact_provider_for_binary_inputs(
+    left: &GpuTensorHandle,
+    right: &GpuTensorHandle,
+) -> Result<&'static dyn AccelProvider, String> {
+    let left_owner = exact_provider_for_handle(left)
+        .ok_or_else(|| "no provider owns the left resident operand".to_string())?;
+    let right_owner = exact_provider_for_handle(right)
+        .ok_or_else(|| "no provider owns the right resident operand".to_string())?;
+    if !std::ptr::eq(left_owner, right_owner) || left.device_id != right.device_id {
+        return Err("resident operands must share one owning provider and device".to_string());
+    }
+    Ok(left_owner)
 }
 
 /// Select one owning provider for a set of resident inputs, with explicit
@@ -75,7 +95,7 @@ pub struct GpuHandleMetadataSnapshot {
     descriptor: runmat_accelerate_api::GpuTensorDescriptor,
     logical: bool,
     transpose: Option<runmat_accelerate_api::TransposeInfo>,
-    class_name: Option<String>,
+    class_identity: Option<ClassIdentity>,
     provenance: Option<runmat_accelerate_api::GpuHandleProvenance>,
 }
 
@@ -84,7 +104,7 @@ pub fn snapshot_handle_metadata(handle: &GpuTensorHandle) -> GpuHandleMetadataSn
         descriptor: handle.descriptor,
         logical: runmat_accelerate_api::handle_is_logical(handle),
         transpose: runmat_accelerate_api::handle_transpose_info(handle),
-        class_name: runmat_accelerate_api::handle_class_name(handle),
+        class_identity: runmat_accelerate_api::handle_class_identity(handle),
         provenance: runmat_accelerate_api::handle_provenance(handle),
     }
 }
@@ -98,9 +118,11 @@ pub fn restore_handle_metadata(handle: &GpuTensorHandle, snapshot: &GpuHandleMet
         }
         None => runmat_accelerate_api::clear_handle_transpose(handle),
     }
-    match snapshot.class_name.as_deref() {
-        Some(class_name) => runmat_accelerate_api::set_handle_class_name(handle, class_name),
-        None => runmat_accelerate_api::clear_handle_class_name(handle),
+    match &snapshot.class_identity {
+        Some(class_identity) => {
+            runmat_accelerate_api::set_handle_class_identity(handle, class_identity.clone())
+        }
+        None => runmat_accelerate_api::clear_handle_class_identity(handle),
     }
     runmat_accelerate_api::mark_residency(handle);
 }
@@ -125,29 +147,20 @@ impl Drop for HandleMetadataRestoreGuard<'_> {
     }
 }
 
-pub fn expected_gpu_class_name(
+pub fn expected_gpu_class_identity(
     precision: Option<ProviderPrecision>,
     integer: Option<IntegerElementType>,
     logical: bool,
-) -> Option<&'static str> {
+) -> Option<ClassIdentity> {
     if logical {
-        return Some("logical");
+        return Some(standard::LOGICAL.owned());
     }
     if let Some(integer) = integer {
-        return Some(match integer {
-            IntegerElementType::I8 => "int8",
-            IntegerElementType::I16 => "int16",
-            IntegerElementType::I32 => "int32",
-            IntegerElementType::I64 => "int64",
-            IntegerElementType::U8 => "uint8",
-            IntegerElementType::U16 => "uint16",
-            IntegerElementType::U32 => "uint32",
-            IntegerElementType::U64 => "uint64",
-        });
+        return Some(NumericElementType::from(integer).class_identity());
     }
     precision.map(|precision| match precision {
-        ProviderPrecision::F32 => "single",
-        ProviderPrecision::F64 => "double",
+        ProviderPrecision::F32 => standard::SINGLE.owned(),
+        ProviderPrecision::F64 => standard::DOUBLE.owned(),
     })
 }
 
@@ -157,10 +170,9 @@ pub fn gpu_class_metadata_matches(
     integer: Option<IntegerElementType>,
     logical: bool,
 ) -> bool {
-    let expected = expected_gpu_class_name(precision, integer, logical);
-    runmat_accelerate_api::handle_class_name(handle)
-        .as_deref()
-        .is_none_or(|actual| expected == Some(actual))
+    let expected = expected_gpu_class_identity(precision, integer, logical);
+    runmat_accelerate_api::handle_class_identity(handle)
+        .is_none_or(|actual| expected.as_ref() == Some(&actual))
 }
 
 fn integer_element_type(storage: &IntegerStorage) -> IntegerElementType {
@@ -182,10 +194,9 @@ pub(crate) fn expected_handle_numeric_element_type(
     let precision = runmat_accelerate_api::handle_precision(handle);
     let integer = runmat_accelerate_api::handle_integer_type(handle);
     let logical = runmat_accelerate_api::handle_is_logical(handle);
-    let expected_class = expected_gpu_class_name(precision, integer, logical);
-    if runmat_accelerate_api::handle_class_name(handle)
-        .as_deref()
-        .is_some_and(|actual| expected_class != Some(actual))
+    let expected_class = expected_gpu_class_identity(precision, integer, logical);
+    if runmat_accelerate_api::handle_class_identity(handle)
+        .is_some_and(|actual| expected_class.as_ref() != Some(&actual))
     {
         return Err("class metadata contradicts the physical payload metadata".into());
     }
@@ -317,6 +328,78 @@ pub fn same_gpu_handle(left: &GpuTensorHandle, right: &GpuTensorHandle) -> bool 
     left.device_id == right.device_id && left.buffer_id == right.buffer_id
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuOutputAliasPolicy {
+    AllowInput,
+    RequireDistinct,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnaryGpuOutputContract {
+    pub storage: GpuTensorStorage,
+    pub precision: Option<ProviderPrecision>,
+    pub integer: Option<IntegerElementType>,
+    pub logical: bool,
+    pub alias: GpuOutputAliasPolicy,
+}
+
+pub fn unary_gpu_output_matches(
+    output: &GpuTensorHandle,
+    input: &GpuTensorHandle,
+    provider: &'static dyn AccelProvider,
+    contract: UnaryGpuOutputContract,
+) -> bool {
+    output.shape == input.shape
+        && output.device_id == input.device_id
+        && (matches!(contract.alias, GpuOutputAliasPolicy::AllowInput)
+            || !same_gpu_handle(output, input))
+        && exact_provider_for_handle(output).is_some_and(|owner| std::ptr::eq(owner, provider))
+        && runmat_accelerate_api::handle_storage(output) == contract.storage
+        && runmat_accelerate_api::handle_precision(output) == contract.precision
+        && runmat_accelerate_api::handle_integer_type(output) == contract.integer
+        && runmat_accelerate_api::handle_is_logical(output) == contract.logical
+        && gpu_class_metadata_matches(
+            output,
+            contract.precision,
+            contract.integer,
+            contract.logical,
+        )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryGpuOutputContract {
+    pub shape: Vec<usize>,
+    pub storage: GpuTensorStorage,
+    pub precision: Option<ProviderPrecision>,
+    pub integer: Option<IntegerElementType>,
+    pub logical: bool,
+    pub alias: GpuOutputAliasPolicy,
+}
+
+pub fn binary_gpu_output_matches(
+    output: &GpuTensorHandle,
+    left: &GpuTensorHandle,
+    right: &GpuTensorHandle,
+    provider: &'static dyn AccelProvider,
+    contract: &BinaryGpuOutputContract,
+) -> bool {
+    output.shape == contract.shape
+        && output.device_id == provider.device_id()
+        && (matches!(contract.alias, GpuOutputAliasPolicy::AllowInput)
+            || (!same_gpu_handle(output, left) && !same_gpu_handle(output, right)))
+        && exact_provider_for_handle(output).is_some_and(|owner| std::ptr::eq(owner, provider))
+        && runmat_accelerate_api::handle_storage(output) == contract.storage
+        && runmat_accelerate_api::handle_precision(output) == contract.precision
+        && runmat_accelerate_api::handle_integer_type(output) == contract.integer
+        && runmat_accelerate_api::handle_is_logical(output) == contract.logical
+        && gpu_class_metadata_matches(
+            output,
+            contract.precision,
+            contract.integer,
+            contract.logical,
+        )
+}
+
 pub fn free_unprotected_exact_owner(handle: &GpuTensorHandle, protected: &[&GpuTensorHandle]) {
     if protected
         .iter()
@@ -329,6 +412,34 @@ pub fn free_unprotected_exact_owner(handle: &GpuTensorHandle, protected: &[&GpuT
             runmat_accelerate_api::clear_handle_metadata(handle);
         }
     }
+}
+
+/// Release an invalid output returned by `invoked_provider` without freeing a
+/// protected input alias. Prefer a registered exact owner when the returned
+/// metadata identifies one; otherwise the provider that created the output is
+/// responsible for releasing it even when the output metadata is malformed.
+pub fn free_rejected_provider_output(
+    handle: &GpuTensorHandle,
+    protected: &[&GpuTensorHandle],
+    invoked_provider: &dyn AccelProvider,
+) {
+    if protected
+        .iter()
+        .any(|protected| same_gpu_handle(handle, protected))
+    {
+        return;
+    }
+    let owner = exact_provider_for_handle(handle).unwrap_or(invoked_provider);
+    if owner.free(handle).is_ok() {
+        runmat_accelerate_api::clear_handle_metadata(handle);
+    }
+}
+
+/// Return whether an optional provider hook reported the API's typed
+/// unsupported-operation result. Other provider failures must remain visible
+/// instead of silently changing the execution path.
+pub fn provider_hook_is_unsupported(error: &anyhow::Error) -> bool {
+    runmat_accelerate_api::is_unsupported_provider_operation(error)
 }
 
 /// Download a GPU tensor handle to host memory, returning a dense `Tensor`.
@@ -617,16 +728,10 @@ fn interleaved_complex_data(tensor: &ComplexTensor) -> Result<HostNumericDataOwn
     }
     match tensor.complex_storage() {
         ComplexStorage::F64(values) => Ok(HostNumericDataOwned::F64(
-            values
-                .iter()
-                .flat_map(|&(real, imag)| [real, imag])
-                .collect(),
+            values.iter().flat_map(|value| [value.0, value.1]).collect(),
         )),
         ComplexStorage::F32(values) => Ok(HostNumericDataOwned::F32(
-            values
-                .iter()
-                .flat_map(|&(real, imag)| [real, imag])
-                .collect(),
+            values.iter().flat_map(|value| [value.0, value.1]).collect(),
         )),
         ComplexStorage::Integer(storage) => match (&storage.real, &storage.imag) {
             (IntegerStorage::I8(real), IntegerStorage::I8(imag)) => {
@@ -954,17 +1059,20 @@ pub fn restore_class_preserving_value(
 }
 
 /// Upload a finite integral scalar in the native integer class of `prototype`.
-/// Returns `None` when preserving MATLAB's typed-integer scalar semantics would
-/// require the host extended-precision path instead.
+/// Returns `None` when preserving typed-integer scalar semantics would require
+/// the host extended-precision path instead. Provider failures remain errors so
+/// callers cannot mistake an unavailable device for an inapplicable fast path.
 pub fn upload_exact_integer_scalar_like(
     provider: &dyn AccelProvider,
     prototype: &GpuTensorHandle,
     scalar: f64,
-) -> Option<GpuTensorHandle> {
+) -> anyhow::Result<Option<GpuTensorHandle>> {
     if !scalar.is_finite() || scalar.fract() != 0.0 {
-        return None;
+        return Ok(None);
     }
-    let element_type = runmat_accelerate_api::handle_integer_type(prototype)?;
+    let Some(element_type) = runmat_accelerate_api::handle_integer_type(prototype) else {
+        return Ok(None);
+    };
     let shape = [1usize, 1usize];
     macro_rules! upload {
         ($value:expr, $variant:ident) => {{
@@ -975,7 +1083,7 @@ pub fn upload_exact_integer_scalar_like(
                     shape: &shape,
                     storage: GpuTensorStorage::Real,
                 })
-                .ok()
+                .map(Some)
         }};
     }
     match element_type {
@@ -1005,7 +1113,7 @@ pub fn upload_exact_integer_scalar_like(
         IntegerElementType::U64 if (0.0..18_446_744_073_709_551_616.0).contains(&scalar) => {
             upload!(scalar as u64, U64)
         }
-        _ => None,
+        _ => Ok(None),
     }
 }
 
@@ -1017,6 +1125,28 @@ pub fn resident_gpu_value(mut handle: GpuTensorHandle) -> Value {
     handle.descriptor.provenance = Some(provenance);
     runmat_accelerate_api::mark_residency(&handle);
     Value::GpuTensor(handle)
+}
+
+/// Propagate explicit device intent through a provider operation.
+///
+/// Provider-created handles begin with automatic provenance. Runtime operations
+/// must promote the result to explicit provenance whenever any resident input
+/// came from an explicit `gpuArray` boundary; otherwise introspection and
+/// fallback policy would incorrectly treat a user-owned device value as an
+/// internal optimization.
+pub(crate) fn propagate_output_provenance<'a>(
+    output: &mut GpuTensorHandle,
+    inputs: impl IntoIterator<Item = &'a GpuTensorHandle>,
+) {
+    let provenance = if inputs
+        .into_iter()
+        .any(runmat_accelerate_api::handle_is_explicit)
+    {
+        runmat_accelerate_api::GpuHandleProvenance::Explicit
+    } else {
+        runmat_accelerate_api::GpuHandleProvenance::Automatic
+    };
+    runmat_accelerate_api::set_handle_provenance(output, provenance);
 }
 
 /// Wrap a GPU tensor handle as a logical gpuArray value, recording metadata so that
@@ -1038,6 +1168,55 @@ mod preserving_download_tests {
     use super::*;
     use crate::builtins::common::test_support;
     use futures::executor::block_on;
+
+    #[test]
+    fn unary_output_contract_checks_owner_class_shape_storage_and_alias_policy() {
+        test_support::with_test_provider(|provider| {
+            let tensor = Tensor::new(vec![1.0, 2.0], vec![1, 2]).unwrap();
+            let input = upload_tensor(provider, &tensor).expect("input upload");
+            let output = upload_tensor(provider, &tensor).expect("output upload");
+            let contract = UnaryGpuOutputContract {
+                storage: GpuTensorStorage::Real,
+                precision: Some(ProviderPrecision::F64),
+                integer: None,
+                logical: false,
+                alias: GpuOutputAliasPolicy::RequireDistinct,
+            };
+            assert!(unary_gpu_output_matches(
+                &output, &input, provider, contract
+            ));
+            assert!(!unary_gpu_output_matches(
+                &input, &input, provider, contract
+            ));
+            assert!(unary_gpu_output_matches(
+                &input,
+                &input,
+                provider,
+                UnaryGpuOutputContract {
+                    alias: GpuOutputAliasPolicy::AllowInput,
+                    ..contract
+                }
+            ));
+
+            let mut wrong_shape = output.clone();
+            wrong_shape.shape = vec![2, 1];
+            assert!(!unary_gpu_output_matches(
+                &wrong_shape,
+                &input,
+                provider,
+                contract
+            ));
+            runmat_accelerate_api::set_handle_class_identity(&output, "single");
+            assert!(!unary_gpu_output_matches(
+                &output, &input, provider, contract
+            ));
+
+            provider.free(&output).unwrap();
+            provider.free(&input).unwrap();
+            runmat_accelerate_api::clear_handle_metadata(&output);
+            runmat_accelerate_api::clear_handle_metadata(&input);
+        });
+    }
 
     #[test]
     fn central_runtime_transfer_round_trips_every_native_real_and_complex_class() {
@@ -1082,8 +1261,8 @@ mod preserving_download_tests {
                 };
             }
             let complex_cases = vec![
-                ComplexStorage::F64(vec![(-1.25, 3.5), (2.5, -4.75)]),
-                ComplexStorage::F32(vec![(-1.25, 3.5), (2.5, -4.75)]),
+                ComplexStorage::F64(vec![(-1.25, 3.5), (2.5, -4.75)].into()),
+                ComplexStorage::F32(vec![(-1.25, 3.5), (2.5, -4.75)].into()),
                 integer_complex_case!(I8, vec![i8::MIN, i8::MAX], vec![1, -1]),
                 integer_complex_case!(I16, vec![i16::MIN, i16::MAX], vec![1, -1]),
                 integer_complex_case!(I32, vec![i32::MIN, i32::MAX], vec![1, -1]),
@@ -1181,8 +1360,8 @@ mod preserving_download_tests {
             };
             assert!(runmat_accelerate_api::handle_is_logical(&logical_handle));
             assert_eq!(
-                runmat_accelerate_api::handle_class_name(&logical_handle).as_deref(),
-                Some("logical")
+                runmat_accelerate_api::handle_class_identity(&logical_handle),
+                Some(runmat_types::standard::LOGICAL.owned())
             );
             let gathered = block_on(crate::dispatcher::gather_if_needed_async(
                 &Value::GpuTensor(logical_handle.clone()),
@@ -1282,6 +1461,49 @@ mod preserving_download_tests {
 
     struct MalformedUploadProvider;
 
+    struct FailingNumericUploadProvider;
+
+    impl runmat_accelerate_api::AccelProvider for FailingNumericUploadProvider {
+        fn upload(
+            &self,
+            _host: &runmat_accelerate_api::HostTensorView,
+        ) -> anyhow::Result<GpuTensorHandle> {
+            anyhow::bail!("unused")
+        }
+
+        fn upload_numeric(
+            &self,
+            _host: &runmat_accelerate_api::HostNumericTensorView,
+        ) -> anyhow::Result<GpuTensorHandle> {
+            anyhow::bail!("device unavailable")
+        }
+
+        fn download<'a>(
+            &'a self,
+            _handle: &'a GpuTensorHandle,
+        ) -> runmat_accelerate_api::AccelDownloadFuture<'a> {
+            Box::pin(async { anyhow::bail!("unused") })
+        }
+
+        fn free(&self, _handle: &GpuTensorHandle) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn device_info(&self) -> String {
+            "failing numeric upload test provider".into()
+        }
+    }
+
+    #[test]
+    fn exact_integer_scalar_upload_preserves_operational_provider_failures() {
+        let prototype = GpuTensorHandle::new(vec![1, 1], 0, u64::MAX - 11)
+            .with_numeric_descriptor(NumericElementType::I64, GpuTensorStorage::Real);
+        let error =
+            upload_exact_integer_scalar_like(&FailingNumericUploadProvider, &prototype, 7.0)
+                .expect_err("provider failure must not become an inapplicable fast path");
+        assert!(error.to_string().contains("device unavailable"));
+    }
+
     impl runmat_accelerate_api::AccelProvider for MalformedUploadProvider {
         fn upload(
             &self,
@@ -1368,7 +1590,7 @@ mod preserving_download_tests {
         ) -> runmat_accelerate_api::AccelDownloadFuture<'a> {
             Box::pin(async move {
                 runmat_accelerate_api::set_handle_logical(handle, true);
-                runmat_accelerate_api::set_handle_class_name(handle, "logical");
+                runmat_accelerate_api::set_handle_class_identity(handle, "logical");
                 Ok(runmat_accelerate_api::HostTensorOwned {
                     data: vec![1.0],
                     shape: handle.shape.clone(),
@@ -1495,7 +1717,7 @@ mod preserving_download_tests {
             ),
         };
         runmat_accelerate_api::set_handle_logical(&handle, false);
-        runmat_accelerate_api::set_handle_class_name(&handle, "double");
+        runmat_accelerate_api::set_handle_class_identity(&handle, "double");
         let result = block_on(download_value_preserving_residency_async(
             &MutatingDownloadProvider,
             &handle,
@@ -1504,8 +1726,8 @@ mod preserving_download_tests {
         assert!(matches!(result, Value::Tensor(_)));
         assert!(!runmat_accelerate_api::handle_is_logical(&handle));
         assert_eq!(
-            runmat_accelerate_api::handle_class_name(&handle).as_deref(),
-            Some("double")
+            runmat_accelerate_api::handle_class_identity(&handle),
+            Some(runmat_types::standard::DOUBLE.owned())
         );
     }
 
@@ -1583,8 +1805,10 @@ mod tests {
             })
             .expect("upload uint64 prototype");
         let signed_scalar = upload_exact_integer_scalar_like(provider, &signed, -7.0)
+            .expect("integer scalar upload operation")
             .expect("representable int64 scalar");
         let unsigned_scalar = upload_exact_integer_scalar_like(provider, &unsigned, 7.0)
+            .expect("integer scalar upload operation")
             .expect("representable uint64 scalar");
         assert_eq!(
             runmat_accelerate_api::handle_integer_type(&signed_scalar),
@@ -1606,8 +1830,12 @@ mod tests {
                 .data,
             HostIntegerDataOwned::U64(vec![7])
         );
-        assert!(upload_exact_integer_scalar_like(provider, &signed, 1.5).is_none());
-        assert!(upload_exact_integer_scalar_like(provider, &unsigned, -1.0).is_none());
+        assert!(upload_exact_integer_scalar_like(provider, &signed, 1.5)
+            .expect("nonintegral scalar admission")
+            .is_none());
+        assert!(upload_exact_integer_scalar_like(provider, &unsigned, -1.0)
+            .expect("negative unsigned scalar admission")
+            .is_none());
         for handle in [&signed, &unsigned, &signed_scalar, &unsigned_scalar] {
             provider.free(handle).expect("free integer scalar handle");
         }
