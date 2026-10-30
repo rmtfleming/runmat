@@ -79,7 +79,14 @@ parents:
 - `math/elementwise/mod.rs`: `psi`
 - `math/mod.rs`: `sparse` (the clean-room `colamd`, `dissect`, `spalloc` live in `math/sparse/`)
 - `diagnostics/mod.rs`: `#[path = "getReport.rs"] get_report`
-- `strings/search/mod.rs`: `strmatch`
+- `strings/search/mod.rs`: `strmatch`, `findstr` (spec 037)
+- `common/mod.rs`: `validateattributes` (spec 038)
+
+Clean-room builtins added after the merges that live under hand-written
+parents (no regeneration risk): `svds` (`math/linalg/factor/mod.rs`),
+`incidence`/`isisomorphic` (`graph/domain/mod.rs` → `structure.rs`),
+`spy`/`exportgraphics` (`plotting/ops/mod.rs`, via `#[path]`), and
+`addvars`/`removevars`/`movevars`/`outerjoin` (`table/builtins.rs`).
 
 Re-add these lines whenever upstream regenerates those files. CI does not currently verify
 generated products, so the hand-added lines don't fail the build.

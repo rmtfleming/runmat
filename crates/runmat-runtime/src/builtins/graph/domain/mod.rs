@@ -221,6 +221,7 @@ mod class_registry;
 mod construction;
 mod entrypoints;
 mod parsing;
+mod structure;
 
 #[cfg(test)]
 mod tests;

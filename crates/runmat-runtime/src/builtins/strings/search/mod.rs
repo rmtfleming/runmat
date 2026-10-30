@@ -3,6 +3,7 @@
 
 pub mod contains;
 pub mod endswith;
+pub mod findstr;
 pub mod startswith;
 pub mod strfind;
 pub mod strmatch;

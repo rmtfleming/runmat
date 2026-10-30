@@ -33,6 +33,7 @@ pub mod shape;
 pub mod spec;
 pub mod tensor;
 pub(crate) mod uniform_scalar_output;
+pub mod validateattributes;
 pub mod validation;
 #[cfg(test)]
 pub mod test_support;
