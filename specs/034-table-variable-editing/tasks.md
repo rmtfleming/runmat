@@ -2,25 +2,30 @@
 
 Order is normative (test-first). Every task cites requirements.
 
-- [x] **T1** Inspect the upstream table subsystem (variables struct,
-  Properties, default names, `into_table_object`, error helpers); confirm
-  placement in the hand-written `table/builtins/` tree. [FR-034-01..03]
-  (no code changes)
-- [x] **T2** Author the three observed normative tests (addvars `append`,
-  removevars `by-name`, movevars `before`/`order`). [FR-034-01..03; SC-034-1]
-- [x] **T3** Author unresolved-disposition tests for every US4 case.
-  [FR-034-04..06]
-- [x] **T4** Author documented-choice and validation tests: default name,
-  height mismatch, unknown names, non-table, timetable, bad keyword,
-  string-scalar names, metadata preservation, self-move. Run the test
-  filter and record that it fails (builtins absent) before T5.
-  [FR-034-07..10]
-- [x] **T5** Implement `variable_editing.rs`: descriptors, error sets,
-  shared `rebuild` core, and the three builtins (integer-capability
-  metadata deliberately omitted; see plan.md). [FR-034-01..10]
-- [x] **T6** Register: `mod variable_editing;` in `table/builtins.rs`
-  (the inventory macro registers the builtins; no re-export needed). [SC-034-2]
-- [x] **T7** Run the verification commands; record the output in
-  `validation.md`. [SC-034-1..3]
-- [x] **T8** Traceability table (claim → FR → test → result) in
-  `validation.md`. [SC-034-3; Principle VI]
+## Batch C1 (0.2.0) — done, committed in `69a30fe2c`
+
+- [x] T1–T8: confirmed forms only (D1 = A); see git history for the
+  0.2.0-era task list.
+
+## Widening W1 (0.3.0)
+
+- [x] **W1** Freshness check of the three specs against source
+  `5d595da` (HEAD, origin/main, working tree); read the 0.3.0 interface,
+  behaviour, provenance and observations; verify every claim id cited in
+  `spec.md`/`provenance.md`. [Principle IV]
+- [x] **W2** Investigate caller variable names (`inputname`,
+  `crate::callsite`) for addvars.default-name-input. Result: the VM records
+  a builtin callsite with argument spans, so the name is reachable. [FR-034-04, FR-034-14]
+- [x] **W3** Investigate whether the table subsystem can hold an N×0
+  table (removevars.remove-all). Result: it cannot (height derives from the
+  first variable), so record deviation D-034-1. [FR-034-10]
+- [x] **W4** Rewrite the test module: observed tests for every 0.3.0 claim
+  group, unresolved, documented-choice and deviation tests. Run them against
+  the 0.2.0-era code and record the failures in `validation.md`.
+  [FR-034-01..16]
+- [x] **W5** Implement: error kinds/descriptors (FR-034-11), selections,
+  options and placement, the widened addvars/removevars/movevars, and the
+  updated signatures. [FR-034-01..16]
+- [x] **W6** Run the verification commands; update `validation.md`
+  (traceability, counts, clippy, table suite, freshness re-check).
+  [SC-034-1..3]

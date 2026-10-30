@@ -133,3 +133,20 @@ F34 (B1→B5) now; F35 after the specification side deepens `outerjoin`.
   Tier B batches 1–3). Run B1→B5 straight through; stop before any commit,
   push or PR (publication is a separate approval).
 - [ ] Import pin refresh to `1b01912`: not requested (notes-label only).
+
+## Decision — RECORDED 2026-10-29 (maintainer, follow-up after spec widening W1)
+
+The specification side widened all four specs to 0.3.0 (source `5d595da`,
+human-approved), resolving the q-* claims behind D1 and D2.
+
+- [x] Import the 0.3.0 exports (IMPORT-MANIFEST Batch 7).
+- [x] **Widen F34** to the newly observed options (supersedes D1 = A for
+  the resolved claims).
+- [x] **Lift deferral B-035-1**: implement F35 `outerjoin` from the 0.3.0
+  spec (supersedes D2 = A).
+- [x] The three questions the W1 review left open
+  (`removevars.q-short-mask`, `addvars.q-before-past-end`,
+  `outerjoin.q-name-suffix-context`) stay unresolved: each gets an explicit
+  RunMat error or a documented choice, not a guess.
+- [x] Gates G1–G3 pre-approved; run after batch C2 finishes; stop before
+  any commit or push.

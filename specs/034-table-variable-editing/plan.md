@@ -1,89 +1,100 @@
-# Implementation Plan — 034-table-variable-editing
+# Implementation Plan — 034-table-variable-editing (widened to 0.3.0)
 
 ## Constitution Check
 
-- I Specification-first: FR-034-01..03 cite the eight approved claims;
-  FR-034-04..10 are tagged unresolved or documented choice. PASS.
-- II Clean-room: inputs are the imported exports plus RunMat code only;
+- I Specification-first: FR-034-01..09 cite approved 0.3.0 claims. FR-034-10
+  is a recorded deviation, and FR-034-11..16 are tagged identifier mapping,
+  unresolved or documented choice. PASS.
+- II Clean-room: inputs are the imported 0.3.0 exports plus RunMat code only;
   MATLAB not invoked. PASS.
-- III Independence: variable editing is a reorder/insert/delete over
-  upstream's ordered variable struct, derived from RunMat's own table model.
-  PASS.
-- IV Provenance: `provenance.md` complete, with pins and the 2026-10-29
-  re-verification. PASS.
-- V Test-first: tests T2–T4 are written and run (and fail to resolve the
-  builtins) before T5. PASS.
-- VII Minimal scope: one tightly coupled family; one new file plus one `mod`
-  line in a hand-written (non-generated) parent; no refactoring of upstream
-  table code. PASS.
-- IX Compatibility: lives under `builtins/table/builtins/`, registered via
-  `#[runtime_builtin]` with a descriptor and `accel = "cpu"`, using upstream's
-  table helpers. Integer-capability metadata is deliberately omitted: declaring
-  it ties a builtin to the generated `docs/builtins/meta.json`
-  (`generated_builtin_catalog_matches_integer_metadata`), which this fork
-  cannot regenerate. PASS.
+- III Independence: insert/delete/reorder over upstream's ordered variable
+  struct. Caller names come from RunMat's own builtin callsite record. PASS.
+- IV Provenance: `provenance.md` pins `5d595da…`, lists every relied-upon
+  claim id (verified against the imported `provenance.yaml`), and records
+  the freshness checks. PASS.
+- V Test-first: the widened tests are written and run against the 0.2.0-era
+  implementation, and their failures are recorded before the implementation
+  changes (validation.md). PASS.
+- VII Minimal scope: one existing file (`variable_editing.rs`) plus this
+  feature's docs. No upstream table code changes. PASS.
+- IX Compatibility: same registration (`#[runtime_builtin]`, descriptors,
+  `accel = "cpu"`), upstream table helpers, and the existing
+  `crate::callsite` API. PASS.
 
 ## Affected files
 
 | Item | Path |
 |---|---|
-| Builtins (new) | `crates/runmat-runtime/src/builtins/table/builtins/variable_editing.rs` |
-| Registration | `mod variable_editing;` in `crates/runmat-runtime/src/builtins/table/builtins.rs` (hand-written, not a generated parent) |
+| Builtins (edited) | `crates/runmat-runtime/src/builtins/table/builtins/variable_editing.rs` |
+| Feature docs | `specs/034-table-variable-editing/*.md` |
 
-Exemplars: `table/builtins/conversions.rs` (descriptor, gather pattern), `table/object/properties.rs`
-(`table_public_properties`, `sync_table_properties`, units/descriptions
-handling), `table/names.rs` (default names).
+Registration (`mod variable_editing;` in `table/builtins.rs`) is unchanged.
 
 ## Design
 
-- Shared core `rebuild(T, slots) -> table` (plus `table_input` for step 1):
-  1. `gather_if_needed_async` the inputs; require `Value::Object` of class
-     `table` (`TABLE_CLASS`). A timetable gives `UnsupportedOption` (U-034-3),
-     anything else `InvalidInput`.
-  2. Read `names = table_variable_names_from_object`,
-     `vars = table_variables`, `props = table_public_properties`.
-  3. Compute the new order as `Vec<Source>` with
-     `Source::{Existing(old_idx), New(value)}`.
-  4. Build the new ordered `StructValue`. Permute `VariableUnits` and
-     `VariableDescriptions` by the same index map (empty string for new);
-     set `VariableNames`. Write back into a clone of the source object via
-     `TABLE_VARIABLES_FIELD` and `sync_table_properties`. Row names,
-     Description, UserData and DimensionNames are untouched.
-- `addvars(T, var)`: `rest.is_empty()` else `UnsupportedOption`;
-  `value_row_count(var) == table_height(T)` else `HeightMismatch`; name
-  `Var{width+1}` made unique against existing names (existing names never
-  change).
-- `removevars(T, vars)`: one text name (char row or string scalar);
-  numeric/logical/cell/multi-element string → `UnsupportedOption`; unknown →
-  `UnknownVariable`.
-- `movevars(T, vars, key, loc)`: exactly 4 args; `key` text equal to
-  `"before"` ignoring case, `"after"` → `UnsupportedOption`, other →
-  `InvalidArgument`; `vars` single text else `UnsupportedOption`; `loc` text
-  else (numeric) `UnsupportedOption`; unknown names → `UnknownVariable`;
-  `vars == loc` → unchanged.
-- Errors: per-builtin `BuiltinErrorDescriptor` sets with identifiers
-  `RunMat:<fn>:{InvalidInput,InvalidArgument,UnsupportedOption,UnknownVariable,HeightMismatch}`.
+- **Errors.** A `Kind` enum and one descriptor set per builtin (macro
+  `error_set!`). Each builtin lists only the kinds it can raise.
+  `Ctx::error(kind, detail)` looks the identifier up in the descriptor set,
+  so descriptors stay the single source of truth. Table-level identifiers
+  follow FR-034-11 (`RunMat:table:…`, `RunMat:badsubscript`).
+- **Selections** (`select_variables`, shared by removevars/movevars):
+  logical mask (length must equal width, else `UnsupportedOption`), cell of
+  names, string array, single name, or numeric indices
+  (`index_position`: non-positive or non-integer → `BadSubscript`,
+  > width → `VarIndexOutOfRange`). The result is 0-based positions in listed
+  order (table order for masks), with repeats removed.
+- **Options.** `option_start` finds the first recognised keyword after the
+  mandatory first data argument. Everything from there on must be
+  name-value pairs (`parse_options`): odd count or unknown name →
+  `InvalidArgument`, repeat → `UnsupportedOption`. `placement` raises
+  `BeforeAndAfter` and resolves the location against the input table
+  (`location_position`: name, or one number; `'Before'` width+1 →
+  `UnsupportedOption`).
+- **addvars.** Gather the data arguments. Every one must match the table
+  height (the first argument's height when the table has no variables).
+  Insertion index: end / anchor / anchor+1. Names: `NewVariableNames`
+  (count, validity and duplicate checks), else caller name (`caller_names`
+  reads `crate::callsite::current_callsite()`/`arg_text`, trusted only when
+  span count = argument count and no earlier argument may expand), else
+  `Var<insert_at+offset+1>`. Defaults are made unique with
+  `make_unique_names`. The new slots are spliced in and `rebuild`.
+- **removevars.** Keep the unselected positions. If that leaves zero
+  variables and height > 0, raise `UnsupportedOption` (D-034-1).
+- **movevars.** `vars` plus optional Before/After pair. Self-location with
+  one variable → unchanged. A location inside a multi-variable selection →
+  `UnsupportedOption`. Otherwise remove the moved positions, find the
+  anchor in the remainder, and splice the block in listed order.
+- `rebuild` (unchanged) carries units and descriptions with their
+  variables and keeps the other metadata.
 
-## Test plan (inline `#[cfg(test)] mod table_variable_editing_tests`)
+## Test plan (inline `mod table_variable_editing_tests`)
 
-Observed (normative, cite claims): `observed_addvars_append_matches_export`,
-`observed_removevars_by_name_matches_export`,
-`observed_movevars_before_matches_export` (size and `c,a,b` order).
-Unresolved (`unresolved_choice_*`): every disposition in spec.md US4, plus
-default naming, metadata preservation, and moving a variable before itself.
-Validation (`rejects_*`): non-table input, timetable, unknown names, height
-mismatch, bad keyword. Plus `accepts_string_scalar_names`.
+- `observed_*` (normative, cite claim ids and case ids): one test per claim
+  group: addvars append / append-full / before-after / new names / multiple
+  / data-preserved / name-from-input / errors; removevars by-name /
+  index+mask / multiple names / empty selection / errors; movevars before /
+  after+numeric location / selectors+order / self / default end / contents /
+  errors.
+- `unresolved_*`: before-past-end, mask length, location-in-vars.
+- `unresolved_choice_*`: default-name collision, input-name scope (callsite
+  simulated with `source_context::replace_source_catalog` +
+  `callsite::push_callsite`, as `display`'s tests do), metadata.
+- `deviation_*`: remove-all with rows.
+- `rejects_*` / `accepts_*`: non-table, timetable, malformed options, string
+  scalars.
 
 ## Risks & rollback
 
-- Upstream table internals (`TABLE_VARIABLES_FIELD`, Properties) are
-  `pub(in crate::builtins::table)`. The new file lives inside that module,
-  so no visibility changes are needed.
-- Rollback: delete `variable_editing.rs` and its `mod` line.
+- Caller-name lookup depends on the VM pushing a builtin callsite. Without
+  one, names fall back to `Var<k>`. The span-count check guards against
+  stale or foreign callsites, but a nested Rust-level call with the same
+  argument count could in principle read an outer callsite (the same
+  exposure `display` has).
+- Rollback: restore `variable_editing.rs` from commit `69a30fe2c`.
 
 ## Verification commands
 
-`cargo check -p runmat-runtime` ·
 `cargo test -p runmat-runtime --lib -- table_variable_editing` ·
-`cargo test -p runmat-runtime --lib -- builtins::table` (no regressions) ·
-`cargo fmt --all -- --check` · `cargo clippy -p runmat-runtime --lib --tests`
+`cargo test -p runmat-runtime --lib -- builtins::table` ·
+`rustfmt --edition 2021 --check <file>` ·
+`cargo clippy -p runmat-runtime --lib --tests --message-format short | grep variable_editing`

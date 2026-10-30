@@ -5,6 +5,7 @@ mod constructors;
 mod conversions;
 mod indexing;
 mod io;
+mod joins;
 mod predicates;
 mod selectors;
 mod timetable;
