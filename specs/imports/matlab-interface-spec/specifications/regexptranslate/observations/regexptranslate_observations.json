@@ -1,0 +1,214 @@
+{
+  "schema_version": "1.0",
+  "function_name": "regexptranslate",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/regexptranslate/test_regexptranslate_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "escape-dot",
+      "description": "escape a dot",
+      "call": "regexptranslate('escape', 'a.b')",
+      "errored": false,
+      "result": {
+        "value": "'a\\.b'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "escape-specials",
+      "description": "escape regular-expression special characters",
+      "call": "regexptranslate('escape', '$^*+?()[]{}|\\')",
+      "errored": false,
+      "result": {
+        "value": "'\\$\\^\\*\\+\\?\\(\\)\\[\\]\\{\\}\\|\\\\'",
+        "class": "char",
+        "size": [
+          1,
+          26
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "escape-plain",
+      "description": "plain text unchanged",
+      "call": "regexptranslate('escape', 'abc')",
+      "errored": false,
+      "result": {
+        "value": "'abc'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "escape-others",
+      "description": "other punctuation and a space",
+      "call": "regexptranslate('escape', '-<>#/ ,:=!@')",
+      "errored": false,
+      "result": {
+        "value": "'\\-<>#/ ,:=!@'",
+        "class": "char",
+        "size": [
+          1,
+          12
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "escape-whitespace",
+      "description": "escape a tab and a newline",
+      "call": "regexptranslate('escape', sprintf('a\\tb\\nc'))",
+      "errored": false,
+      "result": {
+        "value": "['a\tb' char(10) 'c']",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "wildcard-star",
+      "description": "wildcard *",
+      "call": "regexptranslate('wildcard', '*.m')",
+      "errored": false,
+      "result": {
+        "value": "'.*\\.m'",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "wildcard-question",
+      "description": "wildcard ?",
+      "call": "regexptranslate('wildcard', 'a?c')",
+      "errored": false,
+      "result": {
+        "value": "'a.c'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "wildcard-dot",
+      "description": "wildcard keeps a literal dot escaped",
+      "call": "regexptranslate('wildcard', 'a.b')",
+      "errored": false,
+      "result": {
+        "value": "'a\\.b'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "wildcard-use",
+      "description": "translated wildcard used with regexp",
+      "call": "~isempty(regexp('file.m', ['^' regexptranslate('wildcard', '*.m') '$'], 'once'))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-input",
+      "description": "string scalar input",
+      "call": "regexptranslate(\"escape\", \"a.b\")",
+      "errored": false,
+      "result": {
+        "value": "\"a\\.b\"",
+        "class": "string",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell-input",
+      "description": "cell array input",
+      "call": "regexptranslate('escape', {'a.b', 'c+d'})",
+      "errored": false,
+      "result": {
+        "value": [
+          "'a\\.b'",
+          "'c\\+d'"
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty text",
+      "call": "regexptranslate('escape', '')",
+      "errored": false,
+      "result": {
+        "value": "''",
+        "class": "char",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-op",
+      "description": "unknown operation",
+      "call": "regexptranslate('nope', 'a')",
+      "errored": true,
+      "error_identifier": "MATLAB:REGEXP:invalidOptions"
+    }
+  ]
+}

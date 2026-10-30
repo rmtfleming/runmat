@@ -1,0 +1,236 @@
+{
+  "schema_version": "1.0",
+  "function_name": "etree",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/etree/test_etree_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "tridiagonal",
+      "description": "elimination tree of a 4x4 tridiagonal matrix",
+      "call": "etree(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2]))",
+      "errored": false,
+      "result": {
+        "value": "[2 3 4 0]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "arrow",
+      "description": "elimination tree of a 4x4 arrow matrix",
+      "call": "etree(sparse([4 1 1 1; 1 4 0 0; 1 0 4 0; 1 0 0 4]))",
+      "errored": false,
+      "result": {
+        "value": "[2 3 4 0]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "diag",
+      "description": "diagonal matrix (forest of roots)",
+      "call": "etree(speye(3))",
+      "errored": false,
+      "result": {
+        "value": "[0 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pentadiag",
+      "description": "5x5 matrix with corner entries",
+      "call": "etree(sparse([4 1 0 0 1; 1 4 1 0 0; 0 1 4 1 0; 0 0 1 4 1; 1 0 0 1 4]))",
+      "errored": false,
+      "result": {
+        "value": "[2 3 4 5 0]",
+        "class": "double",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "postorder",
+      "description": "second output (postorder permutation) for the tridiagonal matrix",
+      "call": "[p, q] = etree(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2])); report p and q",
+      "errored": false,
+      "result": {
+        "value": {
+          "out1": "[2 3 4 0]",
+          "out2": "[1 2 3 4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "postorder-arrow",
+      "description": "second output for the arrow matrix",
+      "call": "[p, q] = etree(sparse([4 1 1 1; 1 4 0 0; 1 0 4 0; 1 0 0 4])); report p and q",
+      "errored": false,
+      "result": {
+        "value": {
+          "out1": "[2 3 4 0]",
+          "out2": "[1 2 3 4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "col",
+      "description": "column elimination tree ('col') of a 3x2 matrix",
+      "call": "etree(sparse([1 0; 1 1; 0 1]), 'col')",
+      "errored": false,
+      "result": {
+        "value": "[2 0]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "sym",
+      "description": "explicit 'sym' option",
+      "call": "etree(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2]), 'sym')",
+      "errored": false,
+      "result": {
+        "value": "[2 3 4 0]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense-input",
+      "description": "full input",
+      "call": "etree(full(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2])))",
+      "errored": false,
+      "result": {
+        "value": "[2 3 4 0]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "upper-only",
+      "description": "upper triangle of the tridiagonal matrix",
+      "call": "etree(triu(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2])))",
+      "errored": false,
+      "result": {
+        "value": "[2 3 4 0]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "lower-only",
+      "description": "lower triangle of the tridiagonal matrix",
+      "call": "etree(tril(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2])))",
+      "errored": false,
+      "result": {
+        "value": "[0 0 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "postorder-branching",
+      "description": "both outputs for a matrix whose tree branches",
+      "call": "[p, q] = etree(sparse([1 0 1 0; 0 1 1 0; 1 1 1 1; 0 0 1 1])); report p and q",
+      "errored": false,
+      "result": {
+        "value": {
+          "out1": "[3 3 4 0]",
+          "out2": "[1 2 3 4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "0x0 input",
+      "call": "etree(sparse(0, 0))",
+      "errored": false,
+      "result": {
+        "value": "zeros(1,0)",
+        "class": "double",
+        "size": [
+          1,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-nonsquare",
+      "description": "non-square input without 'col'",
+      "call": "etree(sparse([1 0; 1 1; 0 1]))",
+      "errored": true,
+      "error_identifier": "MATLAB:etree:InvalidInput"
+    }
+  ]
+}

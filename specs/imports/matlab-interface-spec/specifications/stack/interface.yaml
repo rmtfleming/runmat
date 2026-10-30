@@ -1,0 +1,143 @@
+# Interface specification for stack (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: stack
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Stack several table variables into one variable (wide to long), adding an indicator variable
+  that records the source variable.
+invocation_forms:
+- signature: S = stack(T, vars)
+  description: Stack the variables `vars` of table T.
+  status: confirmed
+- signature: S = stack(T, vars, Name, Value)
+  description: With output naming or carried-variable options.
+  status: confirmed
+inputs:
+- name: T
+  position: 1
+  required: true
+  description: Table.
+  status: confirmed
+- name: vars
+  position: 2
+  required: true
+  description: 'Variables to stack: names (char or cellstr) or indices.'
+  status: confirmed
+name_value_arguments:
+- name: NewDataVariableName
+  description: Name of the stacked data variable.
+  status: confirmed
+- name: IndexVariableName
+  description: Name of the indicator variable.
+  status: confirmed
+- name: ConstantVariables
+  description: Variables carried into every output row; {} carries none.
+  status: confirmed
+outputs:
+- name: S
+  description: Stacked table.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: stack.layout-rule
+  statement: 'Each input row becomes one output row per stacked variable, in input-row order then variable
+    order; the other variables are repeated: id [1;2], x [10;20], y [30;40] gave id [1;1;2;2] and data
+    [10;30;20;40].'
+  status: confirmed
+  normative: true
+  provenance: stack.layout
+  observations:
+  - file: observations/stack_observations.json
+    case_id: basic
+  - file: observations/stack_observations.json
+    case_id: by-index
+  - file: observations/stack_observations.json
+    case_id: three-vars
+- id: stack.default-names-rule
+  statement: By default the data variable is named by joining the stacked names with '_' (x_y; x_y_z for
+    three) and the indicator variable is that name plus '_Indicator'; output order is the carried variables,
+    then the indicator, then the data variable.
+  status: confirmed
+  normative: true
+  provenance: stack.default-names
+  observations:
+  - file: observations/stack_observations.json
+    case_id: basic
+  - file: observations/stack_observations.json
+    case_id: indicator
+  - file: observations/stack_observations.json
+    case_id: three-vars
+- id: stack.indicator-rule
+  statement: The indicator variable is categorical; its values name the source variable of each row (x,
+    y, x, y) and its categories are the stacked variable names.
+  status: confirmed
+  normative: true
+  provenance: stack.indicator
+  observations:
+  - file: observations/stack_observations.json
+    case_id: basic
+  - file: observations/stack_observations.json
+    case_id: indicator
+- id: stack.by-index-rule
+  statement: vars given as indices gave the same result as names.
+  status: confirmed
+  normative: true
+  provenance: stack.by-index
+  observations:
+  - file: observations/stack_observations.json
+    case_id: by-index
+  - file: observations/stack_observations.json
+    case_id: basic
+- id: stack.options-rule
+  statement: NewDataVariableName and IndexVariableName rename the data and indicator variables; ConstantVariables
+    {} carries no other variables.
+  status: confirmed
+  normative: true
+  provenance: stack.options
+  observations:
+  - file: observations/stack_observations.json
+    case_id: new-names
+  - file: observations/stack_observations.json
+    case_id: constant
+- id: stack.single-var-rule
+  statement: Stacking one variable keeps the remaining non-stacked variables (in order), followed by '<name>_Indicator'
+    and the data variable named after the stacked variable.
+  status: confirmed
+  normative: true
+  provenance: stack.single-var
+  observations:
+  - file: observations/stack_observations.json
+    case_id: one-var
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A stacked variable name is not in the table.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: stack.error-unknown
+  observations:
+  - file: observations/stack_observations.json
+    case_id: err-unknown
+- condition: The stacked variables have incompatible classes (double and cell).
+  identifier: MATLAB:table:stack:InterleavingDataVarsFailed
+  status: confirmed
+  provenance: stack.error-class-mix
+  observations:
+  - file: observations/stack_observations.json
+    case_id: err-class-mix
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/stack_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: stack.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: stack.q-second-output
+  question: The second output (row indices into T) was not exercised.
+- id: stack.q-groups
+  question: Stacking several groups at once (a cell of cells) was not exercised.

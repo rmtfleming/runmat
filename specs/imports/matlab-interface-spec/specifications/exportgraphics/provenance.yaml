@@ -1,0 +1,222 @@
+# Provenance for exportgraphics (widened 2026-10-29, Tier B W2; claims backed by observations).
+schema_version: '1.0'
+function_name: exportgraphics
+claims:
+- claim_id: exportgraphics.void-file-write
+  statement: exportgraphics writes the target file and returns no output; requesting an output errors.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: output-arg
+- claim_id: exportgraphics.format-by-extension
+  statement: 'The file format follows the extension (upper-case .PNG and .PDF behaved as lower-case):
+    .png/.PNG start with the PNG signature [137 80 78 71 13 10 26 10]; .jpg/.jpeg with JPEG [255 216 255];
+    .tif/.tiff with little-endian TIFF [73 73 42 0]; .gif with ''GIF89a''; .pdf with ''%PDF-''; .eps with
+    ''%!PS-Adobe''.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-upper
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-jpg
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-jpeg
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-tif
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-tiff
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-gif
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-pdf
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-upper-pdf
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-eps
+- claim_id: exportgraphics.targets
+  statement: Both an axes and a figure handle are accepted as the target.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: target-figure
+- claim_id: exportgraphics.resolution
+  statement: For png, Resolution 200 produced an image about twice the width and height of Resolution
+    100 (727x575 vs 366x292).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: res-100
+  - file: observations/exportgraphics_observations.json
+    case_id: res-200
+- claim_id: exportgraphics.content-type-pdf
+  statement: For pdf, ContentType 'vector' and 'image' are both accepted.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: content-vector
+  - file: observations/exportgraphics_observations.json
+    case_id: content-image
+- claim_id: exportgraphics.append-pdf
+  statement: Append true on an existing pdf succeeds and grows the file.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: append-pdf
+- claim_id: exportgraphics.overwrite
+  statement: Exporting different content to an existing path succeeds and replaces the file (its bytes
+    changed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: overwrite
+- claim_id: exportgraphics.default-size
+  statement: 'Observed on this machine only: a 400x300-pixel figure exported at default resolution gave
+    a png whose pixel size lay between the Resolution 100 and 200 sizes. Pixel sizes are expected to depend
+    on the display and figure layout (not exercised).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: res-100
+  - file: observations/exportgraphics_observations.json
+    case_id: res-200
+- claim_id: exportgraphics.error-ext-unknown
+  statement: The extension is not a recognised export format. The call errors with identifier MATLAB:print:InvalidFileFormatForExport.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-ext-unknown
+- claim_id: exportgraphics.error-ext-none
+  statement: The filename has no extension. The call errors with identifier MATLAB:print:OutputFileNeedsNameAndExtension.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-ext-none
+- claim_id: exportgraphics.error-bad-folder
+  statement: The target folder does not exist. The call errors with identifier MATLAB:print:CannotCreateOutputFile.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-bad-folder
+- claim_id: exportgraphics.error-not-graphics
+  statement: The first argument is not a graphics handle. The call errors with identifier MATLAB:print:GraphicsHandleMustBeFirst.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-not-graphics
+- claim_id: exportgraphics.error-append-png
+  statement: Append true with a png target. The call errors with identifier MATLAB:print:UnsupportedAppendValue.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: append-png
+- claim_id: exportgraphics.error-output-arg
+  statement: An output argument is requested. The call errors with identifier MATLAB:TooManyOutputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: output-arg
+- claim_id: exportgraphics.warning-content-png-vector
+  statement: ContentType 'vector' with an image-format target (png and jpg observed); the file is still
+    written. The call completes and issues a warning with identifier MATLAB:print:ImageOutputIgnoresVectorContentType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: content-png-vector
+  - file: observations/exportgraphics_observations.json
+    case_id: content-jpg-vector
+- claim_id: exportgraphics.warning-background
+  statement: BackgroundColor 'none' with a png target; the file is still written. The call completes and
+    issues a warning with identifier MATLAB:print:ReplacingTransparentBackgroundWithDefaultColor.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/exportgraphics_observations.json
+    case_id: background

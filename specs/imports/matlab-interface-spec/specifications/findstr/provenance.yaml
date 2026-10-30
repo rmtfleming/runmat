@@ -1,0 +1,182 @@
+# Provenance for findstr (widened 2026-10-29, Tier B W2; claims backed by observations).
+schema_version: '1.0'
+function_name: findstr
+claims:
+- claim_id: findstr.signature-primary
+  statement: The invocation form `k = findstr(s1, s2)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: occurrences
+- claim_id: findstr.output-class
+  statement: The output class is double for every non-erroring observed call.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: occurrences
+  - file: observations/findstr_observations.json
+    case_id: no-match
+  - file: observations/findstr_observations.json
+    case_id: numeric
+- claim_id: findstr.start-indices
+  statement: 'Returns a row vector of the 1-based start indices of every occurrence: ''bc'' within ''abcabc''
+    gave [2 5]; ''a'' within ''banana'' gave [2 4 6].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: occurrences
+  - file: observations/findstr_observations.json
+    case_id: single-char
+- claim_id: findstr.order-independent
+  statement: 'The shorter argument is searched for within the longer regardless of argument order: findstr(''bc'',''abcabc'')
+    also gave [2 5].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: swapped
+- claim_id: findstr.overlapping
+  statement: 'Overlapping occurrences are all reported: ''aa'' within ''aaaa'' gave [1 2 3].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: overlapping
+- claim_id: findstr.equal-length
+  statement: 'With equal-length arguments: identical ''ab'' and ''ab'' gave 1; ''ab'' and ''ba'' gave
+    empty.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: equal-length-match
+  - file: observations/findstr_observations.json
+    case_id: equal-length-nomatch
+- claim_id: findstr.no-match
+  statement: When there is no occurrence, or one or both arguments are empty ('abc' with '', '' with 'abc',
+    '' with ''), the result is a 0x0 empty double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: no-match
+  - file: observations/findstr_observations.json
+    case_id: equal-length-nomatch
+  - file: observations/findstr_observations.json
+    case_id: empty-pattern
+  - file: observations/findstr_observations.json
+    case_id: empty-first
+  - file: observations/findstr_observations.json
+    case_id: both-empty
+  - file: observations/findstr_observations.json
+    case_id: case
+- claim_id: findstr.no-warning
+  statement: An ordinary call issued no warning.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: warn-call
+- claim_id: findstr.case-sensitive
+  statement: 'Matching is case-sensitive: ''b'' within ''ABC'' gave empty.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: case
+- claim_id: findstr.string-scalar
+  statement: String scalar arguments give the same result as the equivalent char arguments.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: string-scalar
+- claim_id: findstr.numeric
+  statement: 'Numeric row vectors are accepted and matched element-wise: [1 2] within [1 2 3 1 2] gave
+    [1 4].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: numeric
+- claim_id: findstr.error-column-char
+  statement: An argument is a multi-row char array. The call errors with identifier MATLAB:strfind:MultiRowInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: column-char
+- claim_id: findstr.error-cell
+  statement: An argument is a cell array. The call errors with identifier MATLAB:findstr:InputsMustBeCharArrays.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: err-cell
+- claim_id: findstr.error-one-arg
+  statement: Only one argument is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findstr_observations.json
+    case_id: err-one-arg

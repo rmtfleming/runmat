@@ -1,64 +1,183 @@
-# Interface specification for movevars (promoted; observed behaviour confirmed).
+# Interface specification for movevars (widened 2026-10-29, Tier B W1; approved 2026-10-29 after human-loop review).
 # Schema: ../../schemas/function-interface.schema.json
 schema_version: '1.0'
 function_name: movevars
-spec_version: 0.2.0
+spec_version: 0.3.0
 status: approved
 applicable_releases:
 - R2026a
-summary: 'Return a table with the specified variables moved to a new position, before or after another
-  variable.
-
-  '
+summary: Return a table with the specified variables moved before or after another variable, or to the
+  end.
 invocation_forms:
 - signature: T2 = movevars(T, vars, 'Before', location)
-  description: Move variable(s) to before another variable.
+  description: Move variable(s) to immediately before `location`.
   status: confirmed
 - signature: T2 = movevars(T, vars, 'After', location)
-  description: Move variable(s) to after another variable.
-  status: pending
+  description: Move variable(s) to immediately after `location`.
+  status: confirmed
+- signature: T2 = movevars(T, vars)
+  description: Move variable(s) to the end of the table.
+  status: confirmed
 inputs:
 - name: T
+  position: 1
   required: true
   description: Table.
-  status: pending
+  status: confirmed
 - name: vars
+  position: 2
   required: true
-  description: Variable(s) to move.
-  status: pending
-- name: location
-  required: true
-  description: Reference variable for placement.
-  status: pending
+  description: 'Variable(s) to move: a name, cellstr of names, numeric index, or logical mask.'
+  status: confirmed
+name_value_arguments:
+- name: Before
+  description: Location given as a variable name or numeric variable index.
+  status: confirmed
+- name: After
+  description: Location given as a variable name or numeric variable index.
+  status: confirmed
 outputs:
 - name: T2
   description: Table with variables reordered.
-  status: pending
-output_type_rules: []
+  status: confirmed
+output_type_rules:
+- id: movevars.output-class-rule
+  statement: The output class is table for every non-erroring table-returning call observed.
+  status: confirmed
+  normative: true
+  provenance: movevars.output-class
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: before
+  - file: observations/movevars_observations.json
+    case_id: after-name
+  - file: observations/movevars_observations.json
+    case_id: no-location
+  - file: observations/movevars_observations.json
+    case_id: contents
 output_shape_rules:
 - id: movevars.moves-variable-rule
-  statement: 'Returns a table with the variable moved to the requested position: moving ''c'' before ''a''
-    produced the variable order c,a,b (observed from the joined VariableNames); the variable and row counts
-    are preserved.'
+  statement: Moving 'c' before 'a' produced the variable order c,a,b; the variable and row counts are
+    preserved.
   status: confirmed
   normative: true
   provenance: movevars.moves-variable
   observations:
   - file: observations/movevars_observations.json
     case_id: before
+- id: movevars.after-rule
+  statement: '`''After'', location` places the moved variable immediately after `location` (a after c
+    on a,b,c,d gave b,c,a,d; after the last variable gave b,c,d,a).'
+  status: confirmed
+  normative: true
+  provenance: movevars.after
+  observations:
   - file: observations/movevars_observations.json
-    case_id: order
+    case_id: after-name
+  - file: observations/movevars_observations.json
+    case_id: after-last
+- id: movevars.numeric-location-rule
+  statement: '`location` may be a numeric variable index, interpreted against the input table (d Before
+    2 gave a,d,b,c; a After 3 gave b,c,a,d).'
+  status: confirmed
+  normative: true
+  provenance: movevars.numeric-location
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: before-index
+  - file: observations/movevars_observations.json
+    case_id: after-index
+- id: movevars.numeric-vars-rule
+  statement: '`vars` may be a numeric index or a logical mask (index 4 Before 1 gave d,a,b,c).'
+  status: confirmed
+  normative: true
+  provenance: movevars.numeric-vars
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: vars-index
+  - file: observations/movevars_observations.json
+    case_id: vars-logical
+- id: movevars.multiple-order-rule
+  statement: Several moved variables are placed contiguously. Given as a list of names they keep the listed
+    order ({'d','b'} Before 'a' gave d,b,a,c); given as a logical mask they keep table order (mask selecting
+    b,d Before 1 gave b,d,a,c).
+  status: confirmed
+  normative: true
+  provenance: movevars.multiple-order
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: multi-order
+  - file: observations/movevars_observations.json
+    case_id: multi-after
+  - file: observations/movevars_observations.json
+    case_id: vars-logical
+- id: movevars.self-location-rule
+  statement: Moving a variable before or after itself leaves the order unchanged.
+  status: confirmed
+  normative: true
+  provenance: movevars.self-location
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: self
+  - file: observations/movevars_observations.json
+    case_id: self-after
+- id: movevars.default-end-rule
+  statement: With no 'Before'/'After' option the variable(s) move to the end of the table, in the listed
+    order ({'b','a'} on a,b,c,d gave c,d,b,a).
+  status: confirmed
+  normative: true
+  provenance: movevars.default-end
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: no-location
+  - file: observations/movevars_observations.json
+    case_id: no-location-multi
+- id: movevars.contents-follow-rule
+  statement: Each variable's data moves with its name (column contents unchanged).
+  status: confirmed
+  normative: true
+  provenance: movevars.contents-follow
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: contents
 numerical_edge_cases: []
 warnings: []
-errors: []
+errors:
+- condition: Both 'Before' and 'After' are supplied.
+  identifier: MATLAB:table:addmovevars:BeforeAndAfter
+  status: confirmed
+  provenance: movevars.error-before-and-after
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: err-before-and-after
+- condition: The variable to move is not in the table.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: movevars.error-unknown-var
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: err-unknown-var
+- condition: The location names a variable that is not in the table.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: movevars.error-unknown-location
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: err-unknown-location
+- condition: The location index exceeds the number of variables.
+  identifier: MATLAB:table:VarIndexOutOfRange
+  status: confirmed
+  provenance: movevars.error-index-range
+  observations:
+  - file: observations/movevars_observations.json
+    case_id: err-index-range
 nan_infinity_behaviour: []
 release_dependent_behaviour: []
 linked_observations:
 - file: observations/movevars_observations.json
-  description: 2 independently constructed cases on R2026a (GLNXA64).
+  description: 18 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
 provenance_ref: provenance.yaml
 unresolved_questions:
-- id: movevars.q-after
-  question: The 'After' placement form.
-- id: movevars.q-index
-  question: Numeric-index location.
+- id: movevars.q-location-in-vars
+  question: Moving several variables relative to a location that is itself one of the moved variables
+    (only the single-variable 'self' case was exercised).

@@ -1,41 +1,253 @@
-# Provenance for addvars (promoted from skeleton; claims backed by observations).
+# Provenance for addvars (widened 2026-10-29, Tier B W1; claims backed by observations).
 schema_version: '1.0'
 function_name: addvars
 claims:
 - claim_id: addvars.signature-primary
   statement: The primary invocation form `T2 = addvars(T, var)` is accepted (observed).
-  source_category: public-interface-fact
+  source_category: black-box-observation
   normative: true
-  date: '2026-07-22'
-  author: clean-room agent (Claude Opus 4.8)
-  applicable_releases:
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
   - R2026a
   status: confirmed
   observation_refs:
   - file: observations/addvars_observations.json
     case_id: append
 - claim_id: addvars.output-class
-  statement: The output class is table for the observed inputs.
+  statement: The output class is table for every non-erroring observed call.
   source_category: black-box-observation
   normative: true
-  date: '2026-07-22'
-  author: clean-room agent (Claude Opus 4.8)
-  applicable_releases:
-  - R2026a
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
   status: confirmed
   observation_refs:
   - file: observations/addvars_observations.json
     case_id: append
+  - file: observations/addvars_observations.json
+    case_id: append-full
+  - file: observations/addvars_observations.json
+    case_id: before-name
+  - file: observations/addvars_observations.json
+    case_id: newname-char
+  - file: observations/addvars_observations.json
+    case_id: multi-names
 - claim_id: addvars.appends-variable
-  statement: Returns a table with the new variable appended (appending to a one-variable table gave a
-    two-variable table); the row count is preserved.
+  statement: Without a location option the new variable is appended after the last existing variable;
+    existing variables keep their order and contents and the row count is preserved.
   source_category: black-box-observation
   normative: true
-  date: '2026-07-22'
-  author: clean-room agent (Claude Opus 4.8)
-  applicable_releases:
-  - R2026a
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
   status: confirmed
   observation_refs:
   - file: observations/addvars_observations.json
     case_id: append
+  - file: observations/addvars_observations.json
+    case_id: append-full
+- claim_id: addvars.multiple-variables
+  statement: Several data arguments add several variables, in argument order (T with a,b plus two columns
+    gave a,b,Var3,Var4; with names {'y','z'} gave a,b,y,z).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: multi-default
+  - file: observations/addvars_observations.json
+    case_id: multi-names
+- claim_id: addvars.data-preserved
+  statement: 'The data argument is stored unchanged as one variable: a 2x2 numeric array became a single
+    2x2 variable and a 2x1 cellstr became a 2x1 cell variable.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: multicol
+  - file: observations/addvars_observations.json
+    case_id: cellstr-var
+- claim_id: addvars.before
+  statement: '`''Before'', location` inserts the new variable immediately before `location`; `location`
+    may be a variable name or a numeric variable index (Before ''a'' on a,b gave new,a,b; Before 2 gave
+    a,new,b).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: before-name
+  - file: observations/addvars_observations.json
+    case_id: before-index
+  - file: observations/addvars_observations.json
+    case_id: names-and-before
+- claim_id: addvars.after
+  statement: '`''After'', location` inserts the new variable immediately after `location`, by name or
+    index; After the last index appends (After ''a'' on a,b gave a,new,b; After 2 gave a,b,new).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: after-name
+  - file: observations/addvars_observations.json
+    case_id: after-index
+- claim_id: addvars.new-names
+  statement: '`''NewVariableNames''` sets the new variable''s name; a char row, a 1x1 cellstr and a string
+    scalar gave the same result, and it combines with `''Before''`.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: newname-char
+  - file: observations/addvars_observations.json
+    case_id: newname-cell
+  - file: observations/addvars_observations.json
+    case_id: newname-string
+  - file: observations/addvars_observations.json
+    case_id: names-and-before
+  - file: observations/addvars_observations.json
+    case_id: multi-names
+- claim_id: addvars.default-name-position
+  statement: When no name is given and the data argument is not a named workspace variable, the new variable
+    is named 'Var' followed by its column position in the output table (Var2/Var3 when appended as column
+    2/3, Var1 when inserted first, Var2 when inserted second).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: append
+  - file: observations/addvars_observations.json
+    case_id: append-full
+  - file: observations/addvars_observations.json
+    case_id: before-name
+  - file: observations/addvars_observations.json
+    case_id: after-name
+  - file: observations/addvars_observations.json
+    case_id: before-index
+  - file: observations/addvars_observations.json
+    case_id: after-index
+  - file: observations/addvars_observations.json
+    case_id: multi-default
+- claim_id: addvars.default-name-input
+  statement: When the data argument is passed as a named workspace variable and no name is given, the
+    new variable takes that variable's name (a variable named x produced a table variable x).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: name-from-input
+- claim_id: addvars.before-past-end
+  statement: 'Observed once: `''Before''` with an index one greater than the number of variables did not
+    error; Before 3 on a two-variable table appended the new variable (a,b,Var3).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: before-past-end
+- claim_id: addvars.error-before-and-after
+  statement: Both 'Before' and 'After' are supplied. The call errors with identifier MATLAB:table:addmovevars:BeforeAndAfter.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: err-before-and-after
+- claim_id: addvars.error-rows
+  statement: A data argument has more or fewer rows than the table. The call errors with identifier MATLAB:table:RowDimensionMismatch.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: err-rows
+  - file: observations/addvars_observations.json
+    case_id: err-rows-fewer
+- claim_id: addvars.error-dup-name
+  statement: A new variable name duplicates an existing variable name. The call errors with identifier
+    MATLAB:table:DuplicateVarNames.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: err-dup-name
+- claim_id: addvars.error-names-count
+  statement: '''NewVariableNames'' supplies fewer or more names than there are new variables. The call
+    errors with identifier MATLAB:table:addmovevars:IncorrectNumberOfVarNames.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: err-names-count
+  - file: observations/addvars_observations.json
+    case_id: err-names-too-many
+- claim_id: addvars.error-bad-location
+  statement: The 'Before' or 'After' location names a variable that is not in the table. The call errors
+    with identifier MATLAB:table:UnrecognizedVarName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: err-bad-location
+  - file: observations/addvars_observations.json
+    case_id: err-bad-location-after
+- claim_id: addvars.error-index-range
+  statement: The 'After' location index exceeds the number of variables (After 3 on a two-variable table).
+    The call errors with identifier MATLAB:table:VarIndexOutOfRange.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addvars_observations.json
+    case_id: err-index-range

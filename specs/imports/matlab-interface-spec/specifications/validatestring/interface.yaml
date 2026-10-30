@@ -1,0 +1,140 @@
+# Interface specification for validatestring (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: validatestring
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Match text against a list of valid options (case-insensitive, allowing unique prefixes) and return
+  the matching option, or error.
+invocation_forms:
+- signature: str = validatestring(txt, validStrings)
+  description: Return the option matched by txt.
+  status: confirmed
+- signature: str = validatestring(txt, validStrings, funcName, varName)
+  description: With names that change the error identifier.
+  status: confirmed
+inputs:
+- name: txt
+  position: 1
+  required: true
+  description: Char row vector or string scalar.
+  status: confirmed
+- name: validStrings
+  position: 2
+  required: true
+  description: Cell array of char vectors, or a string array.
+  status: confirmed
+- name: funcName
+  position: 3
+  required: false
+  description: Function name; used in the error identifier.
+  status: confirmed
+- name: varName
+  position: 4
+  required: false
+  description: Variable name; accepted.
+  status: confirmed
+outputs:
+- name: str
+  description: The matching option as listed.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: validatestring.exact-rule
+  statement: An exact match returns that option.
+  status: confirmed
+  normative: true
+  provenance: validatestring.exact
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: exact
+- id: validatestring.prefix-rule
+  statement: A prefix that matches exactly one option returns the full option ('ban' gave 'banana').
+  status: confirmed
+  normative: true
+  provenance: validatestring.prefix
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: prefix
+- id: validatestring.case-insensitive-rule
+  statement: Matching ignores case and returns the option's listed spelling ('APP' gave 'apple').
+  status: confirmed
+  normative: true
+  provenance: validatestring.case-insensitive
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: case
+- id: validatestring.nested-options-rule
+  statement: In the two observed nested cases (the text equal to one option and a prefix of another; the
+    text a prefix of two options where one is a prefix of the other) the shorter option was returned ('app'
+    and 'ap' with {'app','apple'} both gave 'app').
+  status: confirmed
+  normative: true
+  provenance: validatestring.nested-options
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: exact-over-prefix
+  - file: observations/validatestring_observations.json
+    case_id: prefix-of-several-nested
+- id: validatestring.output-type-rule
+  statement: With a cellstr list the result is char (also for string input); with a string array list
+    it is a string.
+  status: confirmed
+  normative: true
+  provenance: validatestring.output-type
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: exact
+  - file: observations/validatestring_observations.json
+    case_id: string-input
+  - file: observations/validatestring_observations.json
+    case_id: string-list
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The text is a prefix of two options neither of which is a prefix of the other ('b' with banana
+    and berry).
+  identifier: MATLAB:ambiguousStringChoice
+  status: confirmed
+  provenance: validatestring.error-ambiguous
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: err-ambiguous
+- condition: No option matches, the text is empty, or it is numeric.
+  identifier: MATLAB:unrecognizedStringChoice
+  status: confirmed
+  provenance: validatestring.error-nomatch
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: err-nomatch
+  - file: observations/validatestring_observations.json
+    case_id: err-empty-input
+  - file: observations/validatestring_observations.json
+    case_id: err-nonchar
+- condition: No option matches and funcName 'myfun' is given.
+  identifier: MATLAB:myfun:unrecognizedStringChoice
+  status: confirmed
+  provenance: validatestring.error-funcname
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: err-funcname
+- condition: The list is a cell array of string scalars.
+  identifier: MATLAB:validatestring:invalidStringList
+  status: confirmed
+  provenance: validatestring.error-cell-of-strings
+  observations:
+  - file: observations/validatestring_observations.json
+    case_id: err-cell-of-strings
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/validatestring_observations.json
+  description: 13 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: validatestring.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: validatestring.q-more-args
+  question: Forms with more than four input arguments were not exercised.

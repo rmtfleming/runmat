@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "function_name": "validatestring",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/validatestring/test_validatestring_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "exact",
+      "description": "exact match",
+      "call": "validatestring('apple', {'apple','banana'})",
+      "errored": false,
+      "result": {
+        "value": "'apple'",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "prefix",
+      "description": "unique prefix",
+      "call": "validatestring('ban', {'apple','banana'})",
+      "errored": false,
+      "result": {
+        "value": "'banana'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "case",
+      "description": "case-insensitive match returns the listed spelling",
+      "call": "validatestring('APP', {'apple','banana'})",
+      "errored": false,
+      "result": {
+        "value": "'apple'",
+        "class": "char",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-cell-of-strings",
+      "description": "cell array of string scalars as the list",
+      "call": "validatestring(\"ban\", {\"apple\",\"banana\"})",
+      "errored": true,
+      "error_identifier": "MATLAB:validatestring:invalidStringList"
+    },
+    {
+      "case_id": "string-input",
+      "description": "string scalar input with a cellstr list",
+      "call": "validatestring(\"ban\", {'apple','banana'})",
+      "errored": false,
+      "result": {
+        "value": "'banana'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-list",
+      "description": "string array list",
+      "call": "validatestring(\"ap\", [\"apple\" \"banana\"])",
+      "errored": false,
+      "result": {
+        "value": "\"apple\"",
+        "class": "string",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "exact-over-prefix",
+      "description": "exact match preferred when also a prefix of another option",
+      "call": "validatestring('app', {'app','apple'})",
+      "errored": false,
+      "result": {
+        "value": "'app'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "prefix-of-several-nested",
+      "description": "input is a prefix of two options where one contains the other",
+      "call": "validatestring('ap', {'app','apple'})",
+      "errored": false,
+      "result": {
+        "value": "'app'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-ambiguous",
+      "description": "prefix of two unrelated options",
+      "call": "validatestring('b', {'banana','berry'})",
+      "errored": true,
+      "error_identifier": "MATLAB:ambiguousStringChoice"
+    },
+    {
+      "case_id": "err-nomatch",
+      "description": "no option matches",
+      "call": "validatestring('kiwi', {'apple','banana'})",
+      "errored": true,
+      "error_identifier": "MATLAB:unrecognizedStringChoice"
+    },
+    {
+      "case_id": "err-funcname",
+      "description": "no match with funcName and varName",
+      "call": "validatestring('kiwi', {'apple','banana'}, 'myfun', 'fruit')",
+      "errored": true,
+      "error_identifier": "MATLAB:myfun:unrecognizedStringChoice"
+    },
+    {
+      "case_id": "err-nonchar",
+      "description": "numeric input",
+      "call": "validatestring(5, {'apple','banana'})",
+      "errored": true,
+      "error_identifier": "MATLAB:unrecognizedStringChoice"
+    },
+    {
+      "case_id": "err-empty-input",
+      "description": "empty input text",
+      "call": "validatestring('', {'apple','banana'})",
+      "errored": true,
+      "error_identifier": "MATLAB:unrecognizedStringChoice"
+    }
+  ]
+}

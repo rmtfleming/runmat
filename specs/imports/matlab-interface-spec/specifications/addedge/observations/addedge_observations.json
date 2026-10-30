@@ -1,0 +1,248 @@
+{
+  "schema_version": "1.0",
+  "function_name": "addedge",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/addedge/test_addedge_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one",
+      "description": "add edge 1-3 to path 1-2-3",
+      "call": "G = addedge(graph([1 2], [2 3]), 1, 3); report class, numnodes, numedges, EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "3",
+          "EndNodes": "[1 2;1 3;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "order",
+      "description": "add edge 3-1 (reversed endpoints) and 1-2 duplicates",
+      "call": "G = addedge(graph([1 2], [2 3]), [3 1], [1 2]); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "4",
+          "EndNodes": "[1 2;1 2;1 3;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "new-node",
+      "description": "edge to a node beyond numnodes",
+      "call": "G = addedge(graph(1, 2), 2, 5); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "5",
+          "numedges": "2",
+          "EndNodes": "[1 2;2 5]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "weighted",
+      "description": "add weighted edges to a weighted graph",
+      "call": "G = addedge(graph(1, 2, 7), [2 1], [3 3], [8 9]); report as for one plus Weight",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "3",
+          "EndNodes": "[1 2;1 3;2 3]",
+          "Weight": "[7;9;8]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "weight-scalar",
+      "description": "scalar weight for several edges",
+      "call": "G = addedge(graph(1, 2, 7), [2 3], [3 4], 5); report as for weighted",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "4",
+          "numedges": "3",
+          "EndNodes": "[1 2;2 3;3 4]",
+          "Weight": "[7;5;5]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph",
+      "description": "add edges to a digraph",
+      "call": "G = addedge(digraph(1, 2), [3 2], [1 1]); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "3",
+          "numedges": "3",
+          "EndNodes": "[1 2;2 1;3 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "named",
+      "description": "add an edge between named nodes, creating one",
+      "call": "G = addedge(graph({'a'}, {'b'}), 'b', 'c'); report as for one plus node names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "2",
+          "EndNodes": [
+            "'a'",
+            "'b'",
+            "'b'",
+            "'c'"
+          ],
+          "NodeNames": [
+            "'a'",
+            "'b'",
+            "'c'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "self-loop",
+      "description": "add a self-loop",
+      "call": "G = addedge(graph(1, 2), 2, 2); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "2",
+          "EndNodes": "[1 2;2 2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-graph",
+      "description": "add an edge to an empty graph",
+      "call": "G = addedge(graph(), 1, 2); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "1",
+          "EndNodes": "[1 2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-weight-unweighted",
+      "description": "weight given for an unweighted graph",
+      "call": "addedge(graph(1, 2), 2, 3, 4)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:addedge:NoWeights"
+    },
+    {
+      "case_id": "scalar-expansion",
+      "description": "vector s with scalar t",
+      "call": "G = addedge(graph(1, 2), [1 2], 3); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "3",
+          "EndNodes": "[1 2;1 3;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-length",
+      "description": "s and t vectors of different lengths",
+      "call": "addedge(graph(1, 2), [1 2], [3 4 5])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graphbuiltin:EqualNumel"
+    }
+  ]
+}

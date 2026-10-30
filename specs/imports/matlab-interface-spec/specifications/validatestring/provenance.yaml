@@ -1,0 +1,129 @@
+# Provenance for validatestring (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: validatestring
+claims:
+- claim_id: validatestring.signature-primary
+  statement: The invocation form `str = validatestring(txt, validStrings)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: exact
+- claim_id: validatestring.exact
+  statement: An exact match returns that option.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: exact
+- claim_id: validatestring.prefix
+  statement: A prefix that matches exactly one option returns the full option ('ban' gave 'banana').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: prefix
+- claim_id: validatestring.case-insensitive
+  statement: Matching ignores case and returns the option's listed spelling ('APP' gave 'apple').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: case
+- claim_id: validatestring.nested-options
+  statement: In the two observed nested cases (the text equal to one option and a prefix of another; the
+    text a prefix of two options where one is a prefix of the other) the shorter option was returned ('app'
+    and 'ap' with {'app','apple'} both gave 'app').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: exact-over-prefix
+  - file: observations/validatestring_observations.json
+    case_id: prefix-of-several-nested
+- claim_id: validatestring.output-type
+  statement: With a cellstr list the result is char (also for string input); with a string array list
+    it is a string.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: exact
+  - file: observations/validatestring_observations.json
+    case_id: string-input
+  - file: observations/validatestring_observations.json
+    case_id: string-list
+- claim_id: validatestring.error-ambiguous
+  statement: The text is a prefix of two options neither of which is a prefix of the other ('b' with banana
+    and berry). The call errors with identifier MATLAB:ambiguousStringChoice.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: err-ambiguous
+- claim_id: validatestring.error-nomatch
+  statement: No option matches, the text is empty, or it is numeric. The call errors with identifier MATLAB:unrecognizedStringChoice.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: err-nomatch
+  - file: observations/validatestring_observations.json
+    case_id: err-empty-input
+  - file: observations/validatestring_observations.json
+    case_id: err-nonchar
+- claim_id: validatestring.error-funcname
+  statement: No option matches and funcName 'myfun' is given. The call errors with identifier MATLAB:myfun:unrecognizedStringChoice.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: err-funcname
+- claim_id: validatestring.error-cell-of-strings
+  statement: The list is a cell array of string scalars. The call errors with identifier MATLAB:validatestring:invalidStringList.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatestring_observations.json
+    case_id: err-cell-of-strings

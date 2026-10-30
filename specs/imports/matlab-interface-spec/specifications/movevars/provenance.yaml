@@ -1,32 +1,185 @@
-# Provenance for movevars (promoted from skeleton; claims backed by observations).
+# Provenance for movevars (widened 2026-10-29, Tier B W1; claims backed by observations).
 schema_version: '1.0'
 function_name: movevars
 claims:
 - claim_id: movevars.signature-primary
-  statement: The primary invocation form `T2 = movevars(T, vars, 'Before', location)` is accepted (observed).
-  source_category: public-interface-fact
-  normative: true
-  date: '2026-07-22'
-  author: clean-room agent (Claude Opus 4.8)
-  applicable_releases:
-  - R2026a
-  status: confirmed
-  observation_refs:
-  - file: observations/movevars_observations.json
-    case_id: before
-- claim_id: movevars.moves-variable
-  statement: 'Returns a table with the variable moved to the requested position: moving ''c'' before ''a''
-    produced the variable order c,a,b (observed from the joined VariableNames); the variable and row counts
-    are preserved.'
+  statement: The invocation form `T2 = movevars(T, vars, 'Before', location)` is accepted (observed).
   source_category: black-box-observation
   normative: true
-  date: '2026-07-22'
-  author: clean-room agent (Claude Opus 4.8)
-  applicable_releases:
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
   - R2026a
   status: confirmed
   observation_refs:
   - file: observations/movevars_observations.json
     case_id: before
+- claim_id: movevars.output-class
+  statement: The output class is table for every non-erroring table-returning call observed.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
   - file: observations/movevars_observations.json
-    case_id: order
+    case_id: before
+  - file: observations/movevars_observations.json
+    case_id: after-name
+  - file: observations/movevars_observations.json
+    case_id: no-location
+  - file: observations/movevars_observations.json
+    case_id: contents
+- claim_id: movevars.moves-variable
+  statement: Moving 'c' before 'a' produced the variable order c,a,b; the variable and row counts are
+    preserved.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: before
+- claim_id: movevars.after
+  statement: '`''After'', location` places the moved variable immediately after `location` (a after c
+    on a,b,c,d gave b,c,a,d; after the last variable gave b,c,d,a).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: after-name
+  - file: observations/movevars_observations.json
+    case_id: after-last
+- claim_id: movevars.numeric-location
+  statement: '`location` may be a numeric variable index, interpreted against the input table (d Before
+    2 gave a,d,b,c; a After 3 gave b,c,a,d).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: before-index
+  - file: observations/movevars_observations.json
+    case_id: after-index
+- claim_id: movevars.numeric-vars
+  statement: '`vars` may be a numeric index or a logical mask (index 4 Before 1 gave d,a,b,c).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: vars-index
+  - file: observations/movevars_observations.json
+    case_id: vars-logical
+- claim_id: movevars.multiple-order
+  statement: Several moved variables are placed contiguously. Given as a list of names they keep the listed
+    order ({'d','b'} Before 'a' gave d,b,a,c); given as a logical mask they keep table order (mask selecting
+    b,d Before 1 gave b,d,a,c).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: multi-order
+  - file: observations/movevars_observations.json
+    case_id: multi-after
+  - file: observations/movevars_observations.json
+    case_id: vars-logical
+- claim_id: movevars.self-location
+  statement: Moving a variable before or after itself leaves the order unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: self
+  - file: observations/movevars_observations.json
+    case_id: self-after
+- claim_id: movevars.default-end
+  statement: With no 'Before'/'After' option the variable(s) move to the end of the table, in the listed
+    order ({'b','a'} on a,b,c,d gave c,d,b,a).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: no-location
+  - file: observations/movevars_observations.json
+    case_id: no-location-multi
+- claim_id: movevars.contents-follow
+  statement: Each variable's data moves with its name (column contents unchanged).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: contents
+- claim_id: movevars.error-before-and-after
+  statement: Both 'Before' and 'After' are supplied. The call errors with identifier MATLAB:table:addmovevars:BeforeAndAfter.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: err-before-and-after
+- claim_id: movevars.error-unknown-var
+  statement: The variable to move is not in the table. The call errors with identifier MATLAB:table:UnrecognizedVarName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: err-unknown-var
+- claim_id: movevars.error-unknown-location
+  statement: The location names a variable that is not in the table. The call errors with identifier MATLAB:table:UnrecognizedVarName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: err-unknown-location
+- claim_id: movevars.error-index-range
+  statement: The location index exceeds the number of variables. The call errors with identifier MATLAB:table:VarIndexOutOfRange.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/movevars_observations.json
+    case_id: err-index-range

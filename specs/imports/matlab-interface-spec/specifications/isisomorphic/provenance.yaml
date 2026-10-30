@@ -1,0 +1,133 @@
+# Provenance for isisomorphic (widened 2026-10-29, Tier B W2; claims backed by observations).
+schema_version: '1.0'
+function_name: isisomorphic
+claims:
+- claim_id: isisomorphic.signature-primary
+  statement: The invocation form `tf = isisomorphic(G1, G2)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: identical
+- claim_id: isisomorphic.output-class
+  statement: The output is a 1x1 logical for every non-erroring observed call.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: identical
+  - file: observations/isisomorphic_observations.json
+    case_id: path-vs-star
+- claim_id: isisomorphic.true-cases
+  statement: Returns true for identical graphs, relabelled graphs (undirected, directed, with a self-loop,
+    and a multigraph), and two empty graphs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: identical
+  - file: observations/isisomorphic_observations.json
+    case_id: relabelled
+  - file: observations/isisomorphic_observations.json
+    case_id: directed-relabelled
+  - file: observations/isisomorphic_observations.json
+    case_id: self-loop
+  - file: observations/isisomorphic_observations.json
+    case_id: multigraph-relabelled
+  - file: observations/isisomorphic_observations.json
+    case_id: empty
+- claim_id: isisomorphic.false-cases
+  statement: 'Returns false when the structures differ: path vs star with equal node and edge counts;
+    different node counts (including isolated nodes, and a self-loop graph vs a larger path); different
+    edge counts; a self-loop vs a parallel edge with equal node and edge counts; a multigraph vs a simple
+    graph with equal counts.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: path-vs-star
+  - file: observations/isisomorphic_observations.json
+    case_id: node-count
+  - file: observations/isisomorphic_observations.json
+    case_id: isolated
+  - file: observations/isisomorphic_observations.json
+    case_id: self-loop-vs-none
+  - file: observations/isisomorphic_observations.json
+    case_id: edge-count
+  - file: observations/isisomorphic_observations.json
+    case_id: self-loop-vs-parallel
+  - file: observations/isisomorphic_observations.json
+    case_id: multigraph
+- claim_id: isisomorphic.no-warning
+  statement: An ordinary call issued no warning.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: warn-call
+- claim_id: isisomorphic.direction
+  statement: 'For digraphs, edge direction matters: chains 1->2->3 and 1->2<-3 are not isomorphic.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: directed-different
+- claim_id: isisomorphic.weights-ignored
+  statement: 'Edge weights are not compared by default: one edge of weight 5 vs one of weight 7 gave true.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: weights-ignored
+- claim_id: isisomorphic.error-mixed
+  statement: One input is a graph and the other a digraph. The call errors with identifier MATLAB:graphfun:isomorphism:ClassMismatch.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: err-mixed
+- claim_id: isisomorphic.error-matrix
+  statement: The inputs are numeric matrices rather than graph objects. The call errors with identifier
+    MATLAB:UndefinedFunction.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isisomorphic_observations.json
+    case_id: err-matrix

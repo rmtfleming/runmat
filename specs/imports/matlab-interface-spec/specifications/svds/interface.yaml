@@ -1,0 +1,204 @@
+# Interface specification for svds (widened 2026-10-29, Tier B W2; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: svds
+spec_version: 0.3.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a subset of the singular values of a matrix (by default the largest few), and optionally
+  the corresponding singular vectors.
+invocation_forms:
+- signature: s = svds(A)
+  description: Largest singular values, default count.
+  status: confirmed
+- signature: s = svds(A, k)
+  description: The k largest singular values.
+  status: confirmed
+- signature: s = svds(A, k, sigma)
+  description: 'k singular values selected by `sigma`: ''largest'', ''smallest'', or a numeric target.'
+  status: confirmed
+- signature: '[U, S, V] = svds(___)'
+  description: Singular vectors and a diagonal matrix of singular values.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Matrix, sparse or full, square or rectangular (double and single observed; char rejected).
+  status: confirmed
+- name: k
+  position: 2
+  required: false
+  description: Number of singular values requested (0, 1, 2, 3, 4 observed; a negative value errors).
+  status: confirmed
+- name: sigma
+  position: 3
+  required: false
+  description: '''largest'', ''smallest'', or a numeric target value.'
+  status: confirmed
+outputs:
+- name: s
+  description: Column vector of singular values (single output form).
+  status: confirmed
+- name: U
+  description: Left singular vectors, m-by-k (multi-output form).
+  status: confirmed
+- name: S
+  description: k-by-k diagonal matrix of singular values (multi-output form).
+  status: confirmed
+- name: V
+  description: Right singular vectors, n-by-k (multi-output form).
+  status: confirmed
+output_type_rules:
+- id: svds.output-class-rule
+  statement: The output is a full (non-sparse) column vector of class double for double input, sparse
+    or full; for single input it is single.
+  status: confirmed
+  normative: true
+  provenance: svds.output-class
+  observations:
+  - file: observations/svds_observations.json
+    case_id: k
+  - file: observations/svds_observations.json
+    case_id: dense
+  - file: observations/svds_observations.json
+    case_id: single
+output_shape_rules:
+- id: svds.largest-rule
+  statement: With k given, the k largest singular values are returned in descending order (diag([1 5 2
+    4]) with k=4 gave [5;4;2;1]); 'largest' gives the same selection.
+  status: confirmed
+  normative: true
+  provenance: svds.largest
+  observations:
+  - file: observations/svds_observations.json
+    case_id: k
+  - file: observations/svds_observations.json
+    case_id: dense
+  - file: observations/svds_observations.json
+    case_id: order
+  - file: observations/svds_observations.json
+    case_id: largest
+- id: svds.default-count-rule
+  statement: Without k, an 8x8 matrix returned its 6 largest singular values and a 2x2 matrix returned
+    both of its singular values.
+  status: confirmed
+  normative: true
+  provenance: svds.default-count
+  observations:
+  - file: observations/svds_observations.json
+    case_id: default-8
+  - file: observations/svds_observations.json
+    case_id: default-2
+- id: svds.k-exceeds-rule
+  statement: 'k larger than min(size(A)) neither errored nor warned: k=3 for a 2x2 matrix returned its
+    2 singular values.'
+  status: confirmed
+  normative: true
+  provenance: svds.k-exceeds
+  observations:
+  - file: observations/svds_observations.json
+    case_id: k-too-large
+  - file: observations/svds_observations.json
+    case_id: warn-k-too-large
+- id: svds.no-warning-rule
+  statement: An ordinary call (k=2 on a 2x2 matrix) issued no warning.
+  status: confirmed
+  normative: true
+  provenance: svds.no-warning
+  observations:
+  - file: observations/svds_observations.json
+    case_id: warn-k
+- id: svds.k-zero-rule
+  statement: k = 0 returns a 0x1 empty double.
+  status: confirmed
+  normative: true
+  provenance: svds.k-zero
+  observations:
+  - file: observations/svds_observations.json
+    case_id: k-zero
+- id: svds.rectangular-rule
+  statement: 'Rectangular input is accepted: a 2x3 matrix with k=2 gave [2;1].'
+  status: confirmed
+  normative: true
+  provenance: svds.rectangular
+  observations:
+  - file: observations/svds_observations.json
+    case_id: rectangular
+- id: svds.smallest-rule
+  statement: sigma 'smallest' returns the smallest singular values (diag([4 1 3]), k=1 gave 1).
+  status: confirmed
+  normative: true
+  provenance: svds.smallest
+  observations:
+  - file: observations/svds_observations.json
+    case_id: smallest
+- id: svds.sigma-numeric-rule
+  statement: A numeric sigma returned the singular value closest to it (diag([4 1 3]), k=1, sigma 2.5
+    gave 3).
+  status: confirmed
+  normative: true
+  provenance: svds.sigma-numeric
+  observations:
+  - file: observations/svds_observations.json
+    case_id: sigma-numeric
+- id: svds.zero-matrix-rule
+  statement: An all-zero matrix returns zeros (3x3 zero sparse, k=2 gave [0;0]).
+  status: confirmed
+  normative: true
+  provenance: svds.zero-matrix
+  observations:
+  - file: observations/svds_observations.json
+    case_id: zero-matrix
+- id: svds.usv-rule
+  statement: '[U,S,V] returns U of size m-by-k, S of size k-by-k and V of size n-by-k, all full; diag(S)
+    holds the same values as the single-output form; U and V have orthonormal columns and A*V equals U*S
+    (norms below 1e-10).'
+  status: confirmed
+  normative: true
+  provenance: svds.usv
+  observations:
+  - file: observations/svds_observations.json
+    case_id: usv-shapes
+  - file: observations/svds_observations.json
+    case_id: usv-rect
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A is a char array.
+  identifier: MATLAB:svds:InvalidAFloat
+  status: confirmed
+  provenance: svds.error-char
+  observations:
+  - file: observations/svds_observations.json
+    case_id: err-char
+- condition: k is negative.
+  identifier: MATLAB:svds:InvalidK
+  status: confirmed
+  provenance: svds.error-k-negative
+  observations:
+  - file: observations/svds_observations.json
+    case_id: err-k-negative
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/svds_observations.json
+  description: 19 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: svds.q-warning-coverage
+  question: Warnings were captured only in the warn-* cases; other cases (including error and edge cases)
+    were not checked for warnings, so an empty warnings list is not a complete statement.
+- id: svds.q-default-rule
+  question: The default count was observed for 8x8 (6 values) and 2x2 (2 values) only; the general rule
+    was not exercised further.
+- id: svds.q-sigma-numeric
+  question: Numeric sigma was exercised with one target only; tie-breaking and multiple values near the
+    target were not exercised.
+- id: svds.q-options
+  question: Options (an options struct or name-value settings such as tolerance or iteration limits) and
+    complex input were not exercised.
+- id: svds.q-vector-signs
+  question: Singular-vector signs are not compared; only shapes, orthonormality and the A*V = U*S relation
+    were checked.

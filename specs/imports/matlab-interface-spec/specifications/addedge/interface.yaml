@@ -1,0 +1,146 @@
+# Interface specification for addedge (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: addedge
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a graph or digraph with new edges added, creating nodes as needed.
+invocation_forms:
+- signature: H = addedge(G, s, t)
+  description: Add edges s(i)-t(i).
+  status: confirmed
+- signature: H = addedge(G, s, t, w)
+  description: Add weighted edges.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: graph or digraph.
+  status: confirmed
+- name: s
+  position: 2
+  required: true
+  description: Source node indices or names.
+  status: confirmed
+- name: t
+  position: 3
+  required: true
+  description: Target node indices or names; a scalar expands against a vector s.
+  status: confirmed
+- name: w
+  position: 4
+  required: false
+  description: Weights; a scalar applies to every new edge. Only for weighted graphs.
+  status: confirmed
+outputs:
+- name: H
+  description: Graph of the same class with the edges added.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: addedge.edge-order-rule
+  statement: 'In every observed case the resulting edge list was sorted by end nodes, with undirected
+    edges stored smaller node first: adding 1-3 to path 1-2-3 gave [1 2; 1 3; 2 3]; adding 3-1 and 1-2
+    gave [1 2; 1 2; 1 3; 2 3].'
+  status: confirmed
+  normative: true
+  provenance: addedge.edge-order
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: one
+  - file: observations/addedge_observations.json
+    case_id: order
+- id: addedge.digraph-order-rule
+  statement: 'Digraph edges kept their direction and the list was sorted by source then target: adding
+    3->1 and 2->1 to 1->2 gave [1 2; 2 1; 3 1].'
+  status: confirmed
+  normative: true
+  provenance: addedge.digraph-order
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: digraph
+- id: addedge.duplicates-rule
+  statement: Adding an edge that already exists creates a parallel edge (multigraph).
+  status: confirmed
+  normative: true
+  provenance: addedge.duplicates
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: order
+- id: addedge.new-nodes-rule
+  statement: An endpoint beyond numnodes creates the missing nodes (edge 2-5 on a 2-node graph gave 5
+    nodes); adding to an empty graph creates the nodes.
+  status: confirmed
+  normative: true
+  provenance: addedge.new-nodes
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: new-node
+  - file: observations/addedge_observations.json
+    case_id: empty-graph
+- id: addedge.weights-rule
+  statement: Weights follow their edges after sorting (adding 2-3 weight 8 and 1-3 weight 9 to 1-2 weight
+    7 gave weights [7; 9; 8] for edges [1 2; 1 3; 2 3]); a scalar weight applies to every new edge.
+  status: confirmed
+  normative: true
+  provenance: addedge.weights
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: weighted
+  - file: observations/addedge_observations.json
+    case_id: weight-scalar
+- id: addedge.named-rule
+  statement: Named endpoints are accepted, and a new name creates a node with that name.
+  status: confirmed
+  normative: true
+  provenance: addedge.named
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: named
+- id: addedge.self-loop-rule
+  statement: A self-loop can be added.
+  status: confirmed
+  normative: true
+  provenance: addedge.self-loop
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: self-loop
+- id: addedge.scalar-expansion-rule
+  statement: A scalar t expands against a vector s (s = [1 2], t = 3 added edges 1-3 and 2-3).
+  status: confirmed
+  normative: true
+  provenance: addedge.scalar-expansion
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: scalar-expansion
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A weight is given for a graph without weights.
+  identifier: MATLAB:graphfun:addedge:NoWeights
+  status: confirmed
+  provenance: addedge.error-weight-unweighted
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: err-weight-unweighted
+- condition: s and t are vectors of different lengths.
+  identifier: MATLAB:graphfun:graphbuiltin:EqualNumel
+  status: confirmed
+  provenance: addedge.error-length
+  observations:
+  - file: observations/addedge_observations.json
+    case_id: err-length
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/addedge_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: addedge.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: addedge.q-graph-variables
+  question: Graphs with extra node or edge variables (beyond Name and Weight) were not exercised.

@@ -1,0 +1,260 @@
+{
+  "schema_version": "1.0",
+  "function_name": "findstr",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/findstr/test_findstr_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "occurrences",
+      "description": "two occurrences of a substring",
+      "call": "findstr('abcabc', 'bc')",
+      "errored": false,
+      "result": {
+        "value": "[2 5]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "swapped",
+      "description": "arguments swapped (shorter first)",
+      "call": "findstr('bc', 'abcabc')",
+      "errored": false,
+      "result": {
+        "value": "[2 5]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "overlapping",
+      "description": "overlapping occurrences",
+      "call": "findstr('aaaa', 'aa')",
+      "errored": false,
+      "result": {
+        "value": "[1 2 3]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-match",
+      "description": "no occurrence",
+      "call": "findstr('abc', 'x')",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "equal-length-match",
+      "description": "equal-length identical strings",
+      "call": "findstr('ab', 'ab')",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "equal-length-nomatch",
+      "description": "equal-length different strings",
+      "call": "findstr('ab', 'ba')",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-pattern",
+      "description": "empty second argument",
+      "call": "findstr('abc', '')",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "both-empty",
+      "description": "both arguments empty",
+      "call": "findstr('', '')",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-first",
+      "description": "empty first argument, non-empty second",
+      "call": "findstr('', 'abc')",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "warn-call",
+      "description": "warning identifier (lastwarn) for an ordinary call",
+      "call": "lastwarn(''); k = findstr('abcabc', 'bc'); report k and lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "value": "[2 5]",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "case",
+      "description": "matching is case-sensitive",
+      "call": "findstr('ABC', 'b')",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single-char",
+      "description": "single-character pattern",
+      "call": "findstr('banana', 'a')",
+      "errored": false,
+      "result": {
+        "value": "[2 4 6]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-scalar",
+      "description": "string scalar inputs",
+      "call": "findstr(\"abcabc\", \"bc\")",
+      "errored": false,
+      "result": {
+        "value": "[2 5]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric",
+      "description": "numeric row vectors",
+      "call": "findstr([1 2 3 1 2], [1 2])",
+      "errored": false,
+      "result": {
+        "value": "[1 4]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "column-char",
+      "description": "column char input",
+      "call": "findstr(['a';'b';'a'], 'a')",
+      "errored": true,
+      "error_identifier": "MATLAB:strfind:MultiRowInput"
+    },
+    {
+      "case_id": "err-cell",
+      "description": "cell input",
+      "call": "findstr({'abc'}, 'b')",
+      "errored": true,
+      "error_identifier": "MATLAB:findstr:InputsMustBeCharArrays"
+    },
+    {
+      "case_id": "err-one-arg",
+      "description": "only one argument",
+      "call": "findstr('abc')",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

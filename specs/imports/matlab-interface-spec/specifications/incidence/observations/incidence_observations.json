@@ -1,0 +1,308 @@
+{
+  "schema_version": "1.0",
+  "function_name": "incidence",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/incidence/test_incidence_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "undirected path 1-2-3",
+      "call": "full(incidence(graph([1 2], [2 3])))",
+      "errored": false,
+      "result": {
+        "value": "[-1 0;1 -1;0 1]",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "sparse-class",
+      "description": "class and sparsity of the raw result",
+      "call": "incidence(graph([1 2], [2 3]))",
+      "errored": false,
+      "result": {
+        "value": "sparse([1;2;2;3], [1;1;2;2], [-1;1;-1;1], 3, 2)",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "directed",
+      "description": "directed path 1->2->3",
+      "call": "full(incidence(digraph([1 2], [2 3])))",
+      "errored": false,
+      "result": {
+        "value": "[-1 0;1 -1;0 1]",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "directed-sparse-class",
+      "description": "class and sparsity of the raw digraph result",
+      "call": "incidence(digraph([1 2], [2 3]))",
+      "errored": false,
+      "result": {
+        "value": "sparse([1;2;2;3], [1;1;2;2], [-1;1;-1;1], 3, 2)",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "reversed-input-table",
+      "description": "the graph's stored edge list for graph(3,1)",
+      "call": "G = graph(3, 1); G.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": "[1 3]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "warn-call",
+      "description": "warning identifier (lastwarn) for an ordinary call",
+      "call": "lastwarn(''); I = incidence(graph([1 2], [2 3])); report full(I) and lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "value": "[-1 0;1 -1;0 1]",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "directed-reverse",
+      "description": "directed edge 3->1",
+      "call": "full(incidence(digraph(3, 1)))",
+      "errored": false,
+      "result": {
+        "value": "[1;0;-1]",
+        "class": "double",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "undirected-reversed-input",
+      "description": "undirected edge given as (3,1)",
+      "call": "full(incidence(graph(3, 1)))",
+      "errored": false,
+      "result": {
+        "value": "[-1;0;1]",
+        "class": "double",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edge-order",
+      "description": "column order for edges given out of order",
+      "call": "full(incidence(graph([2 1], [3 2])))",
+      "errored": false,
+      "result": {
+        "value": "[-1 0;1 -1;0 1]",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edge-order-table",
+      "description": "the graph's stored edge list for the same input",
+      "call": "G = graph([2 1], [3 2]); G.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": "[1 2;2 3]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "directed-edge-order",
+      "description": "column order for directed edges given out of order",
+      "call": "full(incidence(digraph([3 1], [1 2])))",
+      "errored": false,
+      "result": {
+        "value": "[-1 1;1 0;0 -1]",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "directed-edge-order-table",
+      "description": "the digraph's stored edge list for the same input",
+      "call": "G = digraph([3 1], [1 2]); G.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": "[1 2;3 1]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "self-loop-graph",
+      "description": "undirected self-loop plus one edge",
+      "call": "full(incidence(graph([1 1], [1 2])))",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:incidence:SelfLoops"
+    },
+    {
+      "case_id": "self-loop-digraph",
+      "description": "directed self-loop plus one edge",
+      "call": "full(incidence(digraph([1 1], [1 2])))",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:incidence:SelfLoops"
+    },
+    {
+      "case_id": "multigraph",
+      "description": "two parallel undirected edges",
+      "call": "full(incidence(graph([1 1], [2 2])))",
+      "errored": false,
+      "result": {
+        "value": "[-1 -1;1 1]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "weighted",
+      "description": "weighted graph",
+      "call": "full(incidence(graph([1 2], [2 3], [5 7])))",
+      "errored": false,
+      "result": {
+        "value": "[-1 0;1 -1;0 1]",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "isolated-node",
+      "description": "isolated fourth node",
+      "call": "full(incidence(graph(1, 2, 1, 4)))",
+      "errored": false,
+      "result": {
+        "value": "[-1;1;0;0]",
+        "class": "double",
+        "size": [
+          4,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-graph",
+      "description": "empty graph",
+      "call": "incidence(graph())",
+      "errored": false,
+      "result": {
+        "value": "sparse([], [], [], 0, 0)",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "nodes-no-edges",
+      "description": "three nodes, no edges",
+      "call": "incidence(graph(zeros(3)))",
+      "errored": false,
+      "result": {
+        "value": "sparse(zeros(0,1), zeros(0,1), zeros(0,1), 3, 0)",
+        "class": "double",
+        "size": [
+          3,
+          0
+        ],
+        "isreal": true,
+        "issparse": true
+      }
+    },
+    {
+      "case_id": "err-matrix",
+      "description": "non-graph input",
+      "call": "incidence(magic(3))",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

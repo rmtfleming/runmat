@@ -1,5 +1,91 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 9 — N1: 14 new COBRA-backlog specs — 2026-10-29
+
+- Fourteen newly approved specifications (spec 0.2.0, `status: approved`)
+  for COBRA builtins implemented by neither upstream RunMat nor this branch:
+  `amd`, `etree`, `symbfact`, `rmnode`, `addedge`, `rmedge`, `laplacian`,
+  `stack`, `innerjoin`, `regexptranslate`, `dec2base`, `validatestring`,
+  `isprop`, `balance`. **Imported only; not yet selected for
+  implementation** (an FR-010 decision for the maintainer).
+- Approval record: source `docs/review/2026-10-29-n1-new-specs-human-loop.md`
+  ("Approve all 14"). Five behaviours flagged as open questions (not
+  requirements): rmnode ignoring unknown node IDs; innerjoin output names
+  from caller variable names; exact `balance` values; exact `amd` ordering;
+  `dec2base` char bases.
+- Revision: committed source **`c65e2382fa2420416439f8342333af77dcaee5b3`**
+  (on `origin/main`), read with `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (56 new lines, none changed;
+  84 specifications imported in total).
+
+---
+
+## Batch 8 — Tier B widening W2 (batch C2 specs 0.3.0) — 2026-10-29
+
+- Re-import of `svds`, `findstr`, `incidence`, `isisomorphic`,
+  `validateattributes`, `spy`, `exportgraphics` at spec version **0.3.0**
+  (`status: approved`), replacing the 0.2.0 copies from Batch 6.
+  (`annotation` is unchanged at 0.2.0; still deferred.)
+- Approval record: source `docs/review/2026-10-29-tier-b-w2-widening-human-loop.md`
+  ("Approve all 7"). Open questions stay in each spec's
+  `unresolved_questions`, including `q-warning-coverage`: an empty
+  `warnings` list is not a complete statement.
+- Revision: committed source **`8614c5b396851cdac1d1eb58f1cf5f7fa7f8909e`**
+  ("Widen and re-approve Tier B C2 specs (W2)"), also on `origin/main`, read
+  with `git show`. Only `specifications/<fn>/` export-boundary files were
+  imported; source `experiments/` and the review record were NOT.
+- Byte-verified; `SHA256SUMS` regenerated (28 lines for these seven specs
+  replaced, no others changed).
+
+---
+
+## Batch 7 — Tier B widening W1 (table specs 0.3.0) — 2026-10-29
+
+- Re-import of `addvars`, `removevars`, `movevars`, `outerjoin` at spec
+  version **0.3.0** (`status: approved`), replacing the 0.2.0 copies from
+  Batches 3–4. The widening resolved, by observation, every unresolved
+  question carried by features 034/035: `addvars.q-position`, `q-names`;
+  `removevars.q-index`, `q-multiple`; `movevars.q-after`, `q-index`;
+  `outerjoin.q-keys`, `q-type` (including row order, output naming and fill
+  values).
+- Approval record: source `docs/review/2026-10-29-tier-b-w1-widening-human-loop.md`
+  ("Approve all 4"). The three questions it flags for human review stay open
+  in the specs: `removevars.q-short-mask` and `addvars.q-before-past-end`
+  (non-normative), and `outerjoin.q-name-suffix-context`.
+- Revision: committed source **`5d595da`** ("Widen and re-approve Tier B table
+  specs (W1)"), read with `git show`. Only `specifications/<fn>/`
+  export-boundary files were imported; the source's `experiments/` scripts
+  and review record were NOT.
+- Byte-verified; `SHA256SUMS` regenerated (16 lines for these four specs
+  replaced, no others changed).
+
+---
+
+## Batch 6 — Tier B batches 4–6 remainder (batch C2 candidates) — 2026-10-29
+
+- Eight approved specifications imported that neither upstream RunMat nor
+  the clean-room branch implements (per the 2026-10-29 all-branch survey):
+  `validateattributes`, `findstr`, `incidence`, `isisomorphic`, `svds`,
+  `spy`, `exportgraphics`, `annotation`. `web`/`export` (draft stubs) and
+  `median` (draft) remain excluded.
+- Approval records: source `docs/review/2026-07-22-tier-b-batch4-human-loop.md`
+  (approved at `29d48cd`: findstr, incidence, isisomorphic, svds),
+  `…-batch5-human-loop.md` (`b52a0f7`: spy, annotation),
+  `…-batch6-human-loop.md` (`b9387dc`: validateattributes, exportgraphics).
+  All `status: approved` at the pinned commit.
+- Revision: imported from committed source HEAD
+  **`104fb5ff56756fd3a358fdc436ce011b541aff20`** ("count macro-generated
+  builtins; keep clean-room inputParser") using `git show` on that commit,
+  NOT the source working tree (which held uncommitted experiment edits for
+  addvars/movevars/outerjoin, none of them imported).
+- Export boundary: `interface.yaml`, `behaviour.md`, `provenance.yaml`,
+  `observations/*.json` (+ `.gitkeep`). No experiment scripts or raw logs.
+- Byte-verified against the source commit; `SHA256SUMS` regenerated over all
+  70 specifications (32 new lines, none changed; `.gitkeep` excluded as
+  before).
+
+---
+
 ## Batch 5 — Tier B batch 3 — 2026-07-22
 
 - Twelve newly approved specifications (environment / introspection / time)

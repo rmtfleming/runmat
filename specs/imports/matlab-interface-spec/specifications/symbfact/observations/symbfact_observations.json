@@ -1,0 +1,154 @@
+{
+  "schema_version": "1.0",
+  "function_name": "symbfact",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/symbfact/test_symbfact_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "tridiagonal",
+      "description": "column counts for a 4x4 tridiagonal matrix",
+      "call": "symbfact(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2]))",
+      "errored": false,
+      "result": {
+        "value": "[2 2 2 1]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "arrow",
+      "description": "column counts for a 4x4 arrow matrix (fill-in)",
+      "call": "symbfact(sparse([4 1 1 1; 1 4 0 0; 1 0 4 0; 1 0 0 4]))",
+      "errored": false,
+      "result": {
+        "value": "[4 3 2 1]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "arrow-reversed",
+      "description": "arrow with the dense row/column last (no fill-in)",
+      "call": "symbfact(sparse([4 0 0 1; 0 4 0 1; 0 0 4 1; 1 1 1 4]))",
+      "errored": false,
+      "result": {
+        "value": "[2 2 2 1]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "diag",
+      "description": "diagonal matrix",
+      "call": "symbfact(speye(3))",
+      "errored": false,
+      "result": {
+        "value": "[1 1 1]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "outputs",
+      "description": "[count, h, parent, post, R] for the arrow matrix",
+      "call": "[c, h, par, post, R] = symbfact(sparse([4 1 1 1; 1 4 0 0; 1 0 4 0; 1 0 0 4])); report c, h, parent, post, full(R), issparse(R)",
+      "errored": false,
+      "result": {
+        "value": {
+          "count": "[4 3 2 1]",
+          "height": "4",
+          "parent": "[2 3 4 0]",
+          "post": "[1 2 3 4]",
+          "R": "[1 1 1 1;0 1 1 1;0 0 1 1;0 0 0 1]",
+          "issparse_R": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "col",
+      "description": "'col' option on a 3x2 matrix",
+      "call": "symbfact(sparse([1 0; 1 1; 0 1]), 'col')",
+      "errored": false,
+      "result": {
+        "value": "[2 1]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense-input",
+      "description": "full input",
+      "call": "symbfact(full(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2])))",
+      "errored": false,
+      "result": {
+        "value": "[2 2 2 1]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "class",
+      "description": "class and shape of the raw count output",
+      "call": "symbfact(sparse([4 1 0 0 1; 1 4 1 0 0; 0 1 4 1 0; 0 0 1 4 1; 1 0 0 1 4]))",
+      "errored": false,
+      "result": {
+        "value": "[3 3 3 2 1]",
+        "class": "double",
+        "size": [
+          1,
+          5
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-nonsquare",
+      "description": "non-square input without 'col'",
+      "call": "symbfact(sparse([1 0; 1 1; 0 1]))",
+      "errored": true,
+      "error_identifier": "MATLAB:symbfact:InvalidInput"
+    }
+  ]
+}

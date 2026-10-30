@@ -1,0 +1,189 @@
+# Interface specification for spy (widened 2026-10-29, Tier B W2; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: spy
+spec_version: 0.3.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Plot the sparsity pattern of a matrix as markers at the nonzero positions; returns no output.
+invocation_forms:
+- signature: spy(A)
+  description: Plot nonzero positions of A.
+  status: confirmed
+- signature: spy(A, LineSpec)
+  description: Plot with a marker and colour specification.
+  status: confirmed
+- signature: spy(A, markersize)
+  description: Plot with a numeric marker size.
+  status: confirmed
+- signature: spy(A, LineSpec, markersize)
+  description: Both.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: 'Matrix: sparse or full numeric, logical, or char.'
+  status: confirmed
+- name: LineSpec
+  position: 2
+  required: false
+  description: Marker/colour specification such as 'r*'.
+  status: confirmed
+- name: markersize
+  position: 3
+  required: false
+  description: Numeric marker size.
+  status: confirmed
+outputs: []
+output_type_rules: []
+output_shape_rules:
+- id: spy.void-plot-rule
+  statement: spy(A) draws into the current axes and returns no output value; requesting an output errors.
+  status: confirmed
+  normative: true
+  provenance: spy.void-plot
+  observations:
+  - file: observations/spy_observations.json
+    case_id: plots
+  - file: observations/spy_observations.json
+    case_id: output-arg
+- id: spy.one-line-rule
+  statement: The axes receives exactly one Line object with markers and no connecting line (LineStyle
+    'none').
+  status: confirmed
+  normative: true
+  provenance: spy.one-line
+  observations:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- id: spy.positions-rule
+  statement: 'The Line''s XData are the column indices and YData the row indices of the nonzeros, in column-major
+    order: [1 0 1; 0 1 0] gave XData [1 2 3], YData [1 2 1].'
+  status: confirmed
+  normative: true
+  provenance: spy.positions
+  observations:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: tall
+  - file: observations/spy_observations.json
+    case_id: logical
+- id: spy.axes-rule
+  statement: The y axis is reversed (YDir 'reverse'); for an m-by-n matrix XLim is [0 n+1] and YLim is
+    [0 m+1]; x and y data units are equal (the first two DataAspectRatio entries are equal).
+  status: confirmed
+  normative: true
+  provenance: spy.axes
+  observations:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: tall
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- id: spy.nz-label-rule
+  statement: The x-axis label is 'nz = ' followed by the number of nonzeros (3, 2, and 0 for an all-zero
+    matrix).
+  status: confirmed
+  normative: true
+  provenance: spy.nz-label
+  observations:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- id: spy.default-marker-rule
+  statement: With no style arguments the marker is '.'.
+  status: confirmed
+  normative: true
+  provenance: spy.default-marker
+  observations:
+  - file: observations/spy_observations.json
+    case_id: default-style
+  - file: observations/spy_observations.json
+    case_id: points
+- id: spy.linespec-rule
+  statement: 'A LineSpec sets marker and colour: ''r*'' gave marker ''*'' and colour [1 0 0]; ''g+'' gave
+    ''+'' and [0 1 0].'
+  status: confirmed
+  normative: true
+  provenance: spy.linespec
+  observations:
+  - file: observations/spy_observations.json
+    case_id: linespec
+  - file: observations/spy_observations.json
+    case_id: linespec-markersize
+- id: spy.markersize-rule
+  statement: A numeric marker size sets MarkerSize (20 gave 20; with 'g+', 12 gave 12).
+  status: confirmed
+  normative: true
+  provenance: spy.markersize
+  observations:
+  - file: observations/spy_observations.json
+    case_id: markersize
+  - file: observations/spy_observations.json
+    case_id: linespec-markersize
+- id: spy.all-zero-rule
+  statement: An all-zero matrix still produces one Line, with NaN coordinates.
+  status: confirmed
+  normative: true
+  provenance: spy.all-zero
+  observations:
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- id: spy.input-types-rule
+  statement: Full numeric, logical and char inputs are accepted; nonzero elements are plotted.
+  status: confirmed
+  normative: true
+  provenance: spy.input-types
+  observations:
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: logical
+  - file: observations/spy_observations.json
+    case_id: char
+numerical_edge_cases:
+- id: spy.default-style-values-rule
+  statement: 'Observed for small matrices only: default MarkerSize 14 (6 when a LineSpec was given without
+    a size) and default colour [0.066 0.443 0.745].'
+  status: confirmed
+  normative: false
+  provenance: spy.default-style-values
+  observations:
+  - file: observations/spy_observations.json
+    case_id: default-style
+  - file: observations/spy_observations.json
+    case_id: linespec
+warnings: []
+errors:
+- condition: An output argument is requested.
+  identifier: MATLAB:TooManyOutputs
+  status: confirmed
+  provenance: spy.error-output-arg
+  observations:
+  - file: observations/spy_observations.json
+    case_id: output-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/spy_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: spy.q-default-markersize
+  question: Whether the default marker size depends on matrix size was not exercised (only matrices up
+    to 4 rows/columns).
+- id: spy.q-large
+  question: Behaviour for large matrices and complex input was not exercised.

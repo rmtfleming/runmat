@@ -5,8 +5,8 @@
   "version_string": "26.1.0.3276743 (R2026a) Update 3",
   "platform": "GLNXA64",
   "generated_by": "experiments/movevars/test_movevars_interface.m",
-  "date": "2026-07-22",
-  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (tables: variable names plus per-variable class, size and value); errors record the identifier only.",
   "cases": [
     {
       "case_id": "before",
@@ -14,7 +14,42 @@
       "call": "movevars(array2table([1 2 3], 'VariableNames', {'a','b','c'}), 'c', 'Before', 'a')",
       "errored": false,
       "result": {
-        "value": "<table [1 3]>",
+        "value": {
+          "variable_names": [
+            "c",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
         "class": "table",
         "size": [
           1,
@@ -25,20 +60,863 @@
       }
     },
     {
-      "case_id": "order",
-      "description": "variable order after moving c before a (VariableNames joined)",
-      "call": "strjoin(movevars(...).Properties.VariableNames, comma)",
+      "case_id": "after-name",
+      "description": "move a variable after another",
+      "call": "movevars(T, 'a', 'After', 'c')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
       "errored": false,
       "result": {
-        "value": "'c,a,b'",
-        "class": "char",
+        "value": {
+          "variable_names": [
+            "b",
+            "c",
+            "a",
+            "d"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            }
+          ]
+        },
+        "class": "table",
         "size": [
           1,
-          5
+          4
         ],
-        "isreal": true,
+        "isreal": false,
         "issparse": false
       }
+    },
+    {
+      "case_id": "after-last",
+      "description": "move a variable after the last variable",
+      "call": "movevars(T, 'a', 'After', 'd')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "b",
+            "c",
+            "d",
+            "a"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "before-index",
+      "description": "Before with a numeric location",
+      "call": "movevars(T, 'd', 'Before', 2)",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "d",
+            "b",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "after-index",
+      "description": "After with a numeric location",
+      "call": "movevars(T, 'a', 'After', 3)",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "b",
+            "c",
+            "a",
+            "d"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vars-index",
+      "description": "variable to move given by numeric index",
+      "call": "movevars(T, 4, 'Before', 1)",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "d",
+            "a",
+            "b",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vars-logical",
+      "description": "variables to move given by logical mask",
+      "call": "movevars(T, [false true false true], 'Before', 1)",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "b",
+            "d",
+            "a",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multi-order",
+      "description": "two variables listed out of table order",
+      "call": "movevars(T, {'d','b'}, 'Before', 'a')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "d",
+            "b",
+            "a",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multi-after",
+      "description": "two variables moved after another",
+      "call": "movevars(T, {'a','b'}, 'After', 'c')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "c",
+            "a",
+            "b",
+            "d"
+          ],
+          "variables": [
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "self",
+      "description": "move a variable before itself",
+      "call": "movevars(T, 'b', 'Before', 'b')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "c",
+            "d"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-location",
+      "description": "no Before/After supplied",
+      "call": "movevars(T, 'a')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "b",
+            "c",
+            "d",
+            "a"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-location-multi",
+      "description": "no Before/After supplied, two variables listed out of table order",
+      "call": "movevars(T, {'b','a'})",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "c",
+            "d",
+            "b",
+            "a"
+          ],
+          "variables": [
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "self-after",
+      "description": "move a variable after itself",
+      "call": "movevars(T, 'b', 'After', 'b')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "c",
+            "d"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "3"
+            },
+            {
+              "name": "d",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "4"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "contents",
+      "description": "contents follow their variable (two-row table)",
+      "call": "movevars(array2table([1 2 3; 4 5 6], 'VariableNames', {'a','b','c'}), 'a', 'After', 'c')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "b",
+            "c",
+            "a"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;5]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;6]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-before-and-after",
+      "description": "Before and After together",
+      "call": "movevars(T, 'a', 'Before', 'b', 'After', 'c')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:addmovevars:BeforeAndAfter"
+    },
+    {
+      "case_id": "err-unknown-var",
+      "description": "unknown variable to move",
+      "call": "movevars(T, 'nope', 'Before', 'a')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-unknown-location",
+      "description": "unknown location variable",
+      "call": "movevars(T, 'a', 'After', 'nope')",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-index-range",
+      "description": "location index beyond the variable count",
+      "call": "movevars(T, 'a', 'After', 5)",
+      "inputs": {
+        "setup": "T = array2table([1 2 3 4], 'VariableNames', {'a','b','c','d'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:VarIndexOutOfRange"
     }
   ]
 }

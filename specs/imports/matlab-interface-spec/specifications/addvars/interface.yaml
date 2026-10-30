@@ -1,70 +1,249 @@
-# Interface specification for addvars (promoted; observed behaviour confirmed).
+# Interface specification for addvars (widened 2026-10-29, Tier B W1; approved 2026-10-29 after human-loop review).
 # Schema: ../../schemas/function-interface.schema.json
 schema_version: '1.0'
 function_name: addvars
-spec_version: 0.2.0
+spec_version: 0.3.0
 status: approved
 applicable_releases:
 - R2026a
-summary: 'Return a table with one or more new variables appended.
-
-  '
+summary: Return a table with one or more new variables inserted, appended at the end by default or placed
+  before/after an existing variable.
 invocation_forms:
-- signature: T2 = addvars(T, var)
-  description: Append a new variable to table T.
+- signature: T2 = addvars(T, var1, ..., varN)
+  description: Append one or more variables after the last variable of T.
+  status: confirmed
+- signature: T2 = addvars(T, var1, ..., varN, 'Before', location)
+  description: Insert the new variable(s) immediately before `location`.
+  status: confirmed
+- signature: T2 = addvars(T, var1, ..., varN, 'After', location)
+  description: Insert the new variable(s) immediately after `location`.
+  status: confirmed
+- signature: T2 = addvars(___, 'NewVariableNames', names)
+  description: Name the new variable(s) explicitly.
   status: confirmed
 inputs:
 - name: T
+  position: 1
   required: true
-  description: Table.
-  status: pending
-- name: var
+  description: Table to extend.
+  status: confirmed
+- name: var1, ..., varN
+  position: 2
   required: true
-  description: Data for the new variable.
-  status: pending
+  description: Data for each new variable; each must have the same number of rows as T. A multi-column
+    array becomes one multi-column variable; a cell column becomes a cell variable.
+  status: confirmed
+name_value_arguments:
+- name: Before
+  description: Location given as an existing variable name or a numeric variable index.
+  status: confirmed
+- name: After
+  description: Location given as an existing variable name or a numeric variable index.
+  status: confirmed
+- name: NewVariableNames
+  description: 'Names for the new variables: a char row, string scalar or cellstr for one variable; a
+    cellstr with one name per new variable.'
+  status: confirmed
 outputs:
 - name: T2
-  description: Table with the appended variable.
-  status: pending
-  type_rule:
-    id: addvars.out-type
-    statement: The first output has class table (observed).
-    status: confirmed
-    normative: true
-    provenance: addvars.output-class
-    observations:
-    - file: observations/addvars_observations.json
-      case_id: append
+  description: Table with the new variables inserted.
+  status: confirmed
 output_type_rules:
 - id: addvars.output-class-rule
-  statement: The output class is table across the observed inputs.
+  statement: The output class is table for every non-erroring observed call.
   status: confirmed
   normative: true
   provenance: addvars.output-class
   observations:
   - file: observations/addvars_observations.json
     case_id: append
+  - file: observations/addvars_observations.json
+    case_id: append-full
+  - file: observations/addvars_observations.json
+    case_id: before-name
+  - file: observations/addvars_observations.json
+    case_id: newname-char
+  - file: observations/addvars_observations.json
+    case_id: multi-names
 output_shape_rules:
 - id: addvars.appends-variable-rule
-  statement: Returns a table with the new variable appended (appending to a one-variable table gave a
-    two-variable table); the row count is preserved.
+  statement: Without a location option the new variable is appended after the last existing variable;
+    existing variables keep their order and contents and the row count is preserved.
   status: confirmed
   normative: true
   provenance: addvars.appends-variable
   observations:
   - file: observations/addvars_observations.json
     case_id: append
-numerical_edge_cases: []
+  - file: observations/addvars_observations.json
+    case_id: append-full
+- id: addvars.multiple-variables-rule
+  statement: Several data arguments add several variables, in argument order (T with a,b plus two columns
+    gave a,b,Var3,Var4; with names {'y','z'} gave a,b,y,z).
+  status: confirmed
+  normative: true
+  provenance: addvars.multiple-variables
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: multi-default
+  - file: observations/addvars_observations.json
+    case_id: multi-names
+- id: addvars.data-preserved-rule
+  statement: 'The data argument is stored unchanged as one variable: a 2x2 numeric array became a single
+    2x2 variable and a 2x1 cellstr became a 2x1 cell variable.'
+  status: confirmed
+  normative: true
+  provenance: addvars.data-preserved
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: multicol
+  - file: observations/addvars_observations.json
+    case_id: cellstr-var
+- id: addvars.before-rule
+  statement: '`''Before'', location` inserts the new variable immediately before `location`; `location`
+    may be a variable name or a numeric variable index (Before ''a'' on a,b gave new,a,b; Before 2 gave
+    a,new,b).'
+  status: confirmed
+  normative: true
+  provenance: addvars.before
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: before-name
+  - file: observations/addvars_observations.json
+    case_id: before-index
+  - file: observations/addvars_observations.json
+    case_id: names-and-before
+- id: addvars.after-rule
+  statement: '`''After'', location` inserts the new variable immediately after `location`, by name or
+    index; After the last index appends (After ''a'' on a,b gave a,new,b; After 2 gave a,b,new).'
+  status: confirmed
+  normative: true
+  provenance: addvars.after
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: after-name
+  - file: observations/addvars_observations.json
+    case_id: after-index
+- id: addvars.new-names-rule
+  statement: '`''NewVariableNames''` sets the new variable''s name; a char row, a 1x1 cellstr and a string
+    scalar gave the same result, and it combines with `''Before''`.'
+  status: confirmed
+  normative: true
+  provenance: addvars.new-names
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: newname-char
+  - file: observations/addvars_observations.json
+    case_id: newname-cell
+  - file: observations/addvars_observations.json
+    case_id: newname-string
+  - file: observations/addvars_observations.json
+    case_id: names-and-before
+  - file: observations/addvars_observations.json
+    case_id: multi-names
+- id: addvars.default-name-position-rule
+  statement: When no name is given and the data argument is not a named workspace variable, the new variable
+    is named 'Var' followed by its column position in the output table (Var2/Var3 when appended as column
+    2/3, Var1 when inserted first, Var2 when inserted second).
+  status: confirmed
+  normative: true
+  provenance: addvars.default-name-position
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: append
+  - file: observations/addvars_observations.json
+    case_id: append-full
+  - file: observations/addvars_observations.json
+    case_id: before-name
+  - file: observations/addvars_observations.json
+    case_id: after-name
+  - file: observations/addvars_observations.json
+    case_id: before-index
+  - file: observations/addvars_observations.json
+    case_id: after-index
+  - file: observations/addvars_observations.json
+    case_id: multi-default
+- id: addvars.default-name-input-rule
+  statement: When the data argument is passed as a named workspace variable and no name is given, the
+    new variable takes that variable's name (a variable named x produced a table variable x).
+  status: confirmed
+  normative: true
+  provenance: addvars.default-name-input
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: name-from-input
+numerical_edge_cases:
+- id: addvars.before-past-end-rule
+  statement: 'Observed once: `''Before''` with an index one greater than the number of variables did not
+    error; Before 3 on a two-variable table appended the new variable (a,b,Var3).'
+  status: confirmed
+  normative: false
+  provenance: addvars.before-past-end
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: before-past-end
 warnings: []
-errors: []
+errors:
+- condition: Both 'Before' and 'After' are supplied.
+  identifier: MATLAB:table:addmovevars:BeforeAndAfter
+  status: confirmed
+  provenance: addvars.error-before-and-after
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: err-before-and-after
+- condition: A data argument has more or fewer rows than the table.
+  identifier: MATLAB:table:RowDimensionMismatch
+  status: confirmed
+  provenance: addvars.error-rows
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: err-rows
+  - file: observations/addvars_observations.json
+    case_id: err-rows-fewer
+- condition: A new variable name duplicates an existing variable name.
+  identifier: MATLAB:table:DuplicateVarNames
+  status: confirmed
+  provenance: addvars.error-dup-name
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: err-dup-name
+- condition: '''NewVariableNames'' supplies fewer or more names than there are new variables.'
+  identifier: MATLAB:table:addmovevars:IncorrectNumberOfVarNames
+  status: confirmed
+  provenance: addvars.error-names-count
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: err-names-count
+  - file: observations/addvars_observations.json
+    case_id: err-names-too-many
+- condition: The 'Before' or 'After' location names a variable that is not in the table.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: addvars.error-bad-location
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: err-bad-location
+  - file: observations/addvars_observations.json
+    case_id: err-bad-location-after
+- condition: The 'After' location index exceeds the number of variables (After 3 on a two-variable table).
+  identifier: MATLAB:table:VarIndexOutOfRange
+  status: confirmed
+  provenance: addvars.error-index-range
+  observations:
+  - file: observations/addvars_observations.json
+    case_id: err-index-range
 nan_infinity_behaviour: []
 release_dependent_behaviour: []
 linked_observations:
 - file: observations/addvars_observations.json
-  description: 1 independently constructed cases on R2026a (GLNXA64).
+  description: 25 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
 provenance_ref: provenance.yaml
 unresolved_questions:
-- id: addvars.q-position
-  question: The 'Before'/'After' name-value options for placement.
-- id: addvars.q-names
-  question: Specifying NewVariableNames.
+- id: addvars.q-default-name-collision
+  question: Default naming when the generated 'Var<n>' name already exists in the table (not exercised).
+- id: addvars.q-before-past-end
+  question: 'Flagged for human review (constitution 8.2): whether the non-erroring ''Before'' index one
+    past the end (case before-past-end) should be required behaviour or left implementation-defined.'
+- id: addvars.q-input-name-scope
+  question: The workspace-name rule was observed only for a plain variable argument; behaviour for indexed
+    or field expressions (e.g. s.x, x(:,1)) was not exercised.

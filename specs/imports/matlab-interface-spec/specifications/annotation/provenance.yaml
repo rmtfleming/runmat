@@ -1,0 +1,29 @@
+# Provenance for annotation (promoted from skeleton; claims backed by observations).
+schema_version: '1.0'
+function_name: annotation
+claims:
+- claim_id: annotation.signature-primary
+  statement: The primary invocation form `an = annotation(type, x, y)` is accepted (observed).
+  source_category: public-interface-fact
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/annotation_observations.json
+    case_id: handle
+- claim_id: annotation.annotation-handle
+  statement: annotation('line', x, y) returns an annotation graphics handle (observed class matlab.graphics.shape.Line;
+    version-specific).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-07-22'
+  author: clean-room agent (Claude Opus 4.8)
+  applicable_releases:
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/annotation_observations.json
+    case_id: handle

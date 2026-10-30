@@ -1,0 +1,175 @@
+# Provenance for spy (widened 2026-10-29, Tier B W2; claims backed by observations).
+schema_version: '1.0'
+function_name: spy
+claims:
+- claim_id: spy.void-plot
+  statement: spy(A) draws into the current axes and returns no output value; requesting an output errors.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: plots
+  - file: observations/spy_observations.json
+    case_id: output-arg
+- claim_id: spy.one-line
+  statement: The axes receives exactly one Line object with markers and no connecting line (LineStyle
+    'none').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- claim_id: spy.positions
+  statement: 'The Line''s XData are the column indices and YData the row indices of the nonzeros, in column-major
+    order: [1 0 1; 0 1 0] gave XData [1 2 3], YData [1 2 1].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: tall
+  - file: observations/spy_observations.json
+    case_id: logical
+- claim_id: spy.axes
+  statement: The y axis is reversed (YDir 'reverse'); for an m-by-n matrix XLim is [0 n+1] and YLim is
+    [0 m+1]; x and y data units are equal (the first two DataAspectRatio entries are equal).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: tall
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- claim_id: spy.nz-label
+  statement: The x-axis label is 'nz = ' followed by the number of nonzeros (3, 2, and 0 for an all-zero
+    matrix).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: points
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- claim_id: spy.default-marker
+  statement: With no style arguments the marker is '.'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: default-style
+  - file: observations/spy_observations.json
+    case_id: points
+- claim_id: spy.linespec
+  statement: 'A LineSpec sets marker and colour: ''r*'' gave marker ''*'' and colour [1 0 0]; ''g+'' gave
+    ''+'' and [0 1 0].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: linespec
+  - file: observations/spy_observations.json
+    case_id: linespec-markersize
+- claim_id: spy.markersize
+  statement: A numeric marker size sets MarkerSize (20 gave 20; with 'g+', 12 gave 12).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: markersize
+  - file: observations/spy_observations.json
+    case_id: linespec-markersize
+- claim_id: spy.all-zero
+  statement: An all-zero matrix still produces one Line, with NaN coordinates.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: all-zero
+- claim_id: spy.input-types
+  statement: Full numeric, logical and char inputs are accepted; nonzero elements are plotted.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: dense
+  - file: observations/spy_observations.json
+    case_id: logical
+  - file: observations/spy_observations.json
+    case_id: char
+- claim_id: spy.default-style-values
+  statement: 'Observed for small matrices only: default MarkerSize 14 (6 when a LineSpec was given without
+    a size) and default colour [0.066 0.443 0.745].'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: default-style
+  - file: observations/spy_observations.json
+    case_id: linespec
+- claim_id: spy.error-output-arg
+  statement: An output argument is requested. The call errors with identifier MATLAB:TooManyOutputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/spy_observations.json
+    case_id: output-arg

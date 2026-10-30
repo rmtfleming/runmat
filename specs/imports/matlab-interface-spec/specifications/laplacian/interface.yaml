@@ -1,0 +1,109 @@
+# Interface specification for laplacian (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: laplacian
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the sparse graph Laplacian (degree matrix minus adjacency) of an undirected simple graph.
+invocation_forms:
+- signature: L = laplacian(G)
+  description: Laplacian of graph G.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: graph object without self-loops or parallel edges.
+  status: confirmed
+outputs:
+- name: L
+  description: Sparse double numnodes-by-numnodes matrix.
+  status: confirmed
+output_type_rules:
+- id: laplacian.output-class-rule
+  statement: The output is a sparse double numnodes-by-numnodes matrix.
+  status: confirmed
+  normative: true
+  provenance: laplacian.output-class
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: class
+  - file: observations/laplacian_observations.json
+    case_id: empty
+output_shape_rules:
+- id: laplacian.values-rule
+  statement: 'L = D - A with D the diagonal of node degrees and A the unweighted adjacency: path 1-2-3
+    gave [1 -1 0; -1 2 -1; 0 -1 1]; a triangle gave 2 on the diagonal and -1 elsewhere; an isolated node
+    gives a zero row and column.'
+  status: confirmed
+  normative: true
+  provenance: laplacian.values
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: path
+  - file: observations/laplacian_observations.json
+    case_id: triangle
+  - file: observations/laplacian_observations.json
+    case_id: isolated
+- id: laplacian.weights-ignored-rule
+  statement: Edge weights are ignored (weights 5 and 7 gave the same matrix as the unweighted path).
+  status: confirmed
+  normative: true
+  provenance: laplacian.weights-ignored
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: weighted
+  - file: observations/laplacian_observations.json
+    case_id: path
+- id: laplacian.empty-rule
+  statement: The empty graph gives a 0x0 sparse matrix.
+  status: confirmed
+  normative: true
+  provenance: laplacian.empty
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: empty
+numerical_edge_cases:
+- id: laplacian.numeric-input-rule
+  statement: 'Observed: a numeric matrix input errored with MATLAB:UndefinedFunction. Recorded as non-normative;
+    this identifier is not required.'
+  status: confirmed
+  normative: false
+  provenance: laplacian.numeric-input
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: err-matrix
+warnings: []
+errors:
+- condition: The graph has a self-loop.
+  identifier: MATLAB:graphfun:laplacian:SelfLoops
+  status: confirmed
+  provenance: laplacian.error-self-loop
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: err-self-loop
+- condition: The graph has parallel edges.
+  identifier: MATLAB:graphfun:laplacian:Multigraph
+  status: confirmed
+  provenance: laplacian.error-multigraph
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: err-multigraph
+- condition: The input is a digraph.
+  identifier: MATLAB:graphfun:digraph:OnlyGraphSupported
+  status: confirmed
+  provenance: laplacian.error-digraph
+  observations:
+  - file: observations/laplacian_observations.json
+    case_id: err-digraph
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/laplacian_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: laplacian.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.

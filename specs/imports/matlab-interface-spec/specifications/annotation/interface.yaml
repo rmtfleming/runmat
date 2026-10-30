@@ -1,0 +1,55 @@
+# Interface specification for annotation (promoted; observed behaviour confirmed).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: annotation
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Create an annotation object (such as a line or arrow) on the current figure and return its handle.
+
+  '
+invocation_forms:
+- signature: an = annotation(type, x, y)
+  description: An annotation of the given type at the given normalized coordinates.
+  status: confirmed
+inputs:
+- name: type
+  required: true
+  description: Annotation type, e.g. 'line'.
+  status: pending
+- name: x
+  required: true
+  description: Normalized x endpoints.
+  status: pending
+- name: y
+  required: true
+  description: Normalized y endpoints.
+  status: pending
+outputs:
+- name: an
+  description: An annotation graphics handle.
+  status: pending
+output_type_rules:
+- id: annotation.annotation-handle-rule
+  statement: annotation('line', x, y) returns an annotation graphics handle (observed class matlab.graphics.shape.Line;
+    version-specific).
+  status: confirmed
+  normative: true
+  provenance: annotation.annotation-handle
+  observations:
+  - file: observations/annotation_observations.json
+    case_id: handle
+output_shape_rules: []
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/annotation_observations.json
+  description: 1 independently constructed cases on R2026a (GLNXA64).
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: annotation.q-types
+  question: Other annotation types (arrow, textbox, ...) are not exercised.

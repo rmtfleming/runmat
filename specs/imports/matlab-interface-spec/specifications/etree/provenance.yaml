@@ -1,0 +1,153 @@
+# Provenance for etree (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: etree
+claims:
+- claim_id: etree.signature-primary
+  statement: The invocation form `p = etree(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- claim_id: etree.output-class
+  statement: The output is a 1-by-n double row vector.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+  - file: observations/etree_observations.json
+    case_id: diag
+  - file: observations/etree_observations.json
+    case_id: pentadiag
+- claim_id: etree.parent-vector
+  statement: 'p(j) is the parent of column j in the elimination tree and 0 marks a root: the 4x4 tridiagonal
+    and arrow matrices both gave [2 3 4 0]; the 5x5 matrix with corner entries gave [2 3 4 5 0]; a diagonal
+    matrix gave all zeros.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+  - file: observations/etree_observations.json
+    case_id: arrow
+  - file: observations/etree_observations.json
+    case_id: pentadiag
+  - file: observations/etree_observations.json
+    case_id: diag
+- claim_id: etree.upper-triangle
+  statement: 'Only the upper triangle is used: triu of the tridiagonal matrix gave the same tree [2 3
+    4 0], while tril gave [0 0 0 0].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: upper-only
+  - file: observations/etree_observations.json
+    case_id: lower-only
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- claim_id: etree.sym-default
+  statement: '''sym'' gives the same result as the default.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: sym
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- claim_id: etree.dense-input
+  statement: Full input gave the same tree as sparse input.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: dense-input
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- claim_id: etree.col
+  statement: '''col'' accepts a non-square matrix and returns the tree of its columns: the 3x2 matrix
+    [1 0; 1 1; 0 1] gave [2 0].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: col
+- claim_id: etree.postorder
+  statement: The second output is a 1-by-n permutation; it was [1 2 3 4] for the observed chain trees
+    and for the branching tree [3 3 4 0] (each a valid postorder of its tree).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: postorder
+  - file: observations/etree_observations.json
+    case_id: postorder-arrow
+  - file: observations/etree_observations.json
+    case_id: postorder-branching
+- claim_id: etree.branching
+  statement: A matrix whose columns 1 and 2 both connect only to column 3 gave parent [3 3 4 0].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: postorder-branching
+- claim_id: etree.empty
+  statement: 0x0 input gives a 1x0 empty double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: empty
+- claim_id: etree.error-nonsquare
+  statement: A is not square and 'col' is not given. The call errors with identifier MATLAB:etree:InvalidInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/etree_observations.json
+    case_id: err-nonsquare

@@ -1,0 +1,529 @@
+# Provenance for validateattributes (widened 2026-10-29, Tier B W2; claims backed by observations).
+schema_version: '1.0'
+function_name: validateattributes
+claims:
+- claim_id: validateattributes.signature-primary
+  statement: The invocation form `validateattributes(A, classes, attributes)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: pass
+- claim_id: validateattributes.pass-silent
+  statement: When A satisfies the classes and attributes, the call returns without error and without a
+    warning.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: pass
+  - file: observations/validateattributes_observations.json
+    case_id: pass-empty-attrs
+  - file: observations/validateattributes_observations.json
+    case_id: pass-row
+  - file: observations/validateattributes_observations.json
+    case_id: pass-positive
+  - file: observations/validateattributes_observations.json
+    case_id: pass-gt
+  - file: observations/validateattributes_observations.json
+    case_id: pass-size-nan
+  - file: observations/validateattributes_observations.json
+    case_id: pass-extra-args
+- claim_id: validateattributes.class-list
+  statement: 'A passes the class check if its class matches any listed class: single matched {''double'',''single''};
+    char, logical, cell, struct and function_handle matched their own class names.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-list
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-char
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-logical
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-cell
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-struct
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-fh
+- claim_id: validateattributes.empty-attributes
+  statement: An empty attribute list imposes no attribute checks.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: pass-empty-attrs
+- claim_id: validateattributes.attribute-semantics
+  statement: '''integer'' accepts integer-valued doubles; ''nonnegative'' accepts zero; ''nondecreasing''
+    accepts repeated values while ''increasing'' does not; ''>'' is strict and ''>='' inclusive; NaN in
+    a ''size'' vector matches any extent.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: pass-integer-double
+  - file: observations/validateattributes_observations.json
+    case_id: pass-nonnegative
+  - file: observations/validateattributes_observations.json
+    case_id: pass-nondecreasing
+  - file: observations/validateattributes_observations.json
+    case_id: fail-increasing
+  - file: observations/validateattributes_observations.json
+    case_id: fail-gt
+  - file: observations/validateattributes_observations.json
+    case_id: pass-ge
+  - file: observations/validateattributes_observations.json
+    case_id: pass-size-nan
+- claim_id: validateattributes.each-attribute-checked
+  statement: 'Every listed attribute is enforced: with {''scalar'',''positive''}, [1 2] failed on ''scalar''
+    and -1 failed on ''positive''.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-first-of-two
+  - file: observations/validateattributes_observations.json
+    case_id: fail-second-of-two
+- claim_id: validateattributes.funcname-identifier
+  statement: With funcName given, the error identifier has funcName as its middle component (MATLAB:myfun:expectedScalar,
+    MATLAB:myfun:invalidType).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-args
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-varname
+- claim_id: validateattributes.error-fail-type
+  statement: A's class is not in the class list. The call errors with identifier MATLAB:invalidType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-type
+  - file: observations/validateattributes_observations.json
+    case_id: fail-class-list
+- claim_id: validateattributes.error-empty-class-list
+  statement: The class list is empty ({}) (observed with the char input 'x'). The call errors with identifier
+    MATLAB:invalidType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: empty-class-list
+- claim_id: validateattributes.error-fail-scalar
+  statement: '''scalar'' and A is not 1x1. The call errors with identifier MATLAB:expectedScalar.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-scalar
+- claim_id: validateattributes.error-fail-vector
+  statement: '''vector'' and A is a matrix. The call errors with identifier MATLAB:expectedVector.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-vector
+- claim_id: validateattributes.error-fail-row
+  statement: '''row'' and A is a column. The call errors with identifier MATLAB:expectedRow.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-row
+- claim_id: validateattributes.error-fail-column
+  statement: '''column'' and A is a row. The call errors with identifier MATLAB:expectedColumn.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-column
+- claim_id: validateattributes.error-fail-2d
+  statement: '''2d'' and A is 3-D. The call errors with identifier MATLAB:expected2D.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-2d
+- claim_id: validateattributes.error-fail-nonempty
+  statement: '''nonempty'' and A is empty. The call errors with identifier MATLAB:expectedNonempty.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonempty
+- claim_id: validateattributes.error-fail-square
+  statement: '''square'' and A is not square. The call errors with identifier MATLAB:expectedSquare.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-square
+- claim_id: validateattributes.error-fail-positive
+  statement: '''positive'' and A contains a value that is not positive (0 and -1 observed). The call errors
+    with identifier MATLAB:expectedPositive.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-positive
+  - file: observations/validateattributes_observations.json
+    case_id: fail-second-of-two
+- claim_id: validateattributes.error-fail-nonnegative
+  statement: '''nonnegative'' and A contains a negative value. The call errors with identifier MATLAB:expectedNonnegative.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonnegative
+- claim_id: validateattributes.error-fail-integer
+  statement: '''integer'' and A contains a non-integer value. The call errors with identifier MATLAB:expectedInteger.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-integer
+- claim_id: validateattributes.error-fail-finite
+  statement: '''finite'' and A contains Inf. The call errors with identifier MATLAB:expectedFinite.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-finite
+- claim_id: validateattributes.error-fail-nonnan
+  statement: '''nonnan'' and A contains NaN. The call errors with identifier MATLAB:expectedNonNaN.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonnan
+- claim_id: validateattributes.error-fail-real
+  statement: '''real'' and A is complex. The call errors with identifier MATLAB:expectedReal.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-real
+- claim_id: validateattributes.error-fail-nonzero
+  statement: '''nonzero'' and A contains zero. The call errors with identifier MATLAB:expectedNonZero.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonzero
+- claim_id: validateattributes.error-fail-nonsparse
+  statement: '''nonsparse'' and A is sparse. The call errors with identifier MATLAB:expectedNonsparse.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonsparse
+- claim_id: validateattributes.error-fail-binary
+  statement: '''binary'' and A contains a value other than 0 or 1. The call errors with identifier MATLAB:expectedBinary.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-binary
+- claim_id: validateattributes.error-fail-even
+  statement: '''even'' and A is odd. The call errors with identifier MATLAB:expectedEven.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-even
+- claim_id: validateattributes.error-fail-odd
+  statement: '''odd'' and A is even. The call errors with identifier MATLAB:expectedOdd.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-odd
+- claim_id: validateattributes.error-fail-increasing
+  statement: '''increasing'' and A has a repeated value. The call errors with identifier MATLAB:expectedIncreasing.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-increasing
+- claim_id: validateattributes.error-fail-decreasing
+  statement: '''decreasing'' and A increases. The call errors with identifier MATLAB:expectedDecreasing.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-decreasing
+- claim_id: validateattributes.error-fail-nonincreasing
+  statement: '''nonincreasing'' and A increases. The call errors with identifier MATLAB:expectedNonincreasing.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonincreasing
+- claim_id: validateattributes.error-fail-gt
+  statement: '''>'', b and A contains a value equal to b. The call errors with identifier MATLAB:notGreater.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-gt
+- claim_id: validateattributes.error-fail-ge
+  statement: '''>='', b and A contains a value below b. The call errors with identifier MATLAB:notGreaterEqual.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-ge
+- claim_id: validateattributes.error-fail-lt
+  statement: '''<'', b and A contains a value equal to b. The call errors with identifier MATLAB:notLess.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-lt
+- claim_id: validateattributes.error-fail-le
+  statement: '''<='', b and A contains a value above b. The call errors with identifier MATLAB:notLessEqual.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-le
+- claim_id: validateattributes.error-fail-numel
+  statement: '''numel'', n and numel(A) differs from n. The call errors with identifier MATLAB:incorrectNumel.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-numel
+- claim_id: validateattributes.error-fail-size
+  statement: '''size'', sz and size(A) does not match sz. The call errors with identifier MATLAB:incorrectSize.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-size
+- claim_id: validateattributes.error-fail-ncols
+  statement: '''ncols'', n and A has a different number of columns. The call errors with identifier MATLAB:incorrectNumcols.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-ncols
+- claim_id: validateattributes.error-fail-nrows
+  statement: '''nrows'', n and A has a different number of rows. The call errors with identifier MATLAB:incorrectNumrows.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nrows
+- claim_id: validateattributes.error-fail-ndims
+  statement: '''ndims'', n and ndims(A) differs from n. The call errors with identifier MATLAB:incorrectNumdims.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-ndims
+- claim_id: validateattributes.error-returns-nothing
+  statement: An output argument is requested. The call errors with identifier MATLAB:maxlhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: returns-nothing
+- claim_id: validateattributes.error-fail-extra-args
+  statement: With funcName 'myfun', 'scalar' fails. The call errors with identifier MATLAB:myfun:expectedScalar.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-args
+- claim_id: validateattributes.error-fail-extra-varname
+  statement: With funcName 'myfun', the class check fails. The call errors with identifier MATLAB:myfun:invalidType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-varname
+- claim_id: validateattributes.warning-unknown-attribute
+  statement: An attribute name is not recognised; the call returns without error. The call completes and
+    issues a warning with identifier MATLAB:validateattributes:attributeNotFound.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validateattributes_observations.json
+    case_id: unknown-attribute

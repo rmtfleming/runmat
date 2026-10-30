@@ -5,8 +5,8 @@
   "version_string": "26.1.0.3276743 (R2026a) Update 3",
   "platform": "GLNXA64",
   "generated_by": "experiments/outerjoin/test_outerjoin_interface.m",
-  "date": "2026-07-22",
-  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (tables: variable names plus per-variable class, size and value); only the first output is recorded; errors record the identifier only.",
   "cases": [
     {
       "case_id": "basic",
@@ -14,7 +14,52 @@
       "call": "outerjoin(table([1;2],[10;20],'VariableNames',{'k','a'}), table([1;3],[100;300],'VariableNames',{'k','b'}))",
       "errored": false,
       "result": {
-        "value": "<table [3 4]>",
+        "value": {
+          "variable_names": [
+            "k_left",
+            "a",
+            "k_right",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_left",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;2;NaN]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[10;20;NaN]"
+            },
+            {
+              "name": "k_right",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;NaN;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;NaN;300]"
+            }
+          ]
+        },
         "class": "table",
         "size": [
           3,
@@ -23,6 +68,1334 @@
         "isreal": false,
         "issparse": false
       }
+    },
+    {
+      "case_id": "default-full",
+      "description": "default join: naming, row order, fill",
+      "call": "outerjoin(L, R)",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_L",
+            "a",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_L",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mergekeys",
+      "description": "MergeKeys true",
+      "call": "outerjoin(L, R, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;3;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-full",
+      "description": "Type full",
+      "call": "outerjoin(L, R, 'Type', 'full')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_L",
+            "a",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_L",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-left",
+      "description": "Type left",
+      "call": "outerjoin(L, R, 'Type', 'left')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_L",
+            "a",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_L",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;2;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[10;20;40]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;NaN;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;NaN;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-right",
+      "description": "Type right",
+      "call": "outerjoin(L, R, 'Type', 'right')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_L",
+            "a",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_L",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[10;NaN;40]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-left-merge",
+      "description": "Type left with MergeKeys",
+      "call": "outerjoin(L, R, 'Type', 'left', 'MergeKeys', true)",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;2;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[10;20;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;NaN;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "keys-name",
+      "description": "Keys given by name",
+      "call": "outerjoin(L, R, 'Keys', 'k')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_L",
+            "a",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_L",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "keys-index",
+      "description": "Keys given by index",
+      "call": "outerjoin(L, R, 'Keys', 1)",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_L",
+            "a",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_L",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "leftright-keys",
+      "description": "LeftKeys/RightKeys with different key names",
+      "call": "outerjoin(L, R2, 'LeftKeys', 'k', 'RightKeys', 'id')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R2 = table([1;3;4],[100;300;400],'VariableNames',{'id','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "id",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "id",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "leftright-keys-merge",
+      "description": "LeftKeys/RightKeys with MergeKeys",
+      "call": "outerjoin(L, R2, 'LeftKeys', 'k', 'RightKeys', 'id', 'MergeKeys', true)",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R2 = table([1;3;4],[100;300;400],'VariableNames',{'id','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_id",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_id",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;3;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unsorted",
+      "description": "row order with unsorted inputs",
+      "call": "outerjoin(Lu, Ru)",
+      "inputs": {
+        "setup": "Lu = table([4;2;1],[40;20;10],'VariableNames',{'k','a'}); Ru = table([3;1;4],[300;100;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_Lu",
+            "a",
+            "k_Ru",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k_Lu",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k_Ru",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unsorted-merge",
+      "description": "row order with unsorted inputs, MergeKeys",
+      "call": "outerjoin(Lu, Ru, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "Lu = table([4;2;1],[40;20;10],'VariableNames',{'k','a'}); Ru = table([3;1;4],[300;100;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;3;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dup-keys",
+      "description": "duplicate left keys",
+      "call": "outerjoin(Ld, R, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "Ld = table([1;1;2],[10;11;20],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                5,
+                1
+              ],
+              "value": "[1;1;2;3;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                5,
+                1
+              ],
+              "value": "[10;11;20;NaN;NaN]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                5,
+                1
+              ],
+              "value": "[100;100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          5,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-nonkey-name",
+      "description": "non-key variable present in both tables, explicit Keys",
+      "call": "outerjoin(Ls, Rs, 'Keys', 'k')",
+      "inputs": {
+        "setup": "Ls = table([1;2],[10;20],'VariableNames',{'k','v'}); Rs = table([1;3],[100;300],'VariableNames',{'k','v'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k_Ls",
+            "v_Ls",
+            "k_Rs",
+            "v_Rs"
+          ],
+          "variables": [
+            {
+              "name": "k_Ls",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;2;NaN]"
+            },
+            {
+              "name": "v_Ls",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[10;20;NaN]"
+            },
+            {
+              "name": "k_Rs",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;NaN;3]"
+            },
+            {
+              "name": "v_Rs",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;NaN;300]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fill-types",
+      "description": "fill values for int32, logical, cellstr, string, single variables",
+      "call": "outerjoin(Lt, Rt, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "Lt = table([1;2],int32([7;8]),logical([true;false]),{'p';'q'},[\"s\";\"t\"],single([1.5;2.5]),'VariableNames',{'k','i','g','c','s','f'}); Rt = table([1;3],[100;300],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "i",
+            "g",
+            "c",
+            "s",
+            "f",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;2;3]"
+            },
+            {
+              "name": "i",
+              "class": "int32",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[7;8;0]"
+            },
+            {
+              "name": "g",
+              "class": "logical",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[true;false;false]"
+            },
+            {
+              "name": "c",
+              "class": "cell",
+              "size": [
+                3,
+                1
+              ],
+              "value": [
+                "'p'",
+                "'q'",
+                "''"
+              ]
+            },
+            {
+              "name": "s",
+              "class": "string",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[\"s\";\"t\";string(missing)]"
+            },
+            {
+              "name": "f",
+              "class": "single",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1.5;2.5;NaN]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;NaN;300]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          7
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multi-key",
+      "description": "two key variables (common names)",
+      "call": "outerjoin(L2, R3, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "L2 = table([1;1;2],[5;6;5],[10;20;30],'VariableNames',{'k1','k2','a'}); R3 = table([1;2;2],[5;5;6],[100;200;300],'VariableNames',{'k1','k2','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k1",
+            "k2",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k1",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;1;2;2]"
+            },
+            {
+              "name": "k2",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[5;6;5;6]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;30;NaN]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;200;300]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multi-key-unsorted",
+      "description": "two key variables, unsorted inputs",
+      "call": "outerjoin(L2u, R3u, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "L2u = table([2;1;1],[5;6;5],[30;20;10],'VariableNames',{'k1','k2','a'}); R3u = table([2;2;1],[6;5;5],[300;200;100],'VariableNames',{'k1','k2','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k1",
+            "k2",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k1",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;1;2;2]"
+            },
+            {
+              "name": "k2",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[5;6;5;6]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;30;NaN]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;200;300]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dup-keys-desc",
+      "description": "duplicate left keys whose other values are in descending order",
+      "call": "outerjoin(Ldd, R, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "Ldd = table([1;1;2],[11;10;20],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                5,
+                1
+              ],
+              "value": "[1;1;2;3;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                5,
+                1
+              ],
+              "value": "[11;10;20;NaN;NaN]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                5,
+                1
+              ],
+              "value": "[100;100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          5,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "key-second-column",
+      "description": "left key is the second variable, MergeKeys",
+      "call": "outerjoin(Lk2, R, 'MergeKeys', true)",
+      "inputs": {
+        "setup": "Lk2 = table([10;20;40],[1;2;4],'VariableNames',{'a','k'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "k",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "key-second-column-nomerge",
+      "description": "left key is the second variable",
+      "call": "outerjoin(Lk2, R)",
+      "inputs": {
+        "setup": "Lk2 = table([10;20;40],[1;2;4],'VariableNames',{'a','k'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "k_Lk2",
+            "k_R",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;20;NaN;40]"
+            },
+            {
+              "name": "k_Lk2",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;2;NaN;4]"
+            },
+            {
+              "name": "k_R",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;NaN;3;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[100;NaN;300;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-no-common",
+      "description": "no common variable and no keys given",
+      "call": "outerjoin(Lx, Rx)",
+      "inputs": {
+        "setup": "Lx = table([1;2],[10;20],'VariableNames',{'p','a'}); Rx = table([1;3],[100;300],'VariableNames',{'q','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:join:CantInferKey"
+    },
+    {
+      "case_id": "type-inner",
+      "description": "Type inner",
+      "call": "outerjoin(L, R, 'Type', 'inner')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-type",
+      "description": "unrecognised Type value",
+      "call": "outerjoin(L, R, 'Type', 'sideways')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:join:InvalidType"
+    },
+    {
+      "case_id": "err-keys-and-leftkeys",
+      "description": "Keys combined with LeftKeys",
+      "call": "outerjoin(L, R, 'Keys', 'k', 'LeftKeys', 'k')",
+      "inputs": {
+        "setup": "L = table([1;2;4],[10;20;40],'VariableNames',{'k','a'}); R = table([1;3;4],[100;300;400],'VariableNames',{'k','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:join:ConflictingInputs"
     }
   ]
 }

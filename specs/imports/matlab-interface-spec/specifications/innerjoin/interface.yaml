@@ -1,0 +1,164 @@
+# Interface specification for innerjoin (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: innerjoin
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Combine two tables, keeping only rows whose key values appear in both.
+invocation_forms:
+- signature: T = innerjoin(Tleft, Tright)
+  description: Inner join on the common variables.
+  status: confirmed
+- signature: T = innerjoin(Tleft, Tright, Name, Value)
+  description: With key or variable-selection options.
+  status: confirmed
+inputs:
+- name: Tleft
+  position: 1
+  required: true
+  description: Left table.
+  status: confirmed
+- name: Tright
+  position: 2
+  required: true
+  description: Right table.
+  status: confirmed
+name_value_arguments:
+- name: Keys
+  description: Key variable(s) common to both tables.
+  status: confirmed
+- name: LeftKeys
+  description: Key variable(s) of Tleft; with RightKeys.
+  status: confirmed
+- name: RightKeys
+  description: Key variable(s) of Tright; with LeftKeys.
+  status: confirmed
+- name: LeftVariables
+  description: Variables of Tleft to include in the output.
+  status: confirmed
+outputs:
+- name: T
+  description: Joined table (only the first output was observed).
+  status: confirmed
+output_type_rules:
+- id: innerjoin.output-class-rule
+  statement: The output is a table for every non-erroring observed call.
+  status: confirmed
+  normative: true
+  provenance: innerjoin.output-class
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: basic
+  - file: observations/innerjoin_observations.json
+    case_id: no-match
+output_shape_rules:
+- id: innerjoin.rows-rule
+  statement: Only rows whose key appears in both tables are kept (left keys {1,2,4}, right keys {4,1,3}
+    gave keys [1;4]).
+  status: confirmed
+  normative: true
+  provenance: innerjoin.rows
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: basic
+- id: innerjoin.row-order-rule
+  statement: Rows came out in ascending key order in every observed case, including an unsorted left table
+    ([1;4]) and two unsorted tables ([1;2;3]).
+  status: confirmed
+  normative: true
+  provenance: innerjoin.row-order
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: basic
+  - file: observations/innerjoin_observations.json
+    case_id: unsorted-left
+  - file: observations/innerjoin_observations.json
+    case_id: unsorted-both
+- id: innerjoin.single-key-rule
+  statement: The key appears once in the output, followed by the left non-key variables, then the right
+    non-key variables (k, a, b).
+  status: confirmed
+  normative: true
+  provenance: innerjoin.single-key
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: basic
+  - file: observations/innerjoin_observations.json
+    case_id: keys
+- id: innerjoin.keys-rule
+  statement: Keys by name gives the same result as inference; LeftKeys/RightKeys join differently named
+    keys, and the output keeps the left key name (k).
+  status: confirmed
+  normative: true
+  provenance: innerjoin.keys
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: keys
+  - file: observations/innerjoin_observations.json
+    case_id: leftright-keys
+- id: innerjoin.duplicates-rule
+  statement: Each matching left row produced its own row; for the observed pair of equal keys the left-input
+    order was kept (a = 11 then 10).
+  status: confirmed
+  normative: true
+  provenance: innerjoin.duplicates
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: dup-left
+- id: innerjoin.name-suffix-rule
+  statement: A non-key name present in both tables is made unique by appending '_' plus the workspace
+    variable name of each input (v_Lw, v_Rw); when the inputs are not named variables the suffixes are
+    '_left' and '_right'.
+  status: confirmed
+  normative: true
+  provenance: innerjoin.name-suffix
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: same-nonkey
+  - file: observations/innerjoin_observations.json
+    case_id: same-nonkey-named
+- id: innerjoin.no-match-rule
+  statement: With no common key values the result is a 0-row table with all variables.
+  status: confirmed
+  normative: true
+  provenance: innerjoin.no-match
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: no-match
+- id: innerjoin.left-variables-rule
+  statement: LeftVariables 'k' kept only k from the left table, followed by the right non-key variable
+    (k, b).
+  status: confirmed
+  normative: true
+  provenance: innerjoin.left-variables
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: left-variables
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: No variable is common to both tables and no keys are given.
+  identifier: MATLAB:table:join:CantInferKey
+  status: confirmed
+  provenance: innerjoin.error-no-common
+  observations:
+  - file: observations/innerjoin_observations.json
+    case_id: err-no-common
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/innerjoin_observations.json
+  description: 11 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: innerjoin.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: innerjoin.q-name-suffix-context
+  question: 'Flagged for human review (constitution 8.2), as for outerjoin: output names depend on the
+    caller''s workspace variable names (name-suffix).'
+- id: innerjoin.q-index-outputs
+  question: The second and third outputs (row indices) were not observed.
+- id: innerjoin.q-many-to-many
+  question: Duplicate keys on both sides were not exercised.

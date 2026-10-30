@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "function_name": "annotation",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/annotation/test_annotation_interface.m",
+  "date": "2026-07-22",
+  "notes": "Values via describe_value; multi-output forms record only the first output.",
+  "cases": [
+    {
+      "case_id": "handle",
+      "description": "annotation returns an annotation handle",
+      "call": "annotation('line',[0.1 0.2],[0.1 0.2])",
+      "errored": false,
+      "result": {
+        "value": "<matlab.graphics.shape.Line [1 1]>",
+        "class": "matlab.graphics.shape.Line",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

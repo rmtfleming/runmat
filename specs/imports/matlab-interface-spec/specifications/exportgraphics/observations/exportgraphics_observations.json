@@ -1,0 +1,493 @@
+{
+  "schema_version": "1.0",
+  "function_name": "exportgraphics",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/exportgraphics/test_exportgraphics_interface.m",
+  "date": "2026-10-29",
+  "notes": "Each probe draws into a fresh invisible 400x300-pixel figure, exports to a temporary path, reports file facts (existence, leading bytes, image size), then deletes the file and closes the figure; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "file-created",
+      "description": "exportgraphics writes the target file (png)",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-jpg",
+      "description": "jpg by extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.jpg']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[255 216 255 224 0 16 74 70]",
+          "image_format": "'jpg'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-jpeg",
+      "description": "jpeg extension spelling",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.jpeg']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[255 216 255 224 0 16 74 70]",
+          "image_format": "'jpg'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-tif",
+      "description": "tif by extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.tif']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[73 73 42 0 46 88 0 0]",
+          "image_format": "'tif'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-tiff",
+      "description": "tiff extension spelling",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.tiff']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[73 73 42 0 46 88 0 0]",
+          "image_format": "'tif'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-gif",
+      "description": "gif by extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.gif']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[71 73 70 56 57 97 34 2]",
+          "image_format": "'GIF'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-upper-pdf",
+      "description": "upper-case pdf extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.PDF']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[37 80 68 70 45 49 46 52]",
+          "image_format": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "content-jpg-vector",
+      "description": "jpg with ContentType vector",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.jpg']; exportgraphics(gca, fn, 'ContentType', 'vector'); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "'MATLAB:print:ImageOutputIgnoresVectorContentType'",
+          "first_bytes": "[255 216 255 224 0 16 74 70]",
+          "image_format": "'jpg'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-pdf",
+      "description": "pdf by extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.pdf']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[37 80 68 70 45 49 46 52]",
+          "image_format": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-eps",
+      "description": "eps by extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.eps']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[37 33 80 83 45 65 100 111]",
+          "image_format": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fmt-upper",
+      "description": "upper-case extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.PNG']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-ext-unknown",
+      "description": "unrecognised extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.xyz']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": true,
+      "error_identifier": "MATLAB:print:InvalidFileFormatForExport"
+    },
+    {
+      "case_id": "err-ext-none",
+      "description": "no extension",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '']; exportgraphics(gca, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": true,
+      "error_identifier": "MATLAB:print:OutputFileNeedsNameAndExtension"
+    },
+    {
+      "case_id": "res-100",
+      "description": "png at Resolution 100",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn, 'Resolution', 100); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "366",
+          "height": "292"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "res-200",
+      "description": "png at Resolution 200",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn, 'Resolution', 200); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "727",
+          "height": "575"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "target-figure",
+      "description": "figure handle as target",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(f, fn); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "content-vector",
+      "description": "pdf with ContentType vector",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.pdf']; exportgraphics(gca, fn, 'ContentType', 'vector'); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[37 80 68 70 45 49 46 52]",
+          "image_format": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "content-image",
+      "description": "pdf with ContentType image",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.pdf']; exportgraphics(gca, fn, 'ContentType', 'image'); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "''",
+          "first_bytes": "[37 80 68 70 45 49 46 52]",
+          "image_format": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "content-png-vector",
+      "description": "png with ContentType vector",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn, 'ContentType', 'vector'); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "'MATLAB:print:ImageOutputIgnoresVectorContentType'",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "background",
+      "description": "png with BackgroundColor none",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn, 'BackgroundColor', 'none'); report isfile, warning identifier (lastwarn), first bytes and image size; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "warning_id": "'MATLAB:print:ReplacingTransparentBackgroundWithDefaultColor'",
+          "first_bytes": "[137 80 78 71 13 10 26 10]",
+          "image_format": "'png'",
+          "width": "546",
+          "height": "434"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "append-pdf",
+      "description": "Append true to an existing pdf grows the file",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.pdf']; exportgraphics(gca, fn); n1 = file size; exportgraphics(gca, fn, 'Append', true); n2 = file size; report n2 > n1; delete fn",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "append-png",
+      "description": "Append true with a png target",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn); exportgraphics(gca, fn, 'Append', true); delete fn",
+      "errored": true,
+      "error_identifier": "MATLAB:print:UnsupportedAppendValue"
+    },
+    {
+      "case_id": "overwrite",
+      "description": "a second export of different content to the same png path replaces the file",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; exportgraphics(gca, fn); b1 = file bytes; cla; plot([3 1 2]); exportgraphics(gca, fn); b2 = file bytes; report isfile and ~isequal(b1, b2); delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "isfile": "true",
+          "changed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-folder",
+      "description": "target folder does not exist",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); exportgraphics(gca, fullfile(tempname, 'sub', 'x.png'))",
+      "errored": true,
+      "error_identifier": "MATLAB:print:CannotCreateOutputFile"
+    },
+    {
+      "case_id": "err-not-graphics",
+      "description": "first argument is not a graphics object",
+      "call": "exportgraphics(42, [tempname '.png'])",
+      "errored": true,
+      "error_identifier": "MATLAB:print:GraphicsHandleMustBeFirst"
+    },
+    {
+      "case_id": "output-arg",
+      "description": "requesting an output argument",
+      "call": "f = figure('Visible','off','Units','pixels','Position',[100 100 400 300]); plot(1:3); fn = [tempname '.png']; y = exportgraphics(gca, fn); delete fn",
+      "errored": true,
+      "error_identifier": "MATLAB:TooManyOutputs"
+    }
+  ]
+}

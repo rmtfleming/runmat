@@ -1,0 +1,142 @@
+# Provenance for dec2base (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: dec2base
+claims:
+- claim_id: dec2base.signature-primary
+  statement: The invocation form `str = dec2base(d, base)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: base2
+- claim_id: dec2base.output-class
+  statement: The output is a char array.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: base2
+  - file: observations/dec2base_observations.json
+    case_id: vector
+- claim_id: dec2base.digits
+  statement: 'Digits above 9 are upper-case letters: 23 in base 2 gave ''10111'', in base 3 ''212''; 255
+    in base 16 gave ''FF''; 200 in base 16 gave ''C8''; 35 in base 36 gave ''Z''.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: base2
+  - file: observations/dec2base_observations.json
+    case_id: base3
+  - file: observations/dec2base_observations.json
+    case_id: base16
+  - file: observations/dec2base_observations.json
+    case_id: uint8
+  - file: observations/dec2base_observations.json
+    case_id: base36-z
+- claim_id: dec2base.zero
+  statement: 0 gives '0'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: zero
+- claim_id: dec2base.padding
+  statement: n pads with leading zeros to at least n digits ('00000101'); n smaller than needed does not
+    truncate ('11111111').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: pad
+  - file: observations/dec2base_observations.json
+    case_id: pad-short
+- claim_id: dec2base.vector
+  statement: Several values give one row per element, padded with leading zeros to a common width, for
+    both a column vector ([1;10;100] in base 10 gave ['001';'010';'100']) and a row vector ([1 2 3] in
+    base 2 gave ['01';'10';'11']).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: vector
+  - file: observations/dec2base_observations.json
+    case_id: row-vector
+  - file: observations/dec2base_observations.json
+    case_id: base36
+- claim_id: dec2base.integer-class
+  statement: Integer-class input is accepted (uint8(200) in base 16 gave 'C8').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: uint8
+- claim_id: dec2base.large
+  statement: The double 2^52 in base 16 gave '10000000000000'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: large
+- claim_id: dec2base.error-negative
+  statement: d is negative or not an integer. The call errors with identifier MATLAB:dec2base:FirstArg.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: err-negative
+  - file: observations/dec2base_observations.json
+    case_id: err-fraction
+- claim_id: dec2base.error-base1
+  statement: base is 1 or 37 (outside 2-36), or the two-character char array 'ab'. The call errors with
+    identifier MATLAB:dec2base:SecondArg.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/dec2base_observations.json
+    case_id: err-base1
+  - file: observations/dec2base_observations.json
+    case_id: err-base37
+  - file: observations/dec2base_observations.json
+    case_id: err-symbols

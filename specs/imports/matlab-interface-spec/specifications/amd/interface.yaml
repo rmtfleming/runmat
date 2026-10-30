@@ -1,0 +1,107 @@
+# Interface specification for amd (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: amd
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a fill-reducing symmetric ordering (permutation vector) of a square matrix.
+invocation_forms:
+- signature: p = amd(A)
+  description: Approximate minimum degree permutation of square A.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Square matrix, sparse or full.
+  status: confirmed
+outputs:
+- name: p
+  description: 1-by-n double row vector that is a permutation of 1:n.
+  status: confirmed
+output_type_rules:
+- id: amd.output-class-rule
+  statement: The output is a double row vector of size 1-by-n.
+  status: confirmed
+  normative: true
+  provenance: amd.output-class
+  observations:
+  - file: observations/amd_observations.json
+    case_id: perm
+  - file: observations/amd_observations.json
+    case_id: class
+  - file: observations/amd_observations.json
+    case_id: diag
+output_shape_rules:
+- id: amd.permutation-rule
+  statement: The output is a permutation of 1:n for every observed square input (5x5 banded, 4x4 arrow,
+    3x3 diagonal).
+  status: confirmed
+  normative: true
+  provenance: amd.permutation
+  observations:
+  - file: observations/amd_observations.json
+    case_id: perm
+  - file: observations/amd_observations.json
+    case_id: arrow
+  - file: observations/amd_observations.json
+    case_id: diag
+- id: amd.dense-input-rule
+  statement: Full input gave the same permutation as the equivalent sparse input (4x4 arrow).
+  status: confirmed
+  normative: true
+  provenance: amd.dense-input
+  observations:
+  - file: observations/amd_observations.json
+    case_id: arrow
+  - file: observations/amd_observations.json
+    case_id: dense-input
+- id: amd.trivial-sizes-rule
+  statement: 0x0 input gives a 1x0 empty double; 1x1 input gives 1.
+  status: confirmed
+  normative: true
+  provenance: amd.trivial-sizes
+  observations:
+  - file: observations/amd_observations.json
+    case_id: empty
+  - file: observations/amd_observations.json
+    case_id: scalar
+numerical_edge_cases:
+- id: amd.specific-orderings-rule
+  statement: The specific orderings observed ([5 4 1 2 3] for the 5x5 banded matrix, [4 3 2 1] for the
+    arrow, [1 2 3] for the diagonal) are recorded for reference; only the permutation property is required.
+  status: confirmed
+  normative: false
+  provenance: amd.specific-orderings
+  observations:
+  - file: observations/amd_observations.json
+    case_id: perm
+  - file: observations/amd_observations.json
+    case_id: arrow
+  - file: observations/amd_observations.json
+    case_id: diag
+warnings: []
+errors:
+- condition: A is not square.
+  identifier: MATLAB:square
+  status: confirmed
+  provenance: amd.error-nonsquare
+  observations:
+  - file: observations/amd_observations.json
+    case_id: err-nonsquare
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/amd_observations.json
+  description: 8 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: amd.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: amd.q-more-args
+  question: Forms with arguments beyond A were not exercised.
+- id: amd.q-ordering
+  question: Whether conforming implementations must reproduce the exact ordering is a human-review question
+    (constitution 8.2); the spec requires only a valid permutation.

@@ -1,0 +1,240 @@
+{
+  "schema_version": "1.0",
+  "function_name": "rmnode",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/rmnode/test_rmnode_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one",
+      "description": "remove node 2 from path 1-2-3-4",
+      "call": "G = rmnode(graph([1 2 3], [2 3 4]), 2); report class, numnodes, numedges, EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "1",
+          "EndNodes": "[2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "several",
+      "description": "remove nodes [1 4]",
+      "call": "G = rmnode(graph([1 2 3], [2 3 4]), [1 4]); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "1",
+          "EndNodes": "[1 2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "named",
+      "description": "remove a named node",
+      "call": "G = rmnode(graph({'a','b','c'}, {'b','c','a'}), 'b'); report as for one plus node names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "1",
+          "EndNodes": [
+            "'a'",
+            "'c'"
+          ],
+          "NodeNames": [
+            "'a'",
+            "'c'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "weighted",
+      "description": "weights of remaining edges are kept",
+      "call": "G = rmnode(graph([1 2 3], [2 3 4], [10 20 30]), 3); report as for one plus Weight",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "1",
+          "EndNodes": "[1 2]",
+          "Weight": "10"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph",
+      "description": "remove a node from a digraph",
+      "call": "G = rmnode(digraph([1 2 3], [2 3 1]), 1); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "2",
+          "numedges": "1",
+          "EndNodes": "[1 2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "isolated",
+      "description": "remove an isolated node",
+      "call": "G = rmnode(graph(1, 2, 1, 3), 3); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "1",
+          "EndNodes": "[1 2]",
+          "Weight": "1"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-list",
+      "description": "empty node list",
+      "call": "G = rmnode(graph([1 2 3], [2 3 4]), []); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "4",
+          "numedges": "3",
+          "EndNodes": "[1 2;2 3;3 4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "all",
+      "description": "remove every node",
+      "call": "G = rmnode(graph([1 2 3], [2 3 4]), 1:4); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "0",
+          "numedges": "0",
+          "EndNodes": "zeros(0,2)"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "out-of-range",
+      "description": "node index beyond numnodes",
+      "call": "G = rmnode(graph([1 2 3], [2 3 4]), 7); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "4",
+          "numedges": "3",
+          "EndNodes": "[1 2;2 3;3 4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unknown-name",
+      "description": "unknown node name",
+      "call": "G = rmnode(graph({'a','b'}, {'b','a'}), 'z'); report as for one plus node names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "2",
+          "EndNodes": [
+            "'a'",
+            "'a'",
+            "'b'",
+            "'b'"
+          ],
+          "NodeNames": [
+            "'a'",
+            "'b'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

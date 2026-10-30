@@ -1,0 +1,134 @@
+# Interface specification for rmedge (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: rmedge
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a graph or digraph with the specified edges removed; nodes are kept.
+invocation_forms:
+- signature: H = rmedge(G, s, t)
+  description: Remove edges between s(i) and t(i).
+  status: confirmed
+- signature: H = rmedge(G, idx)
+  description: Remove edges by index into the edge list.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: graph or digraph.
+  status: confirmed
+- name: s
+  position: 2
+  required: true
+  description: Source nodes, or edge indices in the two-argument form.
+  status: confirmed
+- name: t
+  position: 3
+  required: false
+  description: Target nodes.
+  status: confirmed
+outputs:
+- name: H
+  description: Graph of the same class without the edges.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: rmedge.by-endpoints-rule
+  statement: Removing by endpoints deletes the matching edge; for graphs the endpoint order does not matter
+    (2,3 and 3,2 both removed edge 2-3).
+  status: confirmed
+  normative: true
+  provenance: rmedge.by-endpoints
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: endpoints
+  - file: observations/rmedge_observations.json
+    case_id: reversed
+- id: rmedge.by-index-rule
+  statement: With two arguments the second is a vector of edge indices ([1 3] on path 1-2-3-4 left edge
+    [2 3]).
+  status: confirmed
+  normative: true
+  provenance: rmedge.by-index
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: index
+- id: rmedge.multigraph-rule
+  statement: Removing by endpoints in a multigraph removes every parallel edge between them (two 1-2 edges
+    both removed).
+  status: confirmed
+  normative: true
+  provenance: rmedge.multigraph
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: multigraph
+- id: rmedge.digraph-direction-rule
+  statement: 'For digraphs direction matters: removing 2->1 when only 1->2 exists left the graph unchanged;
+    removing 1->2 removed it.'
+  status: confirmed
+  normative: true
+  provenance: rmedge.digraph-direction
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: digraph-direction
+  - file: observations/rmedge_observations.json
+    case_id: digraph
+- id: rmedge.absent-rule
+  statement: Endpoints with no edge between them leave the graph unchanged, without error.
+  status: confirmed
+  normative: true
+  provenance: rmedge.absent
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: absent
+  - file: observations/rmedge_observations.json
+    case_id: digraph-direction
+- id: rmedge.keeps-nodes-rule
+  statement: Nodes were not removed, including a node that lost its last edge.
+  status: confirmed
+  normative: true
+  provenance: rmedge.keeps-nodes
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: keeps-nodes
+  - file: observations/rmedge_observations.json
+    case_id: endpoints
+- id: rmedge.weights-rule
+  statement: Remaining edges keep their weights.
+  status: confirmed
+  normative: true
+  provenance: rmedge.weights
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: weighted
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: An edge index exceeds numedges.
+  identifier: MATLAB:graphfun:findedge:EdgeBounds
+  status: confirmed
+  provenance: rmedge.error-index-range
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: err-index-range
+- condition: A node index exceeds numnodes.
+  identifier: MATLAB:graphfun:graph:InvalidNodeID
+  status: confirmed
+  provenance: rmedge.error-node-range
+  observations:
+  - file: observations/rmedge_observations.json
+    case_id: err-node-range
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/rmedge_observations.json
+  description: 11 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: rmedge.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: rmedge.q-graph-variables
+  question: Graphs with extra node or edge variables (beyond Name and Weight) were not exercised.

@@ -1,0 +1,427 @@
+{
+  "schema_version": "1.0",
+  "function_name": "stack",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/stack/test_stack_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "stack two variables",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), {'x','y'})",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "id",
+            "x_y_Indicator",
+            "x_y"
+          ],
+          "variables": [
+            {
+              "name": "id",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;1;2;2]"
+            },
+            {
+              "name": "x_y_Indicator",
+              "class": "categorical",
+              "size": [
+                4,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "x",
+                  "y",
+                  "x",
+                  "y"
+                ],
+                "categories": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            {
+              "name": "x_y",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;30;20;40]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "indicator",
+      "description": "class and categories of the indicator variable",
+      "call": "S = stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), {'x','y'}); report class and string values of the indicator variable",
+      "errored": false,
+      "result": {
+        "value": {
+          "names": [
+            "'id'",
+            "'x_y_Indicator'",
+            "'x_y'"
+          ],
+          "class": "'categorical'",
+          "values": [
+            "'x'",
+            "'y'",
+            "'x'",
+            "'y'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "by-index",
+      "description": "variables given by index",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), [2 3])",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "id",
+            "x_y_Indicator",
+            "x_y"
+          ],
+          "variables": [
+            {
+              "name": "id",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;1;2;2]"
+            },
+            {
+              "name": "x_y_Indicator",
+              "class": "categorical",
+              "size": [
+                4,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "x",
+                  "y",
+                  "x",
+                  "y"
+                ],
+                "categories": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            {
+              "name": "x_y",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;30;20;40]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "new-names",
+      "description": "NewDataVariableName and IndexVariableName",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), {'x','y'}, 'NewDataVariableName', 'val', 'IndexVariableName', 'which')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "id",
+            "which",
+            "val"
+          ],
+          "variables": [
+            {
+              "name": "id",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[1;1;2;2]"
+            },
+            {
+              "name": "which",
+              "class": "categorical",
+              "size": [
+                4,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "x",
+                  "y",
+                  "x",
+                  "y"
+                ],
+                "categories": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            {
+              "name": "val",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;30;20;40]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "constant",
+      "description": "ConstantVariables limits the carried variables",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), {'x','y'}, 'ConstantVariables', {})",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "x_y_Indicator",
+            "x_y"
+          ],
+          "variables": [
+            {
+              "name": "x_y_Indicator",
+              "class": "categorical",
+              "size": [
+                4,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "x",
+                  "y",
+                  "x",
+                  "y"
+                ],
+                "categories": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            {
+              "name": "x_y",
+              "class": "double",
+              "size": [
+                4,
+                1
+              ],
+              "value": "[10;30;20;40]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          4,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "three-vars",
+      "description": "stack three variables",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], [50; 60], 'VariableNames', {'id','x','y','z'}), {'x','y','z'})",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "id",
+            "x_y_z_Indicator",
+            "x_y_z"
+          ],
+          "variables": [
+            {
+              "name": "id",
+              "class": "double",
+              "size": [
+                6,
+                1
+              ],
+              "value": "[1;1;1;2;2;2]"
+            },
+            {
+              "name": "x_y_z_Indicator",
+              "class": "categorical",
+              "size": [
+                6,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "x",
+                  "y",
+                  "z",
+                  "x",
+                  "y",
+                  "z"
+                ],
+                "categories": [
+                  "x",
+                  "y",
+                  "z"
+                ]
+              }
+            },
+            {
+              "name": "x_y_z",
+              "class": "double",
+              "size": [
+                6,
+                1
+              ],
+              "value": "[10;30;50;20;40;60]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          6,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-var",
+      "description": "stack a single variable",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), 'x')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "id",
+            "y",
+            "x_Indicator",
+            "x"
+          ],
+          "variables": [
+            {
+              "name": "id",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "y",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[30;40]"
+            },
+            {
+              "name": "x_Indicator",
+              "class": "categorical",
+              "size": [
+                2,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "x",
+                  "x"
+                ],
+                "categories": [
+                  "x"
+                ]
+              }
+            },
+            {
+              "name": "x",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;20]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-unknown",
+      "description": "unknown variable name",
+      "call": "stack(table([1; 2], [10; 20], [30; 40], 'VariableNames', {'id','x','y'}), {'x','nope'})",
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-class-mix",
+      "description": "variables of different classes",
+      "call": "stack(table([1; 2], {'a'; 'b'}, 'VariableNames', {'x','y'}), {'x','y'})",
+      "errored": true,
+      "error_identifier": "MATLAB:table:stack:InterleavingDataVarsFailed"
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+# Provenance for symbfact (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: symbfact
+claims:
+- claim_id: symbfact.signature-primary
+  statement: The invocation form `count = symbfact(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+- claim_id: symbfact.output-class
+  statement: count is a 1-by-n double row vector.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+  - file: observations/symbfact_observations.json
+    case_id: class
+- claim_id: symbfact.counts
+  statement: 'count(j) is the number of nonzeros in row j of the returned upper-triangular factor pattern
+    R (column j of R''), including the diagonal: 4x4 tridiagonal gave [2 2 2 1]; the arrow matrix with
+    the dense row/column first gave [4 3 2 1] (fill-in); with the dense row/column last it gave [2 2 2
+    1]; the 3x3 diagonal gave [1 1 1]; the 5x5 matrix with corner entries gave [3 3 3 2 1].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+  - file: observations/symbfact_observations.json
+    case_id: arrow
+  - file: observations/symbfact_observations.json
+    case_id: arrow-reversed
+  - file: observations/symbfact_observations.json
+    case_id: diag
+  - file: observations/symbfact_observations.json
+    case_id: class
+  - file: observations/symbfact_observations.json
+    case_id: outputs
+- claim_id: symbfact.outputs
+  statement: For the 4x4 arrow matrix the extra outputs were h = 4, parent = [2 3 4 0], post = [1 2 3
+    4], and R a sparse upper-triangular all-ones pattern.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: outputs
+- claim_id: symbfact.dense-input
+  statement: Full input gave the same counts as sparse input.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: dense-input
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+- claim_id: symbfact.col
+  statement: '''col'' accepts a non-square matrix: [1 0; 1 1; 0 1] gave [2 1].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: col
+- claim_id: symbfact.error-nonsquare
+  statement: A is not square and 'col' is not given. The call errors with identifier MATLAB:symbfact:InvalidInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/symbfact_observations.json
+    case_id: err-nonsquare

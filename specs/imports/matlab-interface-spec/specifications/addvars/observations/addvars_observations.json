@@ -5,8 +5,8 @@
   "version_string": "26.1.0.3276743 (R2026a) Update 3",
   "platform": "GLNXA64",
   "generated_by": "experiments/addvars/test_addvars_interface.m",
-  "date": "2026-07-22",
-  "notes": "SKELETON run: values via describe_value; multi-output forms record only the first output.",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (tables: variable names plus per-variable class, size and value); errors record the identifier only.",
   "cases": [
     {
       "case_id": "append",
@@ -14,7 +14,32 @@
       "call": "addvars(array2table([1; 2], 'VariableNames', {'a'}), [3; 4])",
       "errored": false,
       "result": {
-        "value": "<table [2 2]>",
+        "value": {
+          "variable_names": [
+            "a",
+            "Var2"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "Var2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            }
+          ]
+        },
         "class": "table",
         "size": [
           2,
@@ -23,6 +48,929 @@
         "isreal": false,
         "issparse": false
       }
+    },
+    {
+      "case_id": "append-full",
+      "description": "append to a two-variable table (contents and default name)",
+      "call": "addvars(T, [5; 6])",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "Var3"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "Var3",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "name-from-input",
+      "description": "appended variable passed as a named workspace variable",
+      "call": "x = [5; 6]; addvars(T, x)",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "x"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "x",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "before-name",
+      "description": "place new variable before a named variable",
+      "call": "addvars(T, [5; 6], 'Before', 'a')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "Var1",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "Var1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "after-name",
+      "description": "place new variable after a named variable",
+      "call": "addvars(T, [5; 6], 'After', 'a')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "Var2",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "Var2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "before-index",
+      "description": "place new variable before variable index 2",
+      "call": "addvars(T, [5; 6], 'Before', 2)",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "Var2",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "Var2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "after-index",
+      "description": "place new variable after variable index 2 (the last)",
+      "call": "addvars(T, [5; 6], 'After', 2)",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "Var3"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "Var3",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "newname-char",
+      "description": "NewVariableNames as a char row",
+      "call": "addvars(T, [5; 6], 'NewVariableNames', 'z')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "newname-cell",
+      "description": "NewVariableNames as a 1x1 cellstr",
+      "call": "addvars(T, [5; 6], 'NewVariableNames', {'z'})",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "newname-string",
+      "description": "NewVariableNames as a string scalar",
+      "call": "addvars(T, [5; 6], 'NewVariableNames', \"z\")",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multi-names",
+      "description": "two new variables with two names",
+      "call": "addvars(T, [5; 6], [7; 8], 'NewVariableNames', {'y','z'})",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "y",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "y",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[7;8]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multi-default",
+      "description": "two new variables, default names",
+      "call": "addvars(T, [5; 6], [7; 8])",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "Var3",
+            "Var4"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "Var3",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            },
+            {
+              "name": "Var4",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[7;8]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          4
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names-and-before",
+      "description": "NewVariableNames combined with Before",
+      "call": "addvars(T, [5; 6], 'Before', 'b', 'NewVariableNames', 'z')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "z",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multicol",
+      "description": "a two-column matrix becomes one variable",
+      "call": "addvars(T, [5 7; 6 8], 'NewVariableNames', 'z')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                2
+              ],
+              "value": "[5 7;6 8]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cellstr-var",
+      "description": "append a cellstr column",
+      "call": "addvars(T, {'p'; 'q'}, 'NewVariableNames', 'z')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "z",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'p'",
+                "'q'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-before-and-after",
+      "description": "Before and After together",
+      "call": "addvars(T, [5; 6], 'Before', 'a', 'After', 'b')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:addmovevars:BeforeAndAfter"
+    },
+    {
+      "case_id": "err-rows",
+      "description": "row-count mismatch",
+      "call": "addvars(T, [5; 6; 7])",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:RowDimensionMismatch"
+    },
+    {
+      "case_id": "err-dup-name",
+      "description": "NewVariableNames duplicates an existing name",
+      "call": "addvars(T, [5; 6], 'NewVariableNames', 'a')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:DuplicateVarNames"
+    },
+    {
+      "case_id": "err-names-count",
+      "description": "fewer names than new variables",
+      "call": "addvars(T, [5; 6], [7; 8], 'NewVariableNames', 'z')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:addmovevars:IncorrectNumberOfVarNames"
+    },
+    {
+      "case_id": "err-bad-location",
+      "description": "Before names a variable that does not exist",
+      "call": "addvars(T, [5; 6], 'Before', 'nope')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-index-range",
+      "description": "After index beyond the variable count",
+      "call": "addvars(T, [5; 6], 'After', 3)",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:VarIndexOutOfRange"
+    },
+    {
+      "case_id": "before-past-end",
+      "description": "Before index one past the variable count",
+      "call": "addvars(T, [5; 6], 'Before', 3)",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "Var3"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            },
+            {
+              "name": "Var3",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-location-after",
+      "description": "After names a variable that does not exist",
+      "call": "addvars(T, [5; 6], 'After', 'nope')",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-rows-fewer",
+      "description": "data with fewer rows than the table",
+      "call": "addvars(T, 5)",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:RowDimensionMismatch"
+    },
+    {
+      "case_id": "err-names-too-many",
+      "description": "more names than new variables",
+      "call": "addvars(T, [5; 6], 'NewVariableNames', {'y','z'})",
+      "inputs": {
+        "setup": "T = array2table([1 2; 3 4], 'VariableNames', {'a','b'})"
+      },
+      "errored": true,
+      "error_identifier": "MATLAB:table:addmovevars:IncorrectNumberOfVarNames"
     }
   ]
 }

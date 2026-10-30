@@ -1,0 +1,123 @@
+# Interface specification for rmnode (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: rmnode
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a graph or digraph with the specified nodes and all their incident edges removed.
+invocation_forms:
+- signature: H = rmnode(G, nodeIDs)
+  description: Remove nodes given by index or name.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: graph or digraph.
+  status: confirmed
+- name: nodeIDs
+  position: 2
+  required: true
+  description: Node indices or node names.
+  status: confirmed
+outputs:
+- name: H
+  description: Graph of the same class with the nodes removed.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: rmnode.removes-rule
+  statement: 'The nodes and every edge touching them are removed and the remaining nodes are renumbered
+    consecutively in their original order: removing node 2 from path 1-2-3-4 left 3 nodes and the single
+    edge [2 3] (formerly 3-4); removing [1 4] left 2 nodes and edge [1 2].'
+  status: confirmed
+  normative: true
+  provenance: rmnode.removes
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: one
+  - file: observations/rmnode_observations.json
+    case_id: several
+- id: rmnode.class-rule
+  statement: The result keeps the input class (graph or digraph).
+  status: confirmed
+  normative: true
+  provenance: rmnode.class
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: one
+  - file: observations/rmnode_observations.json
+    case_id: digraph
+- id: rmnode.named-rule
+  statement: Named nodes can be removed by name; the remaining names are kept (removing 'b' from a,b,c
+    left a and c with edge a-c).
+  status: confirmed
+  normative: true
+  provenance: rmnode.named
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: named
+- id: rmnode.weights-rule
+  statement: Remaining edges keep their weights.
+  status: confirmed
+  normative: true
+  provenance: rmnode.weights
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: weighted
+  - file: observations/rmnode_observations.json
+    case_id: isolated
+- id: rmnode.empty-list-rule
+  statement: An empty node list returns the graph unchanged.
+  status: confirmed
+  normative: true
+  provenance: rmnode.empty-list
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: empty-list
+- id: rmnode.all-rule
+  statement: Removing every node gives a graph with 0 nodes and 0 edges.
+  status: confirmed
+  normative: true
+  provenance: rmnode.all
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: all
+- id: rmnode.isolated-rule
+  statement: Removing an isolated node reduces numnodes and leaves the edges unchanged.
+  status: confirmed
+  normative: true
+  provenance: rmnode.isolated
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: isolated
+numerical_edge_cases:
+- id: rmnode.ignored-ids-rule
+  statement: 'Observed: a node index beyond numnodes (7 on a 4-node graph) and an unknown node name (''z'')
+    did not error and returned the graph unchanged.'
+  status: confirmed
+  normative: false
+  provenance: rmnode.ignored-ids
+  observations:
+  - file: observations/rmnode_observations.json
+    case_id: out-of-range
+  - file: observations/rmnode_observations.json
+    case_id: unknown-name
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/rmnode_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: rmnode.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: rmnode.q-graph-variables
+  question: Graphs with extra node or edge variables (beyond Name and Weight) were not exercised.
+- id: rmnode.q-ignored-ids
+  question: 'Flagged for human review (constitution 8.2): whether out-of-range or unknown node identifiers
+    should be silently ignored (cases out-of-range, unknown-name) or rejected by conforming implementations.'

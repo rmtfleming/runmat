@@ -1,0 +1,418 @@
+# Interface specification for validateattributes (widened 2026-10-29, Tier B W2; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: validateattributes
+spec_version: 0.3.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Check that an input has one of the listed classes and satisfies every listed attribute; error
+  if not, return nothing if so.
+invocation_forms:
+- signature: validateattributes(A, classes, attributes)
+  description: Validate A against a class list and an attribute list.
+  status: confirmed
+- signature: validateattributes(A, classes, attributes, funcName, varName)
+  description: As above, with funcName (used in the error identifier) and varName (accepted).
+  status: confirmed
+- signature: validateattributes(A, classes, attributes, funcName, varName, argIndex)
+  description: As above, with argIndex (accepted).
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Value to validate.
+  status: confirmed
+- name: classes
+  position: 2
+  required: true
+  description: Cell array of class names; A must match one.
+  status: confirmed
+- name: attributes
+  position: 3
+  required: true
+  description: Cell array of attribute names, some followed by a value ('>', '>=', '<', '<=', 'numel',
+    'size', 'ncols', 'nrows', 'ndims').
+  status: confirmed
+- name: funcName
+  position: 4
+  required: false
+  description: Function name; changes the error identifier's middle component.
+  status: confirmed
+- name: varName
+  position: 5
+  required: false
+  description: Variable name; accepted (its effect on the error message was not recorded).
+  status: confirmed
+- name: argIndex
+  position: 6
+  required: false
+  description: Argument position; accepted (its effect on the error message was not recorded).
+  status: confirmed
+outputs: []
+output_type_rules: []
+output_shape_rules:
+- id: validateattributes.pass-silent-rule
+  statement: When A satisfies the classes and attributes, the call returns without error and without a
+    warning.
+  status: confirmed
+  normative: true
+  provenance: validateattributes.pass-silent
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: pass
+  - file: observations/validateattributes_observations.json
+    case_id: pass-empty-attrs
+  - file: observations/validateattributes_observations.json
+    case_id: pass-row
+  - file: observations/validateattributes_observations.json
+    case_id: pass-positive
+  - file: observations/validateattributes_observations.json
+    case_id: pass-gt
+  - file: observations/validateattributes_observations.json
+    case_id: pass-size-nan
+  - file: observations/validateattributes_observations.json
+    case_id: pass-extra-args
+- id: validateattributes.class-list-rule
+  statement: 'A passes the class check if its class matches any listed class: single matched {''double'',''single''};
+    char, logical, cell, struct and function_handle matched their own class names.'
+  status: confirmed
+  normative: true
+  provenance: validateattributes.class-list
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-list
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-char
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-logical
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-cell
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-struct
+  - file: observations/validateattributes_observations.json
+    case_id: pass-class-fh
+- id: validateattributes.empty-attributes-rule
+  statement: An empty attribute list imposes no attribute checks.
+  status: confirmed
+  normative: true
+  provenance: validateattributes.empty-attributes
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: pass-empty-attrs
+- id: validateattributes.attribute-semantics-rule
+  statement: '''integer'' accepts integer-valued doubles; ''nonnegative'' accepts zero; ''nondecreasing''
+    accepts repeated values while ''increasing'' does not; ''>'' is strict and ''>='' inclusive; NaN in
+    a ''size'' vector matches any extent.'
+  status: confirmed
+  normative: true
+  provenance: validateattributes.attribute-semantics
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: pass-integer-double
+  - file: observations/validateattributes_observations.json
+    case_id: pass-nonnegative
+  - file: observations/validateattributes_observations.json
+    case_id: pass-nondecreasing
+  - file: observations/validateattributes_observations.json
+    case_id: fail-increasing
+  - file: observations/validateattributes_observations.json
+    case_id: fail-gt
+  - file: observations/validateattributes_observations.json
+    case_id: pass-ge
+  - file: observations/validateattributes_observations.json
+    case_id: pass-size-nan
+- id: validateattributes.each-attribute-checked-rule
+  statement: 'Every listed attribute is enforced: with {''scalar'',''positive''}, [1 2] failed on ''scalar''
+    and -1 failed on ''positive''.'
+  status: confirmed
+  normative: true
+  provenance: validateattributes.each-attribute-checked
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-first-of-two
+  - file: observations/validateattributes_observations.json
+    case_id: fail-second-of-two
+- id: validateattributes.funcname-identifier-rule
+  statement: With funcName given, the error identifier has funcName as its middle component (MATLAB:myfun:expectedScalar,
+    MATLAB:myfun:invalidType).
+  status: confirmed
+  normative: true
+  provenance: validateattributes.funcname-identifier
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-args
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-varname
+numerical_edge_cases: []
+warnings:
+- condition: An attribute name is not recognised; the call returns without error.
+  identifier: MATLAB:validateattributes:attributeNotFound
+  status: confirmed
+  provenance: validateattributes.warning-unknown-attribute
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: unknown-attribute
+errors:
+- condition: A's class is not in the class list.
+  identifier: MATLAB:invalidType
+  status: confirmed
+  provenance: validateattributes.error-fail-type
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-type
+  - file: observations/validateattributes_observations.json
+    case_id: fail-class-list
+- condition: The class list is empty ({}) (observed with the char input 'x').
+  identifier: MATLAB:invalidType
+  status: confirmed
+  provenance: validateattributes.error-empty-class-list
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: empty-class-list
+- condition: '''scalar'' and A is not 1x1.'
+  identifier: MATLAB:expectedScalar
+  status: confirmed
+  provenance: validateattributes.error-fail-scalar
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-scalar
+- condition: '''vector'' and A is a matrix.'
+  identifier: MATLAB:expectedVector
+  status: confirmed
+  provenance: validateattributes.error-fail-vector
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-vector
+- condition: '''row'' and A is a column.'
+  identifier: MATLAB:expectedRow
+  status: confirmed
+  provenance: validateattributes.error-fail-row
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-row
+- condition: '''column'' and A is a row.'
+  identifier: MATLAB:expectedColumn
+  status: confirmed
+  provenance: validateattributes.error-fail-column
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-column
+- condition: '''2d'' and A is 3-D.'
+  identifier: MATLAB:expected2D
+  status: confirmed
+  provenance: validateattributes.error-fail-2d
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-2d
+- condition: '''nonempty'' and A is empty.'
+  identifier: MATLAB:expectedNonempty
+  status: confirmed
+  provenance: validateattributes.error-fail-nonempty
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonempty
+- condition: '''square'' and A is not square.'
+  identifier: MATLAB:expectedSquare
+  status: confirmed
+  provenance: validateattributes.error-fail-square
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-square
+- condition: '''positive'' and A contains a value that is not positive (0 and -1 observed).'
+  identifier: MATLAB:expectedPositive
+  status: confirmed
+  provenance: validateattributes.error-fail-positive
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-positive
+  - file: observations/validateattributes_observations.json
+    case_id: fail-second-of-two
+- condition: '''nonnegative'' and A contains a negative value.'
+  identifier: MATLAB:expectedNonnegative
+  status: confirmed
+  provenance: validateattributes.error-fail-nonnegative
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonnegative
+- condition: '''integer'' and A contains a non-integer value.'
+  identifier: MATLAB:expectedInteger
+  status: confirmed
+  provenance: validateattributes.error-fail-integer
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-integer
+- condition: '''finite'' and A contains Inf.'
+  identifier: MATLAB:expectedFinite
+  status: confirmed
+  provenance: validateattributes.error-fail-finite
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-finite
+- condition: '''nonnan'' and A contains NaN.'
+  identifier: MATLAB:expectedNonNaN
+  status: confirmed
+  provenance: validateattributes.error-fail-nonnan
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonnan
+- condition: '''real'' and A is complex.'
+  identifier: MATLAB:expectedReal
+  status: confirmed
+  provenance: validateattributes.error-fail-real
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-real
+- condition: '''nonzero'' and A contains zero.'
+  identifier: MATLAB:expectedNonZero
+  status: confirmed
+  provenance: validateattributes.error-fail-nonzero
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonzero
+- condition: '''nonsparse'' and A is sparse.'
+  identifier: MATLAB:expectedNonsparse
+  status: confirmed
+  provenance: validateattributes.error-fail-nonsparse
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonsparse
+- condition: '''binary'' and A contains a value other than 0 or 1.'
+  identifier: MATLAB:expectedBinary
+  status: confirmed
+  provenance: validateattributes.error-fail-binary
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-binary
+- condition: '''even'' and A is odd.'
+  identifier: MATLAB:expectedEven
+  status: confirmed
+  provenance: validateattributes.error-fail-even
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-even
+- condition: '''odd'' and A is even.'
+  identifier: MATLAB:expectedOdd
+  status: confirmed
+  provenance: validateattributes.error-fail-odd
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-odd
+- condition: '''increasing'' and A has a repeated value.'
+  identifier: MATLAB:expectedIncreasing
+  status: confirmed
+  provenance: validateattributes.error-fail-increasing
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-increasing
+- condition: '''decreasing'' and A increases.'
+  identifier: MATLAB:expectedDecreasing
+  status: confirmed
+  provenance: validateattributes.error-fail-decreasing
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-decreasing
+- condition: '''nonincreasing'' and A increases.'
+  identifier: MATLAB:expectedNonincreasing
+  status: confirmed
+  provenance: validateattributes.error-fail-nonincreasing
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nonincreasing
+- condition: '''>'', b and A contains a value equal to b.'
+  identifier: MATLAB:notGreater
+  status: confirmed
+  provenance: validateattributes.error-fail-gt
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-gt
+- condition: '''>='', b and A contains a value below b.'
+  identifier: MATLAB:notGreaterEqual
+  status: confirmed
+  provenance: validateattributes.error-fail-ge
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-ge
+- condition: '''<'', b and A contains a value equal to b.'
+  identifier: MATLAB:notLess
+  status: confirmed
+  provenance: validateattributes.error-fail-lt
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-lt
+- condition: '''<='', b and A contains a value above b.'
+  identifier: MATLAB:notLessEqual
+  status: confirmed
+  provenance: validateattributes.error-fail-le
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-le
+- condition: '''numel'', n and numel(A) differs from n.'
+  identifier: MATLAB:incorrectNumel
+  status: confirmed
+  provenance: validateattributes.error-fail-numel
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-numel
+- condition: '''size'', sz and size(A) does not match sz.'
+  identifier: MATLAB:incorrectSize
+  status: confirmed
+  provenance: validateattributes.error-fail-size
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-size
+- condition: '''ncols'', n and A has a different number of columns.'
+  identifier: MATLAB:incorrectNumcols
+  status: confirmed
+  provenance: validateattributes.error-fail-ncols
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-ncols
+- condition: '''nrows'', n and A has a different number of rows.'
+  identifier: MATLAB:incorrectNumrows
+  status: confirmed
+  provenance: validateattributes.error-fail-nrows
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-nrows
+- condition: '''ndims'', n and ndims(A) differs from n.'
+  identifier: MATLAB:incorrectNumdims
+  status: confirmed
+  provenance: validateattributes.error-fail-ndims
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-ndims
+- condition: An output argument is requested.
+  identifier: MATLAB:maxlhs
+  status: confirmed
+  provenance: validateattributes.error-returns-nothing
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: returns-nothing
+- condition: With funcName 'myfun', 'scalar' fails.
+  identifier: MATLAB:myfun:expectedScalar
+  status: confirmed
+  provenance: validateattributes.error-fail-extra-args
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-args
+- condition: With funcName 'myfun', the class check fails.
+  identifier: MATLAB:myfun:invalidType
+  status: confirmed
+  provenance: validateattributes.error-fail-extra-varname
+  observations:
+  - file: observations/validateattributes_observations.json
+    case_id: fail-extra-varname
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/validateattributes_observations.json
+  description: 58 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: validateattributes.q-check-order
+  question: When several attributes fail at once, which identifier is reported was not exercised.
+- id: validateattributes.q-more-attributes
+  question: Attributes not exercised here (e.g. 'nonnegative' on non-numeric classes, 'diag', 'decreasing'
+    pass cases, 'scalartext'/text attributes) remain unspecified.

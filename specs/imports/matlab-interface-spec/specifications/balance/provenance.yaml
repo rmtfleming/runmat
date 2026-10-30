@@ -1,0 +1,136 @@
+# Provenance for balance (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: balance
+claims:
+- claim_id: balance.signature-primary
+  statement: The invocation form `B = balance(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: single-output
+- claim_id: balance.output-class
+  statement: The output keeps the input class (double for double; single for single).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: single-output
+  - file: observations/balance_observations.json
+    case_id: single-class
+- claim_id: balance.similarity
+  statement: '[T, B] = balance(A) satisfies T\A*T = B within 1e-12 (residual 0 observed for both matrices
+    tried) and preserves the eigenvalues (difference within 1e-10).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: two-outputs
+  - file: observations/balance_observations.json
+    case_id: permutation
+  - file: observations/balance_observations.json
+    case_id: eig-preserved
+- claim_id: balance.power-of-two
+  statement: For the observed badly scaled matrix (no permutation) T was diagonal with powers of two on
+    its diagonal (2^9, 2^3, 2^-4).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: two-outputs
+- claim_id: balance.three-outputs
+  statement: '[S, P, B] returns a column scaling vector S (the diagonal of T) and a column permutation
+    vector P ([1;2;3] when no permutation is applied).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: three-outputs
+  - file: observations/balance_observations.json
+    case_id: two-outputs
+- claim_id: balance.already-balanced
+  statement: An already balanced matrix ([1 2; 3 4]) and a scalar are returned unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: balanced
+  - file: observations/balance_observations.json
+    case_id: scalar
+- claim_id: balance.noperm
+  statement: '''noperm'' gave the same B as the default for a matrix that needed no permutation.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: noperm
+  - file: observations/balance_observations.json
+    case_id: single-output
+- claim_id: balance.observed-values
+  statement: 'Recorded for reference: A = [1 100 10000; 0.01 1 100; 0.0001 0.01 1] gave B = [1 1.5625
+    1.220703125; 0.64 1 0.78125; 0.8192 1.28 1] (within 1e-12); the lower-triangular [1 0 0; 2 3 0; 4
+    5 6] gave T equal to the reversal permutation and B = [6 5 4; 0 3 2; 0 0 1].'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: single-output
+  - file: observations/balance_observations.json
+    case_id: two-outputs
+  - file: observations/balance_observations.json
+    case_id: permutation
+- claim_id: balance.error-nonsquare
+  statement: A is not square. The call errors with identifier MATLAB:square.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: err-nonsquare
+- claim_id: balance.error-sparse
+  statement: A is sparse. The call errors with identifier MATLAB:balance:noBalanceSparse.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/balance_observations.json
+    case_id: err-sparse

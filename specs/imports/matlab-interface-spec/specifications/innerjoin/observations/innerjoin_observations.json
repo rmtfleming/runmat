@@ -1,0 +1,519 @@
+{
+  "schema_version": "1.0",
+  "function_name": "innerjoin",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/innerjoin/test_innerjoin_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "inner join on the common key",
+      "call": "innerjoin(table([1; 2; 4], [10; 20; 40], 'VariableNames', {'k','a'}), table([4; 1; 3], [400; 100; 300], 'VariableNames', {'k','b'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "keys",
+      "description": "Keys given by name",
+      "call": "innerjoin(table([1; 2; 4], [10; 20; 40], 'VariableNames', {'k','a'}), table([4; 1; 3], [400; 100; 300], 'VariableNames', {'k','b'}), 'Keys', 'k')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "leftright-keys",
+      "description": "LeftKeys/RightKeys with different names",
+      "call": "innerjoin(table([1; 2; 4], [10; 20; 40], 'VariableNames', {'k','a'}), table([4; 1], [400; 100], 'VariableNames', {'id','b'}), 'LeftKeys', 'k', 'RightKeys', 'id')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unsorted-left",
+      "description": "row order with an unsorted left table",
+      "call": "innerjoin(table([4; 1; 2], [40; 10; 20], 'VariableNames', {'k','a'}), table([4; 1; 3], [400; 100; 300], 'VariableNames', {'k','b'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unsorted-both",
+      "description": "row order with both tables unsorted and three matches",
+      "call": "innerjoin(table([3; 1; 2], [30; 10; 20], 'VariableNames', {'k','a'}), table([2; 3; 1], [200; 300; 100], 'VariableNames', {'k','b'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;2;3]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[10;20;30]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;200;300]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dup-left",
+      "description": "duplicate left keys",
+      "call": "innerjoin(table([1; 1; 4], [11; 10; 40], 'VariableNames', {'k','a'}), table([4; 1; 3], [400; 100; 300], 'VariableNames', {'k','b'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;1;4]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[11;10;40]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[100;100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-nonkey",
+      "description": "non-key variable present in both tables (unnamed inputs)",
+      "call": "innerjoin(table([1; 2], [10; 20], 'VariableNames', {'k','v'}), table([2; 1], [200; 100], 'VariableNames', {'k','v'}), 'Keys', 'k')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "v_left",
+            "v_right"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "v_left",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;20]"
+            },
+            {
+              "name": "v_right",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;200]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-nonkey-named",
+      "description": "non-key variable present in both tables, inputs passed as named workspace variables",
+      "call": "Lw = table([1; 2], [10; 20], 'VariableNames', {'k','v'}); Rw = table([2; 1], [200; 100], 'VariableNames', {'k','v'}); innerjoin(Lw, Rw, 'Keys', 'k')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "v_Lw",
+            "v_Rw"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "v_Lw",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[10;20]"
+            },
+            {
+              "name": "v_Rw",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;200]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-match",
+      "description": "no common key values",
+      "call": "innerjoin(table([1; 2], [10; 20], 'VariableNames', {'k','a'}), table([3; 4], [30; 40], 'VariableNames', {'k','b'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "a",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                0,
+                1
+              ],
+              "value": "zeros(0,1)"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                0,
+                1
+              ],
+              "value": "zeros(0,1)"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                0,
+                1
+              ],
+              "value": "zeros(0,1)"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          0,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "left-variables",
+      "description": "LeftVariables selects left output variables",
+      "call": "innerjoin(table([1; 2; 4], [10; 20; 40], 'VariableNames', {'k','a'}), table([4; 1; 3], [400; 100; 300], 'VariableNames', {'k','b'}), 'LeftVariables', 'k')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "k",
+            "b"
+          ],
+          "variables": [
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;4]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[100;400]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-no-common",
+      "description": "no common variable",
+      "call": "innerjoin(table(1, 'VariableNames', {'p'}), table(1, 'VariableNames', {'q'}))",
+      "errored": true,
+      "error_identifier": "MATLAB:table:join:CantInferKey"
+    }
+  ]
+}

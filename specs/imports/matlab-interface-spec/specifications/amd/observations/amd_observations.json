@@ -1,0 +1,151 @@
+{
+  "schema_version": "1.0",
+  "function_name": "amd",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/amd/test_amd_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "perm",
+      "description": "amd of a 5x5 sparse symmetric matrix: value and whether it is a permutation of 1:5",
+      "call": "p = amd(sparse([4 1 0 0 1; 1 4 1 0 0; 0 1 4 1 0; 0 0 1 4 1; 1 0 0 1 4])); report p and isequal(sort(p), 1:5)",
+      "errored": false,
+      "result": {
+        "value": {
+          "p": "[5 4 1 2 3]",
+          "is_permutation": "true",
+          "size": "[1 5]",
+          "class": "'double'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "arrow",
+      "description": "amd of a 4x4 arrow matrix (dense first row/column)",
+      "call": "p = amd(sparse([4 1 1 1; 1 4 0 0; 1 0 4 0; 1 0 0 4])); report p and isequal(sort(p), 1:4)",
+      "errored": false,
+      "result": {
+        "value": {
+          "p": "[4 3 2 1]",
+          "is_permutation": "true",
+          "size": "[1 4]",
+          "class": "'double'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense-input",
+      "description": "full (non-sparse) input",
+      "call": "p = amd(full(sparse([4 1 1 1; 1 4 0 0; 1 0 4 0; 1 0 0 4]))); report p and isequal(sort(p), 1:4)",
+      "errored": false,
+      "result": {
+        "value": {
+          "p": "[4 3 2 1]",
+          "is_permutation": "true",
+          "size": "[1 4]",
+          "class": "'double'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "class",
+      "description": "class and shape of the raw output",
+      "call": "amd(sparse([2 1 0 0; 1 2 1 0; 0 1 2 1; 0 0 1 2]))",
+      "errored": false,
+      "result": {
+        "value": "[4 3 1 2]",
+        "class": "double",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "diag",
+      "description": "diagonal matrix",
+      "call": "p = amd(speye(3)); report p and isequal(sort(p), 1:3)",
+      "errored": false,
+      "result": {
+        "value": {
+          "p": "[1 2 3]",
+          "is_permutation": "true",
+          "size": "[1 3]",
+          "class": "'double'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "0x0 input",
+      "call": "amd(sparse(0, 0))",
+      "errored": false,
+      "result": {
+        "value": "zeros(1,0)",
+        "class": "double",
+        "size": [
+          1,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "scalar",
+      "description": "1x1 input",
+      "call": "amd(sparse(5))",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-nonsquare",
+      "description": "non-square input",
+      "call": "amd(sparse(ones(2, 3)))",
+      "errored": true,
+      "error_identifier": "MATLAB:square"
+    }
+  ]
+}

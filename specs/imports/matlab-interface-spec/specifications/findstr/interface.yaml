@@ -1,0 +1,170 @@
+# Interface specification for findstr (widened 2026-10-29, Tier B W2; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: findstr
+spec_version: 0.3.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the starting indices where the shorter of two strings occurs within the longer.
+invocation_forms:
+- signature: k = findstr(s1, s2)
+  description: Start indices of the shorter argument within the longer.
+  status: confirmed
+inputs:
+- name: s1
+  position: 1
+  required: true
+  description: Character row vector, string scalar, or numeric row vector.
+  status: confirmed
+- name: s2
+  position: 2
+  required: true
+  description: Character row vector, string scalar, or numeric row vector.
+  status: confirmed
+outputs:
+- name: k
+  description: Row vector of 1-based start indices, or 0x0 empty when there is none.
+  status: confirmed
+output_type_rules:
+- id: findstr.output-class-rule
+  statement: The output class is double for every non-erroring observed call.
+  status: confirmed
+  normative: true
+  provenance: findstr.output-class
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: occurrences
+  - file: observations/findstr_observations.json
+    case_id: no-match
+  - file: observations/findstr_observations.json
+    case_id: numeric
+output_shape_rules:
+- id: findstr.start-indices-rule
+  statement: 'Returns a row vector of the 1-based start indices of every occurrence: ''bc'' within ''abcabc''
+    gave [2 5]; ''a'' within ''banana'' gave [2 4 6].'
+  status: confirmed
+  normative: true
+  provenance: findstr.start-indices
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: occurrences
+  - file: observations/findstr_observations.json
+    case_id: single-char
+- id: findstr.order-independent-rule
+  statement: 'The shorter argument is searched for within the longer regardless of argument order: findstr(''bc'',''abcabc'')
+    also gave [2 5].'
+  status: confirmed
+  normative: true
+  provenance: findstr.order-independent
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: swapped
+- id: findstr.overlapping-rule
+  statement: 'Overlapping occurrences are all reported: ''aa'' within ''aaaa'' gave [1 2 3].'
+  status: confirmed
+  normative: true
+  provenance: findstr.overlapping
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: overlapping
+- id: findstr.equal-length-rule
+  statement: 'With equal-length arguments: identical ''ab'' and ''ab'' gave 1; ''ab'' and ''ba'' gave
+    empty.'
+  status: confirmed
+  normative: true
+  provenance: findstr.equal-length
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: equal-length-match
+  - file: observations/findstr_observations.json
+    case_id: equal-length-nomatch
+- id: findstr.no-match-rule
+  statement: When there is no occurrence, or one or both arguments are empty ('abc' with '', '' with 'abc',
+    '' with ''), the result is a 0x0 empty double.
+  status: confirmed
+  normative: true
+  provenance: findstr.no-match
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: no-match
+  - file: observations/findstr_observations.json
+    case_id: equal-length-nomatch
+  - file: observations/findstr_observations.json
+    case_id: empty-pattern
+  - file: observations/findstr_observations.json
+    case_id: empty-first
+  - file: observations/findstr_observations.json
+    case_id: both-empty
+  - file: observations/findstr_observations.json
+    case_id: case
+- id: findstr.no-warning-rule
+  statement: An ordinary call issued no warning.
+  status: confirmed
+  normative: true
+  provenance: findstr.no-warning
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: warn-call
+- id: findstr.case-sensitive-rule
+  statement: 'Matching is case-sensitive: ''b'' within ''ABC'' gave empty.'
+  status: confirmed
+  normative: true
+  provenance: findstr.case-sensitive
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: case
+- id: findstr.string-scalar-rule
+  statement: String scalar arguments give the same result as the equivalent char arguments.
+  status: confirmed
+  normative: true
+  provenance: findstr.string-scalar
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: string-scalar
+- id: findstr.numeric-rule
+  statement: 'Numeric row vectors are accepted and matched element-wise: [1 2] within [1 2 3 1 2] gave
+    [1 4].'
+  status: confirmed
+  normative: true
+  provenance: findstr.numeric
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: numeric
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: An argument is a multi-row char array.
+  identifier: MATLAB:strfind:MultiRowInput
+  status: confirmed
+  provenance: findstr.error-column-char
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: column-char
+- condition: An argument is a cell array.
+  identifier: MATLAB:findstr:InputsMustBeCharArrays
+  status: confirmed
+  provenance: findstr.error-cell
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: err-cell
+- condition: Only one argument is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: findstr.error-one-arg
+  observations:
+  - file: observations/findstr_observations.json
+    case_id: err-one-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/findstr_observations.json
+  description: 17 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: findstr.q-warning-coverage
+  question: Warnings were captured only in the warn-* cases; other cases (including error and edge cases)
+    were not checked for warnings, so an empty warnings list is not a complete statement.
+- id: findstr.q-deprecated
+  question: Whether findstr is formally deprecated relative to strfind is a documentation question, not
+    observable by black-box calls; an ordinary call issued no warning (case warn-call).

@@ -1,0 +1,100 @@
+# Provenance for amd (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: amd
+claims:
+- claim_id: amd.signature-primary
+  statement: The invocation form `p = amd(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: perm
+- claim_id: amd.output-class
+  statement: The output is a double row vector of size 1-by-n.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: perm
+  - file: observations/amd_observations.json
+    case_id: class
+  - file: observations/amd_observations.json
+    case_id: diag
+- claim_id: amd.permutation
+  statement: The output is a permutation of 1:n for every observed square input (5x5 banded, 4x4 arrow,
+    3x3 diagonal).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: perm
+  - file: observations/amd_observations.json
+    case_id: arrow
+  - file: observations/amd_observations.json
+    case_id: diag
+- claim_id: amd.dense-input
+  statement: Full input gave the same permutation as the equivalent sparse input (4x4 arrow).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: arrow
+  - file: observations/amd_observations.json
+    case_id: dense-input
+- claim_id: amd.trivial-sizes
+  statement: 0x0 input gives a 1x0 empty double; 1x1 input gives 1.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: empty
+  - file: observations/amd_observations.json
+    case_id: scalar
+- claim_id: amd.specific-orderings
+  statement: The specific orderings observed ([5 4 1 2 3] for the 5x5 banded matrix, [4 3 2 1] for the
+    arrow, [1 2 3] for the diagonal) are recorded for reference; only the permutation property is required.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: perm
+  - file: observations/amd_observations.json
+    case_id: arrow
+  - file: observations/amd_observations.json
+    case_id: diag
+- claim_id: amd.error-nonsquare
+  statement: A is not square. The call errors with identifier MATLAB:square.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/amd_observations.json
+    case_id: err-nonsquare

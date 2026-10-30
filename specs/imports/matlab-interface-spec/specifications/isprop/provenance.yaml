@@ -1,0 +1,98 @@
+# Provenance for isprop (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isprop
+claims:
+- claim_id: isprop.signature-primary
+  statement: The invocation form `tf = isprop(obj, name)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: figure-yes
+- claim_id: isprop.output-class
+  statement: The output is logical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: figure-yes
+  - file: observations/isprop_observations.json
+    case_id: numeric
+- claim_id: isprop.objects
+  statement: Objects with the named property give true (figure 'Visible'; MException 'message'), others
+    false.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: figure-yes
+  - file: observations/isprop_observations.json
+    case_id: figure-no
+  - file: observations/isprop_observations.json
+    case_id: object-yes
+  - file: observations/isprop_observations.json
+    case_id: object-no
+- claim_id: isprop.case-insensitive-graphics
+  statement: For a figure, the property name matched regardless of case ('visible' gave true).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: figure-case
+- claim_id: isprop.non-objects
+  statement: A struct (with its field name), tables (with a variable name and with 'Properties') and a
+    number gave false.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: struct-field
+  - file: observations/isprop_observations.json
+    case_id: table-props
+  - file: observations/isprop_observations.json
+    case_id: table-var
+  - file: observations/isprop_observations.json
+    case_id: numeric
+- claim_id: isprop.arrays
+  statement: An array of two graphics handles gave a 1x2 logical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: handle-array
+- claim_id: isprop.string-name
+  statement: A string scalar name is accepted.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isprop_observations.json
+    case_id: string-name

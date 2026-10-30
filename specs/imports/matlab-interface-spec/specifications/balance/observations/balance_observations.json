@@ -1,0 +1,193 @@
+{
+  "schema_version": "1.0",
+  "function_name": "balance",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/balance/test_balance_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "single-output",
+      "description": "single output for a badly scaled 3x3 matrix",
+      "call": "balance([1 100 10000; 0.01 1 100; 0.0001 0.01 1])",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 1.5625 1.220703125;0.64000000000000001 1 0.78125;0.81920000000000004 1.28 1]",
+        "class": "double",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-outputs",
+      "description": "[T, B] = balance(A): T, B and the relation T\\A*T = B",
+      "call": "A = [1 100 10000; 0.01 1 100; 0.0001 0.01 1]; [T, B] = balance(A); report T, B, norm(T\\A*T - B), whether T is diagonal, log2 of diag(T)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": {
+          "T": "[512 0 0;0 8 0;0 0 0.0625]",
+          "B": "[1 1.5625 1.220703125;0.64000000000000001 1 0.78125;0.81920000000000004 1.28 1]",
+          "residual": "0",
+          "T_is_diagonal": "true",
+          "log2_diagT": "[9 3 -4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "eig-preserved",
+      "description": "eigenvalues preserved",
+      "call": "A = [1 100 10000; 0.01 1 100; 0.0001 0.01 1]; B = balance(A); report norm(sort(eig(A)) - sort(eig(B)))",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "balanced",
+      "description": "already balanced matrix",
+      "call": "balance([1 2; 3 4])",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 2;3 4]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "noperm",
+      "description": "'noperm' option",
+      "call": "balance([1 100 10000; 0.01 1 100; 0.0001 0.01 1], 'noperm')",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 1.5625 1.220703125;0.64000000000000001 1 0.78125;0.81920000000000004 1.28 1]",
+        "class": "double",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "permutation",
+      "description": "a matrix needing a permutation: [T, B]",
+      "call": "A = [1 0 0; 2 3 0; 4 5 6]; [T, B] = balance(A); report as for two-outputs",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": {
+          "T": "[0 0 1;0 1 0;1 0 0]",
+          "B": "[6 5 4;0 3 2;0 0 1]",
+          "residual": "0",
+          "T_is_diagonal": "false",
+          "log2_diagT": "[-Inf 0 -Inf]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "three-outputs",
+      "description": "[S, P, B] = balance(A)",
+      "call": "A = [1 100 10000; 0.01 1 100; 0.0001 0.01 1]; [S, P, B] = balance(A); report S, P, B",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": {
+          "S": "[512;8;0.0625]",
+          "P": "[1;2;3]",
+          "B": "[1 1.5625 1.220703125;0.64000000000000001 1 0.78125;0.81920000000000004 1.28 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "scalar",
+      "description": "scalar input",
+      "call": "balance(5)",
+      "errored": false,
+      "result": {
+        "value": "5",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single-class",
+      "description": "single-precision input class",
+      "call": "class(balance(single([1 100 10000; 0.01 1 100; 0.0001 0.01 1])))",
+      "errored": false,
+      "result": {
+        "value": "'single'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-nonsquare",
+      "description": "non-square input",
+      "call": "balance(ones(2, 3))",
+      "errored": true,
+      "error_identifier": "MATLAB:square"
+    },
+    {
+      "case_id": "err-sparse",
+      "description": "sparse input",
+      "call": "balance(speye(2))",
+      "errored": true,
+      "error_identifier": "MATLAB:balance:noBalanceSparse"
+    }
+  ]
+}

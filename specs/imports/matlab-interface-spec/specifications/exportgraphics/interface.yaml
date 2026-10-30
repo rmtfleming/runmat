@@ -1,0 +1,225 @@
+# Interface specification for exportgraphics (widened 2026-10-29, Tier B W2; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: exportgraphics
+spec_version: 0.3.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Save the contents of an axes or figure to a file whose format is chosen by the file extension;
+  returns no output.
+invocation_forms:
+- signature: exportgraphics(obj, filename)
+  description: Export axes or figure `obj` to `filename`.
+  status: confirmed
+- signature: exportgraphics(obj, filename, Name, Value)
+  description: Export with options.
+  status: confirmed
+inputs:
+- name: obj
+  position: 1
+  required: true
+  description: Axes or figure handle.
+  status: confirmed
+- name: filename
+  position: 2
+  required: true
+  description: Target path including an extension.
+  status: confirmed
+name_value_arguments:
+- name: Resolution
+  description: Output resolution for image formats; 200 gave about twice the pixel width and height of
+    100 (png).
+  status: confirmed
+- name: ContentType
+  description: '''vector'' or ''image''; both accepted for pdf; ''vector'' with png or jpg writes the
+    file and warns.'
+  accepted_values:
+  - vector
+  - image
+  status: confirmed
+- name: BackgroundColor
+  description: Background colour; 'none' with png writes the file and warns.
+  status: confirmed
+- name: Append
+  description: Logical; true with an existing pdf succeeds and the file grows; with png it errors.
+  default: false
+  status: confirmed
+outputs: []
+output_type_rules: []
+output_shape_rules:
+- id: exportgraphics.void-file-write-rule
+  statement: exportgraphics writes the target file and returns no output; requesting an output errors.
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.void-file-write
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: output-arg
+- id: exportgraphics.format-by-extension-rule
+  statement: 'The file format follows the extension (upper-case .PNG and .PDF behaved as lower-case):
+    .png/.PNG start with the PNG signature [137 80 78 71 13 10 26 10]; .jpg/.jpeg with JPEG [255 216 255];
+    .tif/.tiff with little-endian TIFF [73 73 42 0]; .gif with ''GIF89a''; .pdf with ''%PDF-''; .eps with
+    ''%!PS-Adobe''.'
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.format-by-extension
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-upper
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-jpg
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-jpeg
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-tif
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-tiff
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-gif
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-pdf
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-upper-pdf
+  - file: observations/exportgraphics_observations.json
+    case_id: fmt-eps
+- id: exportgraphics.targets-rule
+  statement: Both an axes and a figure handle are accepted as the target.
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.targets
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: target-figure
+- id: exportgraphics.resolution-rule
+  statement: For png, Resolution 200 produced an image about twice the width and height of Resolution
+    100 (727x575 vs 366x292).
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.resolution
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: res-100
+  - file: observations/exportgraphics_observations.json
+    case_id: res-200
+- id: exportgraphics.content-type-pdf-rule
+  statement: For pdf, ContentType 'vector' and 'image' are both accepted.
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.content-type-pdf
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: content-vector
+  - file: observations/exportgraphics_observations.json
+    case_id: content-image
+- id: exportgraphics.append-pdf-rule
+  statement: Append true on an existing pdf succeeds and grows the file.
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.append-pdf
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: append-pdf
+- id: exportgraphics.overwrite-rule
+  statement: Exporting different content to an existing path succeeds and replaces the file (its bytes
+    changed).
+  status: confirmed
+  normative: true
+  provenance: exportgraphics.overwrite
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: overwrite
+numerical_edge_cases:
+- id: exportgraphics.default-size-rule
+  statement: 'Observed on this machine only: a 400x300-pixel figure exported at default resolution gave
+    a png whose pixel size lay between the Resolution 100 and 200 sizes. Pixel sizes are expected to depend
+    on the display and figure layout (not exercised).'
+  status: confirmed
+  normative: false
+  provenance: exportgraphics.default-size
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: file-created
+  - file: observations/exportgraphics_observations.json
+    case_id: res-100
+  - file: observations/exportgraphics_observations.json
+    case_id: res-200
+warnings:
+- condition: ContentType 'vector' with an image-format target (png and jpg observed); the file is still
+    written.
+  identifier: MATLAB:print:ImageOutputIgnoresVectorContentType
+  status: confirmed
+  provenance: exportgraphics.warning-content-png-vector
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: content-png-vector
+  - file: observations/exportgraphics_observations.json
+    case_id: content-jpg-vector
+- condition: BackgroundColor 'none' with a png target; the file is still written.
+  identifier: MATLAB:print:ReplacingTransparentBackgroundWithDefaultColor
+  status: confirmed
+  provenance: exportgraphics.warning-background
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: background
+errors:
+- condition: The extension is not a recognised export format.
+  identifier: MATLAB:print:InvalidFileFormatForExport
+  status: confirmed
+  provenance: exportgraphics.error-ext-unknown
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-ext-unknown
+- condition: The filename has no extension.
+  identifier: MATLAB:print:OutputFileNeedsNameAndExtension
+  status: confirmed
+  provenance: exportgraphics.error-ext-none
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-ext-none
+- condition: The target folder does not exist.
+  identifier: MATLAB:print:CannotCreateOutputFile
+  status: confirmed
+  provenance: exportgraphics.error-bad-folder
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-bad-folder
+- condition: The first argument is not a graphics handle.
+  identifier: MATLAB:print:GraphicsHandleMustBeFirst
+  status: confirmed
+  provenance: exportgraphics.error-not-graphics
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: err-not-graphics
+- condition: Append true with a png target.
+  identifier: MATLAB:print:UnsupportedAppendValue
+  status: confirmed
+  provenance: exportgraphics.error-append-png
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: append-png
+- condition: An output argument is requested.
+  identifier: MATLAB:TooManyOutputs
+  status: confirmed
+  provenance: exportgraphics.error-output-arg
+  observations:
+  - file: observations/exportgraphics_observations.json
+    case_id: output-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/exportgraphics_observations.json
+  description: 26 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: exportgraphics.q-default-resolution
+  question: The default resolution and exact pixel sizes depend on the display and layout and are not
+    specified.
+- id: exportgraphics.q-more-formats
+  question: Other formats (e.g. emf, svg) and options (Padding, Colorspace) were not exercised.

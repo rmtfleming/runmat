@@ -1,68 +1,288 @@
-# Interface specification for outerjoin (promoted; observed behaviour confirmed).
+# Interface specification for outerjoin (widened 2026-10-29, Tier B W1; approved 2026-10-29 after human-loop review).
 # Schema: ../../schemas/function-interface.schema.json
 schema_version: '1.0'
 function_name: outerjoin
-spec_version: 0.2.0
+spec_version: 0.3.0
 status: approved
 applicable_releases:
 - R2026a
-summary: Combine two tables by matching a common key variable.
+summary: Combine two tables by matching key variables, keeping unmatched rows from one or both tables.
 invocation_forms:
 - signature: T = outerjoin(Tleft, Tright)
-  description: Outer join on the automatically detected common variable.
+  description: Outer join on the variables common to both tables.
+  status: confirmed
+- signature: T = outerjoin(Tleft, Tright, 'Keys', keys)
+  description: Join on the named or indexed key variable(s).
+  status: confirmed
+- signature: T = outerjoin(Tleft, Tright, 'LeftKeys', lk, 'RightKeys', rk)
+  description: Join on differently named key variables.
+  status: confirmed
+- signature: T = outerjoin(___, 'MergeKeys', tf)
+  description: Combine each key pair into a single output variable.
+  status: confirmed
+- signature: T = outerjoin(___, 'Type', type)
+  description: Choose which unmatched rows are kept ('full', 'left', 'right'; 'inner' also accepted).
   status: confirmed
 inputs:
 - name: Tleft
+  position: 1
   required: true
   description: Left table.
-  status: pending
+  status: confirmed
 - name: Tright
+  position: 2
   required: true
   description: Right table.
-  status: pending
+  status: confirmed
+name_value_arguments:
+- name: Keys
+  description: Key variable(s) common to both tables, by name or index.
+  status: confirmed
+- name: LeftKeys
+  description: Key variable(s) of Tleft; used with RightKeys.
+  status: confirmed
+- name: RightKeys
+  description: Key variable(s) of Tright; used with LeftKeys.
+  status: confirmed
+- name: MergeKeys
+  description: Logical; true merges each key pair into one variable.
+  default: false
+  status: confirmed
+- name: Type
+  description: Join type.
+  accepted_values:
+  - full
+  - left
+  - right
+  - inner
+  default: full
+  status: confirmed
 outputs:
 - name: T
-  description: Joined table.
-  status: pending
-  type_rule:
-    id: outerjoin.out-type
-    statement: The first output has class table (observed).
-    status: confirmed
-    normative: true
-    provenance: outerjoin.output-class
-    observations:
-    - file: observations/outerjoin_observations.json
-      case_id: basic
+  description: Joined table (only the first output was observed).
+  status: confirmed
 output_type_rules:
 - id: outerjoin.output-class-rule
-  statement: The output class is table across the observed inputs.
+  statement: The output class is table for every non-erroring observed call.
   status: confirmed
   normative: true
   provenance: outerjoin.output-class
   observations:
   - file: observations/outerjoin_observations.json
     case_id: basic
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: mergekeys
+  - file: observations/outerjoin_observations.json
+    case_id: type-left
+  - file: observations/outerjoin_observations.json
+    case_id: fill-types
 output_shape_rules:
 - id: outerjoin.table-shape-rule
-  statement: An outer join of two 2-row tables sharing a common key variable produced a 3-row, 4-variable
-    table. The specific join semantics (which rows are kept and any fill values) are not asserted here.
+  statement: An outer join of two 2-row tables sharing one key value produced a 3-row, 4-variable table.
   status: confirmed
   normative: true
   provenance: outerjoin.table-shape
   observations:
   - file: observations/outerjoin_observations.json
     case_id: basic
+- id: outerjoin.key-inference-rule
+  statement: Without key options, the variables with the same name in both tables are used as keys (one
+    common variable in `default-full`; two in `multi-key`).
+  status: confirmed
+  normative: true
+  provenance: outerjoin.key-inference
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: multi-key
+- id: outerjoin.keys-option-rule
+  statement: '`''Keys''` given as a name or as a numeric index produced the same result as key inference;
+    `''LeftKeys''`/`''RightKeys''` join on differently named keys.'
+  status: confirmed
+  normative: true
+  provenance: outerjoin.keys-option
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: keys-name
+  - file: observations/outerjoin_observations.json
+    case_id: keys-index
+  - file: observations/outerjoin_observations.json
+    case_id: leftright-keys
+- id: outerjoin.type-rows-rule
+  statement: 'Row sets by type, for left keys {1,2,4} and right keys {1,3,4}: ''full'' (default) keeps
+    matched rows plus unmatched rows of both tables (keys 1,2,3,4); ''left'' keeps matched plus unmatched
+    left rows (1,2,4); ''right'' keeps matched plus unmatched right rows (1,3,4); ''inner'' keeps only
+    matched rows (1,4).'
+  status: confirmed
+  normative: true
+  provenance: outerjoin.type-rows
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: type-full
+  - file: observations/outerjoin_observations.json
+    case_id: type-left
+  - file: observations/outerjoin_observations.json
+    case_id: type-right
+  - file: observations/outerjoin_observations.json
+    case_id: type-inner
+- id: outerjoin.row-order-rule
+  statement: Output rows are in ascending key order regardless of input row order; with two keys, rows
+    are ordered by the first key then the second, also when both inputs are unsorted.
+  status: confirmed
+  normative: true
+  provenance: outerjoin.row-order
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: unsorted
+  - file: observations/outerjoin_observations.json
+    case_id: unsorted-merge
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: multi-key
+  - file: observations/outerjoin_observations.json
+    case_id: multi-key-unsorted
+- id: outerjoin.duplicate-keys-rule
+  statement: 'Each left row whose key matches produces its own output row: two left rows with key 1 matched
+    to one right row with key 1 gave two output rows, in left-input order (a = 10,11 and a = 11,10 were
+    both kept in input order).'
+  status: confirmed
+  normative: true
+  provenance: outerjoin.duplicate-keys
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: dup-keys
+  - file: observations/outerjoin_observations.json
+    case_id: dup-keys-desc
+- id: outerjoin.column-order-rule
+  statement: For 'full', 'left' and 'right' joins, output variables are the left table's variables in
+    their order followed by the right table's; with 'MergeKeys' each merged key takes the position of
+    the left key and the right key is dropped (left a,k gave a,k,b). For 'inner' see inner-key-single.
+  status: confirmed
+  normative: true
+  provenance: outerjoin.column-order
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: type-left
+  - file: observations/outerjoin_observations.json
+    case_id: type-right
+  - file: observations/outerjoin_observations.json
+    case_id: mergekeys
+  - file: observations/outerjoin_observations.json
+    case_id: multi-key
+  - file: observations/outerjoin_observations.json
+    case_id: leftright-keys-merge
+  - file: observations/outerjoin_observations.json
+    case_id: key-second-column
+  - file: observations/outerjoin_observations.json
+    case_id: key-second-column-nomerge
+- id: outerjoin.mergekeys-rule
+  statement: With 'MergeKeys' true each key pair becomes one variable holding the key value from whichever
+    table supplied the row (no fill in the key); merging differently named keys k and id produced the
+    name k_id.
+  status: confirmed
+  normative: true
+  provenance: outerjoin.mergekeys
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: mergekeys
+  - file: observations/outerjoin_observations.json
+    case_id: type-left-merge
+  - file: observations/outerjoin_observations.json
+    case_id: unsorted-merge
+  - file: observations/outerjoin_observations.json
+    case_id: leftright-keys-merge
+- id: outerjoin.name-suffix-rule
+  statement: Without 'MergeKeys', a variable name present in both tables (key or non-key) is made unique
+    by appending '_' plus the workspace variable name of each input argument (k_L/k_R; v_Ls/v_Rs; k_Lk2/k_R);
+    when the inputs are not named workspace variables the suffixes are '_left' and '_right'. Differently
+    named key variables keep their names.
+  status: confirmed
+  normative: true
+  provenance: outerjoin.name-suffix
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: unsorted
+  - file: observations/outerjoin_observations.json
+    case_id: same-nonkey-name
+  - file: observations/outerjoin_observations.json
+    case_id: basic
+  - file: observations/outerjoin_observations.json
+    case_id: leftright-keys
+  - file: observations/outerjoin_observations.json
+    case_id: key-second-column-nomerge
+- id: outerjoin.fill-values-rule
+  statement: 'Cells with no matching row are filled with: NaN for double and single, 0 for int32, false
+    for logical, an empty char ('''') for cellstr, and <missing> for string.'
+  status: confirmed
+  normative: true
+  provenance: outerjoin.fill-values
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: default-full
+  - file: observations/outerjoin_observations.json
+    case_id: type-left
+  - file: observations/outerjoin_observations.json
+    case_id: fill-types
+- id: outerjoin.inner-key-single-rule
+  statement: With 'Type','inner' (one common key, MergeKeys not given) the output held a single key variable
+    k (k,a,b).
+  status: confirmed
+  normative: true
+  provenance: outerjoin.inner-key-single
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: type-inner
 numerical_edge_cases: []
 warnings: []
-errors: []
+errors:
+- condition: No variable name is common to both tables and no key options are given.
+  identifier: MATLAB:table:join:CantInferKey
+  status: confirmed
+  provenance: outerjoin.error-no-common
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: err-no-common
+- condition: '''Type'' is not a recognised join type.'
+  identifier: MATLAB:table:join:InvalidType
+  status: confirmed
+  provenance: outerjoin.error-bad-type
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: err-bad-type
+- condition: '''Keys'' is combined with ''LeftKeys''.'
+  identifier: MATLAB:table:join:ConflictingInputs
+  status: confirmed
+  provenance: outerjoin.error-keys-and-leftkeys
+  observations:
+  - file: observations/outerjoin_observations.json
+    case_id: err-keys-and-leftkeys
 nan_infinity_behaviour: []
 release_dependent_behaviour: []
 linked_observations:
 - file: observations/outerjoin_observations.json
-  description: 1 independently constructed cases on R2026a (GLNXA64).
+  description: 25 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
 provenance_ref: provenance.yaml
 unresolved_questions:
-- id: outerjoin.q-keys
-  question: The 'Keys'/'LeftKeys'/'RightKeys' options.
-- id: outerjoin.q-type
-  question: Left/right/full outer join variants and fill values.
+- id: outerjoin.q-index-outputs
+  question: The second and third outputs (row indices into the left and right tables) were not observed.
+- id: outerjoin.q-select-variables
+  question: The 'LeftVariables'/'RightVariables' options were not exercised.
+- id: outerjoin.q-many-to-many
+  question: Duplicate keys on both sides, and missing (NaN) key values, were not exercised.
+- id: outerjoin.q-key-types
+  question: Joining keys of different classes (e.g. double with int32, or string with cellstr) was not
+    exercised.
+- id: outerjoin.q-name-suffix-context
+  question: 'Flagged for human review (constitution 8.2): output variable names depend on the caller''s
+    workspace variable names (name-suffix). The rule is observed, but reviewers should confirm it is acceptable
+    as required behaviour for implementations that cannot recover argument names.'

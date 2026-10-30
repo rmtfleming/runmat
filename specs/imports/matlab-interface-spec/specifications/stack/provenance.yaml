@@ -1,0 +1,126 @@
+# Provenance for stack (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: stack
+claims:
+- claim_id: stack.signature-primary
+  statement: The invocation form `S = stack(T, vars)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: basic
+- claim_id: stack.layout
+  statement: 'Each input row becomes one output row per stacked variable, in input-row order then variable
+    order; the other variables are repeated: id [1;2], x [10;20], y [30;40] gave id [1;1;2;2] and data
+    [10;30;20;40].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: basic
+  - file: observations/stack_observations.json
+    case_id: by-index
+  - file: observations/stack_observations.json
+    case_id: three-vars
+- claim_id: stack.default-names
+  statement: By default the data variable is named by joining the stacked names with '_' (x_y; x_y_z for
+    three) and the indicator variable is that name plus '_Indicator'; output order is the carried variables,
+    then the indicator, then the data variable.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: basic
+  - file: observations/stack_observations.json
+    case_id: indicator
+  - file: observations/stack_observations.json
+    case_id: three-vars
+- claim_id: stack.indicator
+  statement: The indicator variable is categorical; its values name the source variable of each row (x,
+    y, x, y) and its categories are the stacked variable names.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: basic
+  - file: observations/stack_observations.json
+    case_id: indicator
+- claim_id: stack.by-index
+  statement: vars given as indices gave the same result as names.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: by-index
+  - file: observations/stack_observations.json
+    case_id: basic
+- claim_id: stack.options
+  statement: NewDataVariableName and IndexVariableName rename the data and indicator variables; ConstantVariables
+    {} carries no other variables.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: new-names
+  - file: observations/stack_observations.json
+    case_id: constant
+- claim_id: stack.single-var
+  statement: Stacking one variable keeps the remaining non-stacked variables (in order), followed by '<name>_Indicator'
+    and the data variable named after the stacked variable.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: one-var
+- claim_id: stack.error-unknown
+  statement: A stacked variable name is not in the table. The call errors with identifier MATLAB:table:UnrecognizedVarName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: err-unknown
+- claim_id: stack.error-class-mix
+  statement: The stacked variables have incompatible classes (double and cell). The call errors with identifier
+    MATLAB:table:stack:InterleavingDataVarsFailed.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/stack_observations.json
+    case_id: err-class-mix

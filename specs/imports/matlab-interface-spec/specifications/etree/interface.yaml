@@ -1,0 +1,164 @@
+# Interface specification for etree (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: etree
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the elimination tree of a square symmetric sparsity pattern (or of A'*A with 'col') as
+  a parent vector, optionally with a postorder permutation.
+invocation_forms:
+- signature: p = etree(A)
+  description: Elimination tree of A.
+  status: confirmed
+- signature: p = etree(A, 'sym')
+  description: Same as the default.
+  status: confirmed
+- signature: p = etree(A, 'col')
+  description: Column elimination tree (tree of A'*A).
+  status: confirmed
+- signature: '[p, q] = etree(___)'
+  description: Also a postorder permutation of the tree.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Sparse or full matrix; square unless 'col' is given.
+  status: confirmed
+- name: type
+  position: 2
+  required: false
+  description: '''sym'' (default) or ''col''.'
+  status: confirmed
+outputs:
+- name: p
+  description: '1-by-n double row vector: p(j) is the parent of node j, or 0 for a root.'
+  status: confirmed
+- name: q
+  description: 1-by-n postorder permutation.
+  status: confirmed
+output_type_rules:
+- id: etree.output-class-rule
+  statement: The output is a 1-by-n double row vector.
+  status: confirmed
+  normative: true
+  provenance: etree.output-class
+  observations:
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+  - file: observations/etree_observations.json
+    case_id: diag
+  - file: observations/etree_observations.json
+    case_id: pentadiag
+output_shape_rules:
+- id: etree.parent-vector-rule
+  statement: 'p(j) is the parent of column j in the elimination tree and 0 marks a root: the 4x4 tridiagonal
+    and arrow matrices both gave [2 3 4 0]; the 5x5 matrix with corner entries gave [2 3 4 5 0]; a diagonal
+    matrix gave all zeros.'
+  status: confirmed
+  normative: true
+  provenance: etree.parent-vector
+  observations:
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+  - file: observations/etree_observations.json
+    case_id: arrow
+  - file: observations/etree_observations.json
+    case_id: pentadiag
+  - file: observations/etree_observations.json
+    case_id: diag
+- id: etree.upper-triangle-rule
+  statement: 'Only the upper triangle is used: triu of the tridiagonal matrix gave the same tree [2 3
+    4 0], while tril gave [0 0 0 0].'
+  status: confirmed
+  normative: true
+  provenance: etree.upper-triangle
+  observations:
+  - file: observations/etree_observations.json
+    case_id: upper-only
+  - file: observations/etree_observations.json
+    case_id: lower-only
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- id: etree.sym-default-rule
+  statement: '''sym'' gives the same result as the default.'
+  status: confirmed
+  normative: true
+  provenance: etree.sym-default
+  observations:
+  - file: observations/etree_observations.json
+    case_id: sym
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- id: etree.dense-input-rule
+  statement: Full input gave the same tree as sparse input.
+  status: confirmed
+  normative: true
+  provenance: etree.dense-input
+  observations:
+  - file: observations/etree_observations.json
+    case_id: dense-input
+  - file: observations/etree_observations.json
+    case_id: tridiagonal
+- id: etree.col-rule
+  statement: '''col'' accepts a non-square matrix and returns the tree of its columns: the 3x2 matrix
+    [1 0; 1 1; 0 1] gave [2 0].'
+  status: confirmed
+  normative: true
+  provenance: etree.col
+  observations:
+  - file: observations/etree_observations.json
+    case_id: col
+- id: etree.postorder-rule
+  statement: The second output is a 1-by-n permutation; it was [1 2 3 4] for the observed chain trees
+    and for the branching tree [3 3 4 0] (each a valid postorder of its tree).
+  status: confirmed
+  normative: true
+  provenance: etree.postorder
+  observations:
+  - file: observations/etree_observations.json
+    case_id: postorder
+  - file: observations/etree_observations.json
+    case_id: postorder-arrow
+  - file: observations/etree_observations.json
+    case_id: postorder-branching
+- id: etree.branching-rule
+  statement: A matrix whose columns 1 and 2 both connect only to column 3 gave parent [3 3 4 0].
+  status: confirmed
+  normative: true
+  provenance: etree.branching
+  observations:
+  - file: observations/etree_observations.json
+    case_id: postorder-branching
+- id: etree.empty-rule
+  statement: 0x0 input gives a 1x0 empty double.
+  status: confirmed
+  normative: true
+  provenance: etree.empty
+  observations:
+  - file: observations/etree_observations.json
+    case_id: empty
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A is not square and 'col' is not given.
+  identifier: MATLAB:etree:InvalidInput
+  status: confirmed
+  provenance: etree.error-nonsquare
+  observations:
+  - file: observations/etree_observations.json
+    case_id: err-nonsquare
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/etree_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: etree.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: etree.q-postorder-general
+  question: Postorders that differ from the identity were not observed, so the order among siblings is
+    not specified.

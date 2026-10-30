@@ -1,0 +1,658 @@
+{
+  "schema_version": "1.0",
+  "function_name": "validateattributes",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/validateattributes/test_validateattributes_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "pass",
+      "description": "numeric scalar passes",
+      "call": "validateattributes(5, {'numeric'}, {'scalar'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-class-list",
+      "description": "empty class list",
+      "call": "validateattributes('x', {}, {}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:invalidType"
+    },
+    {
+      "case_id": "pass-empty-attrs",
+      "description": "empty attribute list",
+      "call": "validateattributes(5, {'numeric'}, {}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-type",
+      "description": "char where numeric required",
+      "call": "validateattributes('a', {'numeric'}, {}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:invalidType"
+    },
+    {
+      "case_id": "pass-class-list",
+      "description": "single matches one of several classes",
+      "call": "validateattributes(single(1), {'double','single'}, {}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-class-list",
+      "description": "int8 matches none of several classes",
+      "call": "validateattributes(int8(1), {'double','single'}, {}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:invalidType"
+    },
+    {
+      "case_id": "pass-class-char",
+      "description": "char class",
+      "call": "validateattributes('abc', {'char'}, {'row'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pass-class-logical",
+      "description": "logical class",
+      "call": "validateattributes(true, {'logical'}, {'scalar'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pass-class-cell",
+      "description": "cell class",
+      "call": "validateattributes({1, 2}, {'cell'}, {'vector'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pass-class-struct",
+      "description": "struct class",
+      "call": "validateattributes(struct('a', 1), {'struct'}, {'scalar'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pass-class-fh",
+      "description": "function_handle class",
+      "call": "validateattributes(@sin, {'function_handle'}, {}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-scalar",
+      "description": "vector where scalar required",
+      "call": "validateattributes([1 2], {'numeric'}, {'scalar'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedScalar"
+    },
+    {
+      "case_id": "fail-vector",
+      "description": "matrix where vector required",
+      "call": "validateattributes(ones(2), {'numeric'}, {'vector'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedVector"
+    },
+    {
+      "case_id": "pass-row",
+      "description": "row vector",
+      "call": "validateattributes([1 2 3], {'numeric'}, {'row'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-row",
+      "description": "column where row required",
+      "call": "validateattributes([1; 2], {'numeric'}, {'row'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedRow"
+    },
+    {
+      "case_id": "fail-column",
+      "description": "row where column required",
+      "call": "validateattributes([1 2], {'numeric'}, {'column'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedColumn"
+    },
+    {
+      "case_id": "fail-2d",
+      "description": "3-D array where 2-D required",
+      "call": "validateattributes(ones(2, 2, 2), {'numeric'}, {'2d'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expected2D"
+    },
+    {
+      "case_id": "fail-nonempty",
+      "description": "empty where nonempty required",
+      "call": "validateattributes([], {'numeric'}, {'nonempty'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedNonempty"
+    },
+    {
+      "case_id": "fail-square",
+      "description": "non-square where square required",
+      "call": "validateattributes(ones(2, 3), {'numeric'}, {'square'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedSquare"
+    },
+    {
+      "case_id": "pass-positive",
+      "description": "positive values",
+      "call": "validateattributes([1 2], {'numeric'}, {'positive'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-positive",
+      "description": "zero where positive required",
+      "call": "validateattributes([0 1], {'numeric'}, {'positive'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedPositive"
+    },
+    {
+      "case_id": "pass-nonnegative",
+      "description": "zero allowed by nonnegative",
+      "call": "validateattributes([0 1], {'numeric'}, {'nonnegative'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-nonnegative",
+      "description": "negative where nonnegative required",
+      "call": "validateattributes(-1, {'numeric'}, {'nonnegative'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedNonnegative"
+    },
+    {
+      "case_id": "fail-integer",
+      "description": "non-integer where integer required",
+      "call": "validateattributes(1.5, {'numeric'}, {'integer'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedInteger"
+    },
+    {
+      "case_id": "pass-integer-double",
+      "description": "integer-valued double passes integer",
+      "call": "validateattributes(3, {'numeric'}, {'integer'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-finite",
+      "description": "Inf where finite required",
+      "call": "validateattributes(Inf, {'numeric'}, {'finite'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedFinite"
+    },
+    {
+      "case_id": "fail-nonnan",
+      "description": "NaN where nonnan required",
+      "call": "validateattributes(NaN, {'numeric'}, {'nonnan'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedNonNaN"
+    },
+    {
+      "case_id": "fail-real",
+      "description": "complex where real required",
+      "call": "validateattributes(1i, {'numeric'}, {'real'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedReal"
+    },
+    {
+      "case_id": "fail-nonzero",
+      "description": "zero where nonzero required",
+      "call": "validateattributes([1 0], {'numeric'}, {'nonzero'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedNonZero"
+    },
+    {
+      "case_id": "fail-nonsparse",
+      "description": "sparse where nonsparse required",
+      "call": "validateattributes(speye(2), {'numeric'}, {'nonsparse'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedNonsparse"
+    },
+    {
+      "case_id": "fail-binary",
+      "description": "2 where binary required",
+      "call": "validateattributes([0 1 2], {'numeric'}, {'binary'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedBinary"
+    },
+    {
+      "case_id": "fail-even",
+      "description": "odd where even required",
+      "call": "validateattributes(3, {'numeric'}, {'even'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedEven"
+    },
+    {
+      "case_id": "fail-odd",
+      "description": "even where odd required",
+      "call": "validateattributes(2, {'numeric'}, {'odd'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedOdd"
+    },
+    {
+      "case_id": "pass-increasing",
+      "description": "strictly increasing",
+      "call": "validateattributes([1 2 3], {'numeric'}, {'increasing'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-increasing",
+      "description": "repeated value where increasing required",
+      "call": "validateattributes([1 1 2], {'numeric'}, {'increasing'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedIncreasing"
+    },
+    {
+      "case_id": "pass-nondecreasing",
+      "description": "repeated value allowed by nondecreasing",
+      "call": "validateattributes([1 1 2], {'numeric'}, {'nondecreasing'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-decreasing",
+      "description": "increasing where decreasing required",
+      "call": "validateattributes([1 2], {'numeric'}, {'decreasing'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedDecreasing"
+    },
+    {
+      "case_id": "fail-nonincreasing",
+      "description": "increasing where nonincreasing required",
+      "call": "validateattributes([1 2], {'numeric'}, {'nonincreasing'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedNonincreasing"
+    },
+    {
+      "case_id": "pass-gt",
+      "description": "values above bound",
+      "call": "validateattributes([4 5], {'numeric'}, {'>', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-gt",
+      "description": "value equal to bound with >",
+      "call": "validateattributes([3 5], {'numeric'}, {'>', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:notGreater"
+    },
+    {
+      "case_id": "pass-ge",
+      "description": "value equal to bound with >=",
+      "call": "validateattributes([3 5], {'numeric'}, {'>=', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-ge",
+      "description": "value below bound with >=",
+      "call": "validateattributes(2, {'numeric'}, {'>=', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:notGreaterEqual"
+    },
+    {
+      "case_id": "fail-lt",
+      "description": "value equal to bound with <",
+      "call": "validateattributes(3, {'numeric'}, {'<', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:notLess"
+    },
+    {
+      "case_id": "fail-le",
+      "description": "value above bound with <=",
+      "call": "validateattributes(4, {'numeric'}, {'<=', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:notLessEqual"
+    },
+    {
+      "case_id": "pass-numel",
+      "description": "numel matches",
+      "call": "validateattributes([1 2 3], {'numeric'}, {'numel', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-numel",
+      "description": "numel mismatch",
+      "call": "validateattributes([1 2], {'numeric'}, {'numel', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:incorrectNumel"
+    },
+    {
+      "case_id": "pass-size-nan",
+      "description": "size with NaN wildcard",
+      "call": "validateattributes(ones(2, 5), {'numeric'}, {'size', [2 NaN]}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-size",
+      "description": "size mismatch",
+      "call": "validateattributes(ones(3, 5), {'numeric'}, {'size', [2 NaN]}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:incorrectSize"
+    },
+    {
+      "case_id": "fail-ncols",
+      "description": "column count mismatch",
+      "call": "validateattributes(ones(2, 3), {'numeric'}, {'ncols', 2}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:incorrectNumcols"
+    },
+    {
+      "case_id": "fail-nrows",
+      "description": "row count mismatch",
+      "call": "validateattributes(ones(3, 2), {'numeric'}, {'nrows', 2}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:incorrectNumrows"
+    },
+    {
+      "case_id": "fail-ndims",
+      "description": "ndims mismatch",
+      "call": "validateattributes(ones(2, 2), {'numeric'}, {'ndims', 3}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:incorrectNumdims"
+    },
+    {
+      "case_id": "fail-first-of-two",
+      "description": "two attributes, first fails",
+      "call": "validateattributes([1 2], {'numeric'}, {'scalar', 'positive'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedScalar"
+    },
+    {
+      "case_id": "fail-second-of-two",
+      "description": "two attributes, second fails",
+      "call": "validateattributes(-1, {'numeric'}, {'scalar', 'positive'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:expectedPositive"
+    },
+    {
+      "case_id": "unknown-attribute",
+      "description": "unrecognised attribute name",
+      "call": "validateattributes(1, {'numeric'}, {'notanattribute'}); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "'MATLAB:validateattributes:attributeNotFound'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pass-extra-args",
+      "description": "optional funcName, varName, argIndex on a passing call",
+      "call": "validateattributes(5, {'numeric'}, {'scalar'}, 'myfun', 'x', 2); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": false,
+      "result": {
+        "value": {
+          "returned": "true",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "fail-extra-args",
+      "description": "optional funcName, varName, argIndex on a failing call",
+      "call": "validateattributes([1 2], {'numeric'}, {'scalar'}, 'myfun', 'x', 2); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:myfun:expectedScalar"
+    },
+    {
+      "case_id": "fail-extra-varname",
+      "description": "optional funcName and varName on a failing class check",
+      "call": "validateattributes('a', {'numeric'}, {}, 'myfun', 'x'); report returned=true and the identifier of any warning (lastwarn)",
+      "errored": true,
+      "error_identifier": "MATLAB:myfun:invalidType"
+    },
+    {
+      "case_id": "returns-nothing",
+      "description": "requesting an output from a passing call",
+      "call": "y = validateattributes(5, {'numeric'}, {'scalar'})",
+      "errored": true,
+      "error_identifier": "MATLAB:maxlhs"
+    }
+  ]
+}

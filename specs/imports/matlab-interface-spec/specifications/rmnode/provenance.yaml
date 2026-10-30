@@ -1,0 +1,116 @@
+# Provenance for rmnode (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: rmnode
+claims:
+- claim_id: rmnode.signature-primary
+  statement: The invocation form `H = rmnode(G, nodeIDs)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: one
+- claim_id: rmnode.removes
+  statement: 'The nodes and every edge touching them are removed and the remaining nodes are renumbered
+    consecutively in their original order: removing node 2 from path 1-2-3-4 left 3 nodes and the single
+    edge [2 3] (formerly 3-4); removing [1 4] left 2 nodes and edge [1 2].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: one
+  - file: observations/rmnode_observations.json
+    case_id: several
+- claim_id: rmnode.class
+  statement: The result keeps the input class (graph or digraph).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: one
+  - file: observations/rmnode_observations.json
+    case_id: digraph
+- claim_id: rmnode.named
+  statement: Named nodes can be removed by name; the remaining names are kept (removing 'b' from a,b,c
+    left a and c with edge a-c).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: named
+- claim_id: rmnode.weights
+  statement: Remaining edges keep their weights.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: weighted
+  - file: observations/rmnode_observations.json
+    case_id: isolated
+- claim_id: rmnode.empty-list
+  statement: An empty node list returns the graph unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: empty-list
+- claim_id: rmnode.all
+  statement: Removing every node gives a graph with 0 nodes and 0 edges.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: all
+- claim_id: rmnode.isolated
+  statement: Removing an isolated node reduces numnodes and leaves the edges unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: isolated
+- claim_id: rmnode.ignored-ids
+  statement: 'Observed: a node index beyond numnodes (7 on a 4-node graph) and an unknown node name (''z'')
+    did not error and returned the graph unchanged.'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rmnode_observations.json
+    case_id: out-of-range
+  - file: observations/rmnode_observations.json
+    case_id: unknown-name

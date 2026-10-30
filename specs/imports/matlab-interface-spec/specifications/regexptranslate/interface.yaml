@@ -1,0 +1,109 @@
+# Interface specification for regexptranslate (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: regexptranslate
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Translate text into a regular-expression pattern: escape special characters (''escape'') or
+  convert wildcards (''wildcard'').'
+invocation_forms:
+- signature: p = regexptranslate(op, s)
+  description: Translate text s using operation op.
+  status: confirmed
+inputs:
+- name: op
+  position: 1
+  required: true
+  description: '''escape'' or ''wildcard''.'
+  status: confirmed
+- name: s
+  position: 2
+  required: true
+  description: Char row vector, string scalar, or cell array of char vectors.
+  status: confirmed
+outputs:
+- name: p
+  description: Translated text, of the same kind as s (char, string or cell).
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: regexptranslate.escape-rule
+  statement: '''escape'' prefixed each of the characters . $ ^ * + ? ( ) [ ] { } | \ and - with a backslash
+    (''a.b'' gave ''a\.b''); letters and the characters < > # / space , : = ! @ were left unchanged.'
+  status: confirmed
+  normative: true
+  provenance: regexptranslate.escape
+  observations:
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-dot
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-specials
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-plain
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-others
+- id: regexptranslate.escape-whitespace-rule
+  statement: '''escape'' left a tab and a newline character unchanged.'
+  status: confirmed
+  normative: true
+  provenance: regexptranslate.escape-whitespace
+  observations:
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-whitespace
+- id: regexptranslate.wildcard-rule
+  statement: '''wildcard'' turns * into .*, ? into ., and escapes a literal dot: ''*.m'' gave ''.*\.m'';
+    ''a?c'' gave ''a.c''; ''a.b'' gave ''a\.b''.'
+  status: confirmed
+  normative: true
+  provenance: regexptranslate.wildcard
+  observations:
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-star
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-question
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-dot
+- id: regexptranslate.wildcard-use-rule
+  statement: The translated wildcard pattern, anchored with ^ and $, matched 'file.m' using regexp.
+  status: confirmed
+  normative: true
+  provenance: regexptranslate.wildcard-use
+  observations:
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-use
+- id: regexptranslate.types-rule
+  statement: A string scalar input gives a string; a cell array gives a cell array translated element-wise;
+    empty text gives empty char.
+  status: confirmed
+  normative: true
+  provenance: regexptranslate.types
+  observations:
+  - file: observations/regexptranslate_observations.json
+    case_id: string-input
+  - file: observations/regexptranslate_observations.json
+    case_id: cell-input
+  - file: observations/regexptranslate_observations.json
+    case_id: empty
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: op is not a recognised operation.
+  identifier: MATLAB:REGEXP:invalidOptions
+  status: confirmed
+  provenance: regexptranslate.error-op
+  observations:
+  - file: observations/regexptranslate_observations.json
+    case_id: err-op
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/regexptranslate_observations.json
+  description: 13 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: regexptranslate.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: regexptranslate.q-other-ops
+  question: Operations other than 'escape' and 'wildcard' were not exercised.

@@ -1,0 +1,108 @@
+# Interface specification for isprop (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isprop
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return whether an object has a property of the given name.
+invocation_forms:
+- signature: tf = isprop(obj, name)
+  description: True where obj has property `name`.
+  status: confirmed
+inputs:
+- name: obj
+  position: 1
+  required: true
+  description: Object or array of objects; structs, tables and numbers were also accepted.
+  status: confirmed
+- name: name
+  position: 2
+  required: true
+  description: Property name, char or string scalar.
+  status: confirmed
+outputs:
+- name: tf
+  description: Logical, the same size as obj for object arrays.
+  status: confirmed
+output_type_rules:
+- id: isprop.output-class-rule
+  statement: The output is logical.
+  status: confirmed
+  normative: true
+  provenance: isprop.output-class
+  observations:
+  - file: observations/isprop_observations.json
+    case_id: figure-yes
+  - file: observations/isprop_observations.json
+    case_id: numeric
+output_shape_rules:
+- id: isprop.objects-rule
+  statement: Objects with the named property give true (figure 'Visible'; MException 'message'), others
+    false.
+  status: confirmed
+  normative: true
+  provenance: isprop.objects
+  observations:
+  - file: observations/isprop_observations.json
+    case_id: figure-yes
+  - file: observations/isprop_observations.json
+    case_id: figure-no
+  - file: observations/isprop_observations.json
+    case_id: object-yes
+  - file: observations/isprop_observations.json
+    case_id: object-no
+- id: isprop.case-insensitive-graphics-rule
+  statement: For a figure, the property name matched regardless of case ('visible' gave true).
+  status: confirmed
+  normative: true
+  provenance: isprop.case-insensitive-graphics
+  observations:
+  - file: observations/isprop_observations.json
+    case_id: figure-case
+- id: isprop.non-objects-rule
+  statement: A struct (with its field name), tables (with a variable name and with 'Properties') and a
+    number gave false.
+  status: confirmed
+  normative: true
+  provenance: isprop.non-objects
+  observations:
+  - file: observations/isprop_observations.json
+    case_id: struct-field
+  - file: observations/isprop_observations.json
+    case_id: table-props
+  - file: observations/isprop_observations.json
+    case_id: table-var
+  - file: observations/isprop_observations.json
+    case_id: numeric
+- id: isprop.arrays-rule
+  statement: An array of two graphics handles gave a 1x2 logical.
+  status: confirmed
+  normative: true
+  provenance: isprop.arrays
+  observations:
+  - file: observations/isprop_observations.json
+    case_id: handle-array
+- id: isprop.string-name-rule
+  statement: A string scalar name is accepted.
+  status: confirmed
+  normative: true
+  provenance: isprop.string-name
+  observations:
+  - file: observations/isprop_observations.json
+    case_id: string-name
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isprop_observations.json
+  description: 11 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isprop.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: isprop.q-case-objects
+  question: Case-insensitive matching was observed for graphics objects only.

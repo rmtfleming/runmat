@@ -1,0 +1,365 @@
+{
+  "schema_version": "1.0",
+  "function_name": "spy",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/spy/test_spy_interface.m",
+  "date": "2026-10-29",
+  "notes": "Each probe draws into a fresh invisible figure, reports public graphics properties, then closes the figure; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "plots",
+      "description": "spy adds content to the axes (no output value)",
+      "call": "f = figure('Visible','off'); spy(sparse([1 0; 0 1])); ~isempty(get(gca,'Children'))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "points",
+      "description": "plotted coordinates for a 2x3 sparse matrix",
+      "call": "f = figure('Visible','off'); lastwarn(''); spy(sparse([1 0 1; 0 1 0])); report number and classes of axes children, lastwarn identifier, first child's XData, YData, Marker, LineStyle, Color, MarkerSize, and axes XLim, YLim, YDir, XLabel string, DataAspectRatio",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2 3]",
+          "YData": "[1 2 1]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 4]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 3'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense",
+      "description": "dense input with a non-unit value",
+      "call": "f = figure('Visible','off'); spy([0 7; 3 0]); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2]",
+          "YData": "[2 1]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 3]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "all-zero",
+      "description": "all-zero 3x3 matrix",
+      "call": "f = figure('Visible','off'); spy(sparse(3, 3)); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "NaN",
+          "YData": "NaN",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 4]",
+          "YLim": "[0 4]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 0'",
+          "DataAspectRatio": "[1 1 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "tall",
+      "description": "tall 4x1 matrix limits",
+      "call": "f = figure('Visible','off'); spy(sparse([1; 0; 0; 1])); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 1]",
+          "YData": "[1 4]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 2]",
+          "YLim": "[0 5]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "linespec",
+      "description": "LineSpec 'r*'",
+      "call": "f = figure('Visible','off'); spy(sparse([1 0; 0 1]), 'r*'); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2]",
+          "YData": "[1 2]",
+          "Marker": "'*'",
+          "LineStyle": "'none'",
+          "Color": "[1 0 0]",
+          "MarkerSize": "6",
+          "XLim": "[0 3]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "markersize",
+      "description": "numeric marker size",
+      "call": "f = figure('Visible','off'); spy(sparse([1 0; 0 1]), 20); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2]",
+          "YData": "[1 2]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "20",
+          "XLim": "[0 3]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "linespec-markersize",
+      "description": "LineSpec and marker size together",
+      "call": "f = figure('Visible','off'); spy(sparse([1 0; 0 1]), 'g+', 12); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2]",
+          "YData": "[1 2]",
+          "Marker": "'+'",
+          "LineStyle": "'none'",
+          "Color": "[0 1 0]",
+          "MarkerSize": "12",
+          "XLim": "[0 3]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "default-style",
+      "description": "default Color and MarkerSize",
+      "call": "f = figure('Visible','off'); spy(sparse([1 0; 0 1])); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2]",
+          "YData": "[1 2]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 3]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "output-arg",
+      "description": "requesting an output argument",
+      "call": "f = figure('Visible','off'); h = spy(sparse([1 0; 0 1])); class(h)",
+      "errored": true,
+      "error_identifier": "MATLAB:TooManyOutputs"
+    },
+    {
+      "case_id": "logical",
+      "description": "logical input",
+      "call": "f = figure('Visible','off'); spy(logical([1 0; 1 1])); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 1 2]",
+          "YData": "[1 2 2]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 3]",
+          "YLim": "[0 3]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 3'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char",
+      "description": "char input",
+      "call": "f = figure('Visible','off'); spy('ab'); report as for points",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_children": "1",
+          "warning_id": "''",
+          "child_classes": [
+            "'matlab.graphics.chart.primitive.Line'"
+          ],
+          "XData": "[1 2]",
+          "YData": "[1 1]",
+          "Marker": "'.'",
+          "LineStyle": "'none'",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "MarkerSize": "14",
+          "XLim": "[0 3]",
+          "YLim": "[0 2]",
+          "YDir": "'reverse'",
+          "XLabel": "'nz = 2'",
+          "DataAspectRatio": "[0.5 0.5 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

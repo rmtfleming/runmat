@@ -1,0 +1,188 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isprop",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isprop/test_isprop_interface.m",
+  "date": "2026-10-29",
+  "notes": "Graphics cases use an invisible figure that is closed afterwards; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "figure-yes",
+      "description": "figure has Visible",
+      "call": "f = figure('Visible','off'); isprop(f, 'Visible'); close(f)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "figure-no",
+      "description": "figure lacks NotAProp",
+      "call": "f = figure('Visible','off'); isprop(f, 'NotAProp'); close(f)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "figure-case",
+      "description": "property name in different case",
+      "call": "f = figure('Visible','off'); isprop(f, 'visible'); close(f)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "struct-field",
+      "description": "struct with field a",
+      "call": "isprop(struct('a', 1), 'a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "table-props",
+      "description": "table and 'Properties'",
+      "call": "isprop(table(1), 'Properties')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "table-var",
+      "description": "table and a variable name",
+      "call": "isprop(table(1, 'VariableNames', {'x'}), 'x')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric",
+      "description": "numeric value",
+      "call": "isprop(5, 'a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "object-yes",
+      "description": "MException object and 'message'",
+      "call": "isprop(MException('a:b', 'c'), 'message')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "object-no",
+      "description": "MException object and an unknown name",
+      "call": "isprop(MException('a:b', 'c'), 'nope')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "handle-array",
+      "description": "array of two graphics handles",
+      "call": "f = figure('Visible','off'); h = [axes(f) axes(f)]; isprop(h, 'Visible'); close(f)",
+      "errored": false,
+      "result": {
+        "value": "[true true]",
+        "class": "logical",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-name",
+      "description": "property name as a string scalar",
+      "call": "isprop(MException(\"a:b\", \"c\"), \"message\")",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+# Interface specification for symbfact (created 2026-10-29, batch N1, new spec; approved 2026-10-29 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: symbfact
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the column counts of the Cholesky factor predicted from a sparsity pattern, optionally
+  with the tree height, parent vector, postorder and the factor's pattern.
+invocation_forms:
+- signature: count = symbfact(A)
+  description: Column counts of the predicted Cholesky factor of A.
+  status: confirmed
+- signature: count = symbfact(A, 'col')
+  description: Column counts for A'*A.
+  status: confirmed
+- signature: '[count, h, parent, post, R] = symbfact(___)'
+  description: Also height, elimination tree, postorder and factor pattern.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Sparse or full matrix; square unless 'col' is given.
+  status: confirmed
+- name: type
+  position: 2
+  required: false
+  description: '''col'' to analyse A''*A.'
+  status: confirmed
+outputs:
+- name: count
+  description: 1-by-n double row vector of column counts.
+  status: confirmed
+- name: h
+  description: Height of the elimination tree.
+  status: confirmed
+- name: parent
+  description: Elimination tree parent vector.
+  status: confirmed
+- name: post
+  description: Postorder permutation.
+  status: confirmed
+- name: R
+  description: Sparse upper-triangular pattern of the factor.
+  status: confirmed
+output_type_rules:
+- id: symbfact.output-class-rule
+  statement: count is a 1-by-n double row vector.
+  status: confirmed
+  normative: true
+  provenance: symbfact.output-class
+  observations:
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+  - file: observations/symbfact_observations.json
+    case_id: class
+output_shape_rules:
+- id: symbfact.counts-rule
+  statement: 'count(j) is the number of nonzeros in row j of the returned upper-triangular factor pattern
+    R (column j of R''), including the diagonal: 4x4 tridiagonal gave [2 2 2 1]; the arrow matrix with
+    the dense row/column first gave [4 3 2 1] (fill-in); with the dense row/column last it gave [2 2 2
+    1]; the 3x3 diagonal gave [1 1 1]; the 5x5 matrix with corner entries gave [3 3 3 2 1].'
+  status: confirmed
+  normative: true
+  provenance: symbfact.counts
+  observations:
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+  - file: observations/symbfact_observations.json
+    case_id: arrow
+  - file: observations/symbfact_observations.json
+    case_id: arrow-reversed
+  - file: observations/symbfact_observations.json
+    case_id: diag
+  - file: observations/symbfact_observations.json
+    case_id: class
+  - file: observations/symbfact_observations.json
+    case_id: outputs
+- id: symbfact.outputs-rule
+  statement: For the 4x4 arrow matrix the extra outputs were h = 4, parent = [2 3 4 0], post = [1 2 3
+    4], and R a sparse upper-triangular all-ones pattern.
+  status: confirmed
+  normative: true
+  provenance: symbfact.outputs
+  observations:
+  - file: observations/symbfact_observations.json
+    case_id: outputs
+- id: symbfact.dense-input-rule
+  statement: Full input gave the same counts as sparse input.
+  status: confirmed
+  normative: true
+  provenance: symbfact.dense-input
+  observations:
+  - file: observations/symbfact_observations.json
+    case_id: dense-input
+  - file: observations/symbfact_observations.json
+    case_id: tridiagonal
+- id: symbfact.col-rule
+  statement: '''col'' accepts a non-square matrix: [1 0; 1 1; 0 1] gave [2 1].'
+  status: confirmed
+  normative: true
+  provenance: symbfact.col
+  observations:
+  - file: observations/symbfact_observations.json
+    case_id: col
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A is not square and 'col' is not given.
+  identifier: MATLAB:symbfact:InvalidInput
+  status: confirmed
+  provenance: symbfact.error-nonsquare
+  observations:
+  - file: observations/symbfact_observations.json
+    case_id: err-nonsquare
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/symbfact_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: symbfact.q-warning-coverage
+  question: Warnings were not captured by this harness; an empty warnings list is not a complete statement.
+- id: symbfact.q-more-options
+  question: Option values other than 'col', and forms with more input arguments, were not exercised.

@@ -1,0 +1,99 @@
+# Provenance for regexptranslate (created 2026-10-29, batch N1, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: regexptranslate
+claims:
+- claim_id: regexptranslate.signature-primary
+  statement: The invocation form `p = regexptranslate(op, s)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-dot
+- claim_id: regexptranslate.escape
+  statement: '''escape'' prefixed each of the characters . $ ^ * + ? ( ) [ ] { } | \ and - with a backslash
+    (''a.b'' gave ''a\.b''); letters and the characters < > # / space , : = ! @ were left unchanged.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-dot
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-specials
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-plain
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-others
+- claim_id: regexptranslate.escape-whitespace
+  statement: '''escape'' left a tab and a newline character unchanged.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: escape-whitespace
+- claim_id: regexptranslate.wildcard
+  statement: '''wildcard'' turns * into .*, ? into ., and escapes a literal dot: ''*.m'' gave ''.*\.m'';
+    ''a?c'' gave ''a.c''; ''a.b'' gave ''a\.b''.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-star
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-question
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-dot
+- claim_id: regexptranslate.wildcard-use
+  statement: The translated wildcard pattern, anchored with ^ and $, matched 'file.m' using regexp.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: wildcard-use
+- claim_id: regexptranslate.types
+  statement: A string scalar input gives a string; a cell array gives a cell array translated element-wise;
+    empty text gives empty char.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: string-input
+  - file: observations/regexptranslate_observations.json
+    case_id: cell-input
+  - file: observations/regexptranslate_observations.json
+    case_id: empty
+- claim_id: regexptranslate.error-op
+  statement: op is not a recognised operation. The call errors with identifier MATLAB:REGEXP:invalidOptions.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/regexptranslate_observations.json
+    case_id: err-op

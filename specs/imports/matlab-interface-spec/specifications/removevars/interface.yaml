@@ -1,70 +1,162 @@
-# Interface specification for removevars (promoted; observed behaviour confirmed).
+# Interface specification for removevars (widened 2026-10-29, Tier B W1; approved 2026-10-29 after human-loop review).
 # Schema: ../../schemas/function-interface.schema.json
 schema_version: '1.0'
 function_name: removevars
-spec_version: 0.2.0
+spec_version: 0.3.0
 status: approved
 applicable_releases:
 - R2026a
-summary: 'Return a table with the specified variables removed.
-
-  '
+summary: Return a table with the specified variables removed.
 invocation_forms:
 - signature: T2 = removevars(T, vars)
-  description: Remove the named variable(s) from table T.
+  description: Remove the variables selected by `vars` from table T.
   status: confirmed
 inputs:
 - name: T
+  position: 1
   required: true
   description: Table.
-  status: pending
+  status: confirmed
 - name: vars
+  position: 2
   required: true
-  description: Variable name(s) or index(es) to remove.
-  status: pending
+  description: 'Selection of variables to remove: a char name, string scalar or string array, cellstr,
+    numeric index scalar or vector, or logical mask.'
+  status: confirmed
 outputs:
 - name: T2
-  description: Table without the removed variables.
-  status: pending
-  type_rule:
-    id: removevars.out-type
-    statement: The first output has class table (observed).
-    status: confirmed
-    normative: true
-    provenance: removevars.output-class
-    observations:
-    - file: observations/removevars_observations.json
-      case_id: by-name
+  description: Table without the selected variables.
+  status: confirmed
 output_type_rules:
 - id: removevars.output-class-rule
-  statement: The output class is table across the observed inputs.
+  statement: The output class is table for every non-erroring observed call.
   status: confirmed
   normative: true
   provenance: removevars.output-class
   observations:
   - file: observations/removevars_observations.json
     case_id: by-name
+  - file: observations/removevars_observations.json
+    case_id: index
+  - file: observations/removevars_observations.json
+    case_id: logical
+  - file: observations/removevars_observations.json
+    case_id: cellstr
+  - file: observations/removevars_observations.json
+    case_id: all
 output_shape_rules:
 - id: removevars.removes-variable-rule
-  statement: Returns a table with the named variable removed (removing one of three variables left a two-variable
-    table); the row count is preserved.
+  statement: Returns a table with the named variable removed; the remaining variables keep their original
+    order and contents and the row count is preserved.
   status: confirmed
   normative: true
   provenance: removevars.removes-variable
   observations:
   - file: observations/removevars_observations.json
     case_id: by-name
-numerical_edge_cases: []
+  - file: observations/removevars_observations.json
+    case_id: name-full
+  - file: observations/removevars_observations.json
+    case_id: string-scalar
+- id: removevars.by-index-rule
+  statement: Numeric indices select variables by position; the order of the indices does not matter ([1
+    3] and [3 1] both left b,d).
+  status: confirmed
+  normative: true
+  provenance: removevars.by-index
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: index
+  - file: observations/removevars_observations.json
+    case_id: index-vector
+  - file: observations/removevars_observations.json
+    case_id: index-unordered
+- id: removevars.by-logical-rule
+  statement: A logical mask selects variables to remove ([true false true false] on a,b,c,d left b,d).
+  status: confirmed
+  normative: true
+  provenance: removevars.by-logical
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: logical
+- id: removevars.multiple-names-rule
+  statement: Several names may be removed at once as a cellstr or a string array; a name listed twice
+    is removed once without error.
+  status: confirmed
+  normative: true
+  provenance: removevars.multiple-names
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: cellstr
+  - file: observations/removevars_observations.json
+    case_id: string-array
+  - file: observations/removevars_observations.json
+    case_id: dup-names
+- id: removevars.empty-selection-rule
+  statement: An empty selection ({} or []) returns the table unchanged.
+  status: confirmed
+  normative: true
+  provenance: removevars.empty-selection
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: empty-cell
+  - file: observations/removevars_observations.json
+    case_id: empty-index
+- id: removevars.remove-all-rule
+  statement: Removing every variable returns a table with zero variables and the original row count (size
+    [2 0]).
+  status: confirmed
+  normative: true
+  provenance: removevars.remove-all
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: all
+numerical_edge_cases:
+- id: removevars.short-logical-mask-rule
+  statement: 'Observed once: a logical mask shorter than the number of variables did not error; [true
+    false] on a four-variable table removed only the first variable.'
+  status: confirmed
+  normative: false
+  provenance: removevars.short-logical-mask
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: logical-short
 warnings: []
-errors: []
+errors:
+- condition: A name does not match any variable.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: removevars.error-unknown
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: err-unknown
+- condition: A numeric index exceeds the number of variables.
+  identifier: MATLAB:table:VarIndexOutOfRange
+  status: confirmed
+  provenance: removevars.error-index-range
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: err-index-range
+- condition: A numeric index is zero, negative, or not an integer.
+  identifier: MATLAB:badsubscript
+  status: confirmed
+  provenance: removevars.error-index-zero
+  observations:
+  - file: observations/removevars_observations.json
+    case_id: err-index-zero
+  - file: observations/removevars_observations.json
+    case_id: err-index-negative
+  - file: observations/removevars_observations.json
+    case_id: err-index-fraction
 nan_infinity_behaviour: []
 release_dependent_behaviour: []
 linked_observations:
 - file: observations/removevars_observations.json
-  description: 1 independently constructed cases on R2026a (GLNXA64).
+  description: 19 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
 provenance_ref: provenance.yaml
 unresolved_questions:
-- id: removevars.q-index
-  question: Removal by numeric index or logical mask.
-- id: removevars.q-multiple
-  question: Removing multiple variables at once.
+- id: removevars.q-logical-longer
+  question: A logical mask longer than the number of variables (not exercised).
+- id: removevars.q-short-mask
+  question: 'Flagged for human review (constitution 8.2): whether the non-erroring short logical mask
+    (case logical-short) should be required behaviour or left implementation-defined.'
