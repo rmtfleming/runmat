@@ -8,8 +8,13 @@
 **Status**: Batch N2, feature F50. Gates G1–G3 pre-approved by the maintainer
 (`specs/001-clean-room-matlab-builtins/selection-proposal-n2.md`).
 
-**Input**: Approved N2 exports `nthroot`, `reallog` and `cast`, all
-**0.2.0** (see `provenance.md`).
+**Input**: Approved N2 exports `nthroot` and `reallog` **0.2.0**, and
+`cast` **0.2.1** (the 'like'-complexity correction, IMPORT-MANIFEST Batch
+12; see `provenance.md`).
+
+**Revision 2026-10-30 (cast 0.2.1)**: `cast` was rebased on spec 0.2.1.
+The new normative claims `cast.like-complex` and `cast.like-real-p` replace
+the complexity part of the 0.2.0 `cast.like` claim, and D-050-3 is closed.
 
 Family rationale (Principle VII): three small elementwise numeric helpers
 from the same approved batch. `nthroot` and `reallog` are the real-only
@@ -32,14 +37,15 @@ requirement block.
   that name (`double`, `single`, `int8` … `uint64`, `logical`, `char`).
   Rounding, saturation, NaN/Inf handling and GPU residency of `A` are those
   of the existing builtins; nothing is re-implemented.
-- **D-050-3 `cast(x,'like',complex)` (flagged, `cast.q-like-complexity`).**
-  The normative claim `cast.like` says the result is a *real* double `2`.
-  The imported observation record for case `like-complex` carries
-  `isreal: false` for the same result. The two artefacts disagree, and the
-  spec side leaves the question open. RunMat follows the claim text: `'like'`
-  takes only the class of `p`, and a real `A` gives a real result. Tests
-  check only class (`double`) and value (`2`), which both readings agree on.
-  The disagreement is returned to the specification side.
+- **D-050-3 `cast(x,'like',complex)` — CLOSED by cast 0.2.1.** Under 0.2.0
+  the claim text (real result) and the observation record
+  (`isreal: false`) disagreed, and RunMat followed the claim text. Spec 0.2.1
+  resolves `cast.q-like-complexity`: a complex double or single `p` gives a
+  complex result of `p`'s class, even with a zero imaginary part
+  (`cast.like-complex`). RunMat now converts `A` with the delegated builtin
+  and then lifts the result with RunMat's `complex` builtin (one-argument
+  form), which keeps an existing complex value and otherwise adds a zero
+  imaginary part (FR-050-31).
 - **D-050-4 Unobserved points** raise `RunMat:<fn>:UnsupportedOption` or are
   labelled documented choices below. Neither kind is presented as MATLAB
   behaviour.
@@ -103,9 +109,16 @@ requirement block.
    `[1 0]`; `cast([0 2],'logical')` → `[false true]`; `cast([72 105],'char')`
    → `'Hi'` (`to-single`, `char-to-double`, `logical-to-double`,
    `to-logical`, `to-char`). [cast.other-classes]
-5. `cast(70000,'like',uint16(1))` → uint16 `65535` (`like`);
-   `cast(2,'like',1i)` → double `2` (`like-complex`, D-050-3).
+5. `cast(70000,'like',uint16(1))` → uint16 `65535` (`like`).
    [cast.like, cast.saturation]
+5a. `cast(2,'like',1i)` → complex double `2+0i` (`like-complex`,
+   `like-complex-parts`); `cast(int8(3),'like',1i)` → complex double `3+0i`
+   (`like-complex-int-src`); `cast(2,'like',single(1i))` → complex single
+   `2+0i` (`like-complex-single`); `cast([1 2],'like',complex(1,0))` →
+   complex double `[1 2]+0i`, 1×2 (`like-complex-zero-imag`).
+   [cast.like-complex]
+5b. `cast(1+2i,'like',1)` → complex double `1+2i`
+   (`like-real-from-complex`). [cast.like-real-p]
 6. `cast([1 2;3 4],'uint8')` keeps 2×2; `cast(int8(5),'int8')` → int8 `5`
    (`shape`, `same-class`). [cast.shape]
 7. `cast(1,'notaclass')` and `cast(1,'struct')` raise
@@ -166,8 +179,12 @@ requirement block.
 - **FR-050-17** double → single rounds to single precision; char → double
   gives character codes; logical → double gives 1/0; double → logical gives
   nonzero → true; double → char gives characters [cast.other-classes].
-- **FR-050-18** `'like' p` converts to the class of `p`. A complex double
-  `p` gives a double result with the value of `A` (D-050-3) [cast.like].
+- **FR-050-18** `'like' p` converts to the class of `p` [cast.like].
+- **FR-050-31** `'like'` a complex double or single `p` MUST give a complex
+  result of `p`'s class, also when every imaginary part is zero and also
+  for a real or integer-class `A` [cast.like-complex].
+- **FR-050-32** A complex `A` `'like'` a real double `p` MUST stay complex
+  [cast.like-real-p].
 - **FR-050-19** The shape is kept; casting to the same class leaves the
   value unchanged [cast.shape].
 - **FR-050-20** An unknown class name, or `'struct'`, MUST raise
@@ -217,12 +234,15 @@ requirement block.
   - `A` of class string, struct, object, function handle or other
     non-numeric/non-logical/non-char classes raises
     `RunMat:cast:UnsupportedOption`.
-- **FR-050-28** (documented choice, cast) `'like' p`: only the class of `p`
-  is used. Sparsity, complexity and GPU residency of `p` are not
-  propagated; `p` is gathered before its class is read. A `p` whose class is
-  not in the supported list raises `RunMat:cast:UnsupportedClass`.
+- **FR-050-28** (documented choice, cast) `'like' p`: the class of `p` and,
+  for a dense double/single `p`, its complexity (FR-050-31) are used.
+  Sparsity and GPU residency of `p` are not propagated; `p` is gathered
+  before it is read. A `p` whose class is not in the supported list raises
+  `RunMat:cast:UnsupportedClass`. A complex integer-class `p` and a complex
+  sparse `p` are not observed and raise `RunMat:cast:UnsupportedOption`.
 - **FR-050-29** (documented choice, cast) Behaviour not covered by the
-  observations — complex `A`, sparse `A`, gpuArray `A`, errors such as
+  observations — complex `A` with a target other than the observed `'like'`
+  real double (FR-050-32), sparse `A`, gpuArray `A`, errors such as
   `logical(NaN)` — is whatever the delegated conversion builtin does
   (D-050-2), including its error identifiers.
 - **FR-050-30** (unresolved, `*.q-warning-coverage` for all three) None of
@@ -230,8 +250,8 @@ requirement block.
 
 ## Success Criteria *(mandatory)*
 
-- **SC-050-1**: all 42 observed cases reproduce (class, size, value or
-  error identifier): 14 for nthroot, 12 for reallog and 16 for cast.
+- **SC-050-1**: all 47 observed cases reproduce (class, size, value or
+  error identifier): 14 for nthroot, 12 for reallog and 21 for cast.
 - **SC-050-2**: the three builtins are registered through
   `#[runtime_builtin]`, and `cargo test -p runmat-runtime --lib --
   nthroot_tests reallog_tests cast_tests` passes.
@@ -244,4 +264,4 @@ requirement block.
 | nthroot.q-warning-coverage | no warning emitted (FR-050-30) |
 | reallog.q-warning-coverage | no warning emitted (FR-050-30) |
 | cast.q-warning-coverage | no warning emitted (FR-050-30) |
-| cast.q-like-complexity (flagged) | real result, per the claim text; the observation record's `isreal: false` contradicts the claim and is reported back (D-050-3) |
+| cast.q-like-complexity | resolved by cast 0.2.1 (`cast.like-complex`); implemented as FR-050-31, D-050-3 closed |

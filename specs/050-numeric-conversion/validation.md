@@ -87,7 +87,9 @@ reallog 7, cast 9 = 27 ids, all cited in `provenance.md` and below.
 | cast.saturation | FR-050-16 | `observed_saturate`, `observed_int_to_int`, `observed_like` | pass |
 | cast.nan-inf | FR-050-16 | `observed_nan_inf` | pass |
 | cast.other-classes | FR-050-17 | `observed_to_single`, `observed_char_to_double`, `observed_logical_to_double`, `observed_to_logical`, `observed_to_char` | pass |
-| cast.like | FR-050-15, FR-050-18 | `observed_like`, `observed_like_complex` (class + value only, D-050-3) | pass |
+| cast.like | FR-050-15, FR-050-18 | `observed_like` | pass |
+| cast.like-complex (0.2.1) | FR-050-31 | `observed_like_complex`, `observed_like_complex_parts`, `observed_like_complex_int_src`, `observed_like_complex_single`, `observed_like_complex_zero_imag`, `documented_choice_like_complex_more_shapes` | pass |
+| cast.like-real-p (0.2.1) | FR-050-32 | `observed_like_real_from_complex` | pass |
 | cast.shape | FR-050-19 | `observed_shape`, `observed_same_class` | pass |
 | cast.error-bad-type | FR-050-20 | `observed_err_bad_type`, `observed_err_struct_type` | pass |
 | cast.error-cell | FR-050-20 | `observed_err_cell` | pass |
@@ -103,16 +105,14 @@ Documented choices and unresolved points:
 | FR-050-25 | `reallog_tests::documented_choice_unsupported_classes` | pass |
 | FR-050-26 | by construction (`gather_if_needed_async`); no GPU provider in the unit-test environment | not separately tested |
 | FR-050-27 | `documented_choice_all_supported_classes`, `documented_choice_text_forms`, `documented_choice_other_class_names`, `documented_choice_unsupported_forms`, `documented_choice_class_checked_first` | pass |
-| FR-050-28 | `documented_choice_like_unsupported_prototype`, `observed_like_complex` | pass |
+| FR-050-28 | `documented_choice_like_unsupported_prototype`, `documented_choice_like_complex_integer_or_sparse_prototype` | pass |
 | FR-050-29 | `documented_choice_complex_source_delegated` | pass |
 | FR-050-30 | `unresolved_no_warning` (×3) | pass |
 
 ## Deviations
 
-None. D-050-3 (`cast(x,'like',complex)`) is a documented choice, not a
-deviation: RunMat follows the claim text (real result), and the
-disagreement between that claim and the observation record's
-`isreal: false` is returned to the specification side.
+None. D-050-3 (`cast(x,'like',complex)`) is closed by cast 0.2.1 (see
+below).
 
 ## Freshness check (finish)
 
@@ -121,3 +121,46 @@ HEAD = origin/main = `1156c97`. `git diff --name-only 8f72edb HEAD` and the
 same against `origin/main` over `specifications/{nthroot,reallog,cast}`
 returned nothing; `git status --short` for those paths was clean. The
 imported specs are current.
+
+## cast 0.2.1 rebase (2026-10-30)
+
+`cast` was rebased on spec **0.2.1** (IMPORT-MANIFEST Batch 12, source
+`c80cbcca1af8ce82ac101b151740b24ab7a270c5`). `nthroot` and `reallog` are
+unchanged (committed in `08f1b9167`).
+
+- **Freshness (start):** after `git fetch -q origin` in
+  `../matlab-interface-spec`, HEAD = origin/main = `c80cbcc`. There was no
+  diff to `specifications/cast` since `c80cbcc` and no working-tree draft.
+- **Claims:** `grep claim_id` on the cast `provenance.yaml` gives 11 ids
+  (adding `cast.like-complex` and `cast.like-real-p`), so 29 in total for
+  the feature, all cited in `provenance.md` and in the table above.
+- **Tests first:**
+  - Rewrote `observed_like_complex`, which now expects complex `2+0i`.
+  - Added `observed_like_complex_parts` (it also checks that `isreal` is
+    false), `observed_like_complex_int_src`, `observed_like_complex_single`,
+    `observed_like_complex_zero_imag` and `observed_like_real_from_complex`.
+  - Added `documented_choice_like_complex_integer_or_sparse_prototype` and
+    `documented_choice_like_complex_more_shapes`.
+  - Failing run of `cast_tests`: **25 passed, 7 failed** (32 tests).
+    `observed_like_real_from_complex` already passed, because the delegated
+    `double` keeps complex values.
+- **Implementation:** the class of `p` is checked first. For
+  `Value::Complex` or a `ComplexTensor` of dtype F64/F32, the converted
+  result is then passed to RunMat's one-argument `complex` builtin. That
+  builtin keeps an already complex value; otherwise it gives
+  `Value::Complex(re, 0)` for a double scalar and a `ComplexTensor` with
+  F64/F32 storage for anything else. A complex integer-class `p` or a
+  complex sparse `p` raises `RunMat:cast:UnsupportedOption` (FR-050-28).
+- **Passing run:** `cast_tests` gives **32 passed, 0 failed**.
+  The `builtins::math::elementwise` suite gives **790 passed, 0 failed**.
+- **rustfmt** `--check` on `cast.rs` is clean.
+- **Clippy** `-p runmat-runtime --lib --tests`, without and with
+  `--features parallel_xval`: both finished with no diagnostics.
+- **Identifiers:** no new error identifiers. `RunMat:cast:UnsupportedOption`
+  now also covers the complex integer and complex sparse prototypes.
+- **Freshness (finish):** after `git fetch -q origin`, HEAD = origin/main =
+  `fc9f804`, which is after `c80cbcc`. There is no change to
+  `specifications/cast` since `c80cbcc` and no draft.
+- **Test runner:** the shared scratchpad runner had been deleted, so these
+  runs used a replacement. It sets `LD_LIBRARY_PATH` only for the test binary,
+  pointing at a directory that holds just a `libhdf5.so.103` symlink.

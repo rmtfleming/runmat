@@ -1,4 +1,4 @@
-# Provenance for cast (created 2026-10-29, batch N2, new spec; claims backed by observations).
+# Provenance for cast (revised 2026-10-30, correction of the 'like' complexity claim; claims backed by observations).
 schema_version: '1.0'
 function_name: cast
 claims:
@@ -6,7 +6,7 @@ claims:
   statement: The invocation form `B = cast(A, newclass)` is accepted (observed).
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: &id001
   - R2026a
@@ -19,7 +19,7 @@ claims:
     inputs: [1.5 2.5 -1.5] to int32 gave [2 3 -2].'
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed
@@ -31,7 +31,7 @@ claims:
     to int8 gave [-128 5 127]; 70000 ''like'' uint16 gave 65535.'
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed
@@ -46,7 +46,7 @@ claims:
   statement: NaN, Inf and -Inf to int8 gave 0, 127, -128.
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed
@@ -59,7 +59,7 @@ claims:
     ('Hi').
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed
@@ -74,25 +74,11 @@ claims:
     case_id: to-logical
   - file: observations/cast_observations.json
     case_id: to-char
-- claim_id: cast.like
-  statement: '''like'' p converts to the class of p; ''like'' a complex double kept a real double result
-    (2).'
-  source_category: black-box-observation
-  normative: true
-  date: '2026-10-29'
-  author: clean-room agent (Claude Opus 5.5)
-  applicable_releases: *id001
-  status: confirmed
-  observation_refs:
-  - file: observations/cast_observations.json
-    case_id: like
-  - file: observations/cast_observations.json
-    case_id: like-complex
 - claim_id: cast.shape
   statement: The shape is kept, and casting to the same class leaves the value unchanged.
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed
@@ -101,12 +87,56 @@ claims:
     case_id: shape
   - file: observations/cast_observations.json
     case_id: same-class
+- claim_id: cast.like
+  statement: '''like'' p converts to the class of p (70000 ''like'' uint16 gave uint16 65535).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: like
+- claim_id: cast.like-complex
+  statement: '''like'' a complex p gives a complex result of p''s class even when the imaginary part is
+    zero: cast(2, ''like'', 1i) gave double 2+0i (isreal false); int8(3) ''like'' 1i gave double 3+0i;
+    2 ''like'' single(1i) gave single 2+0i; [1 2] ''like'' complex(1, 0) gave [1 2]+0i.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: like-complex
+  - file: observations/cast_observations.json
+    case_id: like-complex-parts
+  - file: observations/cast_observations.json
+    case_id: like-complex-int-src
+  - file: observations/cast_observations.json
+    case_id: like-complex-single
+  - file: observations/cast_observations.json
+    case_id: like-complex-zero-imag
+- claim_id: cast.like-real-p
+  statement: 'A complex A ''like'' a real double p stayed complex: cast(1 + 2i, ''like'', 1) gave 1+2i
+    (isreal false).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: like-real-from-complex
 - claim_id: cast.error-bad-type
   statement: newclass is not a supported class name (an unknown name, or 'struct'). The call errors with
     identifier MATLAB:cast:UnsupportedClass.
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed
@@ -119,7 +149,7 @@ claims:
   statement: A is a cell array. The call errors with identifier MATLAB:invalidConversion.
   source_category: black-box-observation
   normative: true
-  date: '2026-10-29'
+  date: '2026-10-30'
   author: clean-room agent (Claude Opus 5.5)
   applicable_releases: *id001
   status: confirmed

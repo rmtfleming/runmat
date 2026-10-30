@@ -1,5 +1,22 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 12 — cast 0.2.1 correction — 2026-10-30
+
+- Re-import of `cast` at spec version **0.2.1** (`status: approved`),
+  replacing the 0.2.0 copy from Batch 10. New normative claims
+  `cast.like-complex` (a complex `p` gives a complex result of `p`'s class,
+  even with zero imaginary part) and `cast.like-real-p` (a complex `A`
+  'like' a real double stays complex); `q-like-complexity` is resolved
+  (RunMat D-050-3). Five new observation cases (21 in total); the 16
+  earlier cases are unchanged.
+- Approval record: source
+  `docs/review/2026-10-30-cast-0.2.1-correction-human-loop.md`.
+- Revision: committed source **`c80cbcca1af8ce82ac101b151740b24ab7a270c5`**
+  (on `origin/main`), read with `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (4 lines changed, none added).
+
+---
+
 ## Batch 11 — N3: 14 new COBRA-backlog specs — 2026-10-30
 
 - Fourteen newly approved specifications (spec 0.2.0, `status: approved`):

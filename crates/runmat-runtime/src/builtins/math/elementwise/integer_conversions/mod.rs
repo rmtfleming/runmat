@@ -1,5 +1,7 @@
 mod contract;
 
+pub(crate) mod cast;
+
 pub(crate) mod int16;
 pub(crate) mod int32;
 pub(crate) mod int64;

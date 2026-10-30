@@ -3,23 +3,24 @@
 | Field | `nthroot` | `reallog` | `cast` |
 |---|---|---|---|
 | Source repository | `matlab-interface-spec` (local) | same | same |
-| Approved specification | `nthroot` **0.2.0**, `status: approved` | `reallog` **0.2.0**, `status: approved` | `cast` **0.2.0**, `status: approved` |
-| Observations | 14 cases | 12 cases | 16 cases |
+| Approved specification | `nthroot` **0.2.0**, `status: approved` | `reallog` **0.2.0**, `status: approved` | `cast` **0.2.1**, `status: approved` |
+| Observations | 14 cases | 12 cases | 21 cases |
 
 | Field | Value (all three) |
 |---|---|
-| Specification revision (import pin) | **`8f72edb119511f95884fb63f550e6c88682c327b`** (IMPORT-MANIFEST Batch 10, N2) |
-| Review status | approved 2026-10-30 (source `docs/review/2026-10-30-n2-new-specs-human-loop.md`, "Approve all 14"; `cast(x,'like',complex)` left open for review) |
+| Specification revision (import pin) | nthroot, reallog: **`8f72edb119511f95884fb63f550e6c88682c327b`** (IMPORT-MANIFEST Batch 10, N2). cast: **`c80cbcca1af8ce82ac101b151740b24ab7a270c5`** (IMPORT-MANIFEST Batch 12, cast 0.2.1 correction) |
+| Review status | approved 2026-10-30 (source `docs/review/2026-10-30-n2-new-specs-human-loop.md`, "Approve all 14"). cast 0.2.1: approved 2026-10-30 (source `docs/review/2026-10-30-cast-0.2.1-correction-human-loop.md`), resolving `cast.q-like-complexity` |
 | Import date | 2026-10-30 |
 | Selection | maintainer, 2026-10-30, `specs/001-clean-room-matlab-builtins/selection-proposal-n2.md` (F50; G1–G3 pre-approved) |
 | Freshness check (start) | 2026-10-30: in `../matlab-interface-spec`, after `git fetch -q origin`, HEAD = origin/main = `1156c97`. `git diff --name-only 8f72edb HEAD` and the same against `origin/main`, both over `specifications/{nthroot,reallog,cast}`, returned nothing; `git status --short` for those paths was clean. |
+| Freshness check (cast 0.2.1 rebase, start) | 2026-10-30: after `git fetch -q origin`, HEAD = origin/main = `c80cbcc`. `git diff --name-only c80cbcc HEAD` and against `origin/main` over `specifications/cast` returned nothing; `git status --short` for that path was clean. |
 | Freshness check (finish) | recorded in `validation.md` |
 | Applicable release | as recorded in each imported `provenance.yaml` |
 | Imported files | `specs/imports/matlab-interface-spec/specifications/{nthroot,reallog,cast}/{interface.yaml,behaviour.md,provenance.yaml,observations/*_observations.json}` |
 
 ## Relied-upon claims
 
-All are `source_category: black-box-observation`, `normative: true`,
+All 29 are `source_category: black-box-observation`, `normative: true`,
 `status: confirmed`. Every id below exists in the imported
 `provenance.yaml` (checked with `grep claim_id`, see `validation.md`).
 
@@ -48,7 +49,9 @@ All are `source_category: black-box-observation`, `normative: true`,
 | cast.saturation | FR-050-16 |
 | cast.nan-inf | FR-050-16 |
 | cast.other-classes | FR-050-17 |
-| cast.like | FR-050-15, FR-050-18 (complexity part: D-050-3) |
+| cast.like | FR-050-15, FR-050-18 |
+| cast.like-complex | FR-050-31 (0.2.1) |
+| cast.like-real-p | FR-050-32 (0.2.1) |
 | cast.shape | FR-050-19 |
 | cast.error-bad-type | FR-050-20 |
 | cast.error-cell | FR-050-20 |
@@ -56,18 +59,14 @@ All are `source_category: black-box-observation`, `normative: true`,
 ## Unresolved questions carried
 
 `nthroot.q-warning-coverage`, `reallog.q-warning-coverage`,
-`cast.q-warning-coverage`, and `cast.q-like-complexity` (flagged for human
-review on the spec side). `spec.md` ("Unresolved behaviour") records how
-each is handled.
-
-**Reported back to the specification side:** for case `like-complex` the
-claim `cast.like` (and `behaviour.md`) states a *real* double result, while
-the observation record carries `isreal: false`. RunMat follows the claim
-text (D-050-3) and tests only the class and value.
+and `cast.q-warning-coverage`. `spec.md` ("Unresolved behaviour") records
+how each is handled. `cast.q-like-complexity` (open in 0.2.0, reported back
+as the claim-versus-observation disagreement of D-050-3) is resolved by cast
+0.2.1; D-050-3 is closed.
 
 ## Source categories and independence
 
-- FR-050-01..20 come from black-box observations. The observed identifiers
+- FR-050-01..20, 31 and 32 come from black-box observations. The observed identifiers
   are in the `MATLAB:` namespace, and RunMat raises them in its own
   namespace (D-050-1).
 - FR-050-21..30 are **independently derived documented choices** or

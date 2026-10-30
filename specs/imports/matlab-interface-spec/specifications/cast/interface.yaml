@@ -1,8 +1,8 @@
-# Interface specification for cast (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Interface specification for cast (revised 2026-10-30, correction of the 'like' complexity claim; approved 2026-10-30 after human-loop review).
 # Schema: ../../schemas/function-interface.schema.json
 schema_version: '1.0'
 function_name: cast
-spec_version: 0.2.0
+spec_version: 0.2.1
 status: approved
 applicable_releases:
 - R2026a
@@ -13,7 +13,7 @@ invocation_forms:
   description: Convert to class `newclass`.
   status: confirmed
 - signature: B = cast(A, 'like', p)
-  description: Convert to the class of p.
+  description: Convert to the class of p; a complex p (double and single observed) made the result complex.
   status: confirmed
 inputs:
 - name: A
@@ -80,17 +80,6 @@ output_shape_rules:
     case_id: to-logical
   - file: observations/cast_observations.json
     case_id: to-char
-- id: cast.like-rule
-  statement: '''like'' p converts to the class of p; ''like'' a complex double kept a real double result
-    (2).'
-  status: confirmed
-  normative: true
-  provenance: cast.like
-  observations:
-  - file: observations/cast_observations.json
-    case_id: like
-  - file: observations/cast_observations.json
-    case_id: like-complex
 - id: cast.shape-rule
   statement: The shape is kept, and casting to the same class leaves the value unchanged.
   status: confirmed
@@ -101,6 +90,41 @@ output_shape_rules:
     case_id: shape
   - file: observations/cast_observations.json
     case_id: same-class
+- id: cast.like-rule
+  statement: '''like'' p converts to the class of p (70000 ''like'' uint16 gave uint16 65535).'
+  status: confirmed
+  normative: true
+  provenance: cast.like
+  observations:
+  - file: observations/cast_observations.json
+    case_id: like
+- id: cast.like-complex-rule
+  statement: '''like'' a complex p gives a complex result of p''s class even when the imaginary part is
+    zero: cast(2, ''like'', 1i) gave double 2+0i (isreal false); int8(3) ''like'' 1i gave double 3+0i;
+    2 ''like'' single(1i) gave single 2+0i; [1 2] ''like'' complex(1, 0) gave [1 2]+0i.'
+  status: confirmed
+  normative: true
+  provenance: cast.like-complex
+  observations:
+  - file: observations/cast_observations.json
+    case_id: like-complex
+  - file: observations/cast_observations.json
+    case_id: like-complex-parts
+  - file: observations/cast_observations.json
+    case_id: like-complex-int-src
+  - file: observations/cast_observations.json
+    case_id: like-complex-single
+  - file: observations/cast_observations.json
+    case_id: like-complex-zero-imag
+- id: cast.like-real-p-rule
+  statement: 'A complex A ''like'' a real double p stayed complex: cast(1 + 2i, ''like'', 1) gave 1+2i
+    (isreal false).'
+  status: confirmed
+  normative: true
+  provenance: cast.like-real-p
+  observations:
+  - file: observations/cast_observations.json
+    case_id: like-real-from-complex
 numerical_edge_cases: []
 warnings: []
 errors:
@@ -124,12 +148,9 @@ nan_infinity_behaviour: []
 release_dependent_behaviour: []
 linked_observations:
 - file: observations/cast_observations.json
-  description: 16 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+  description: 21 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
 provenance_ref: provenance.yaml
 unresolved_questions:
 - id: cast.q-warning-coverage
   question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
     list is not a complete statement.
-- id: cast.q-like-complexity
-  question: Whether 'like' a complex value should produce a complex result is a human-review question
-    (constitution 8.2); a real result was observed (like-complex).

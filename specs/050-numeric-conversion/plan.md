@@ -2,14 +2,15 @@
 
 ## Constitution Check
 
-- I Specification-first: FR-050-01..20 cite the 27 approved claims.
-  FR-050-21..30 are tagged as documented choices or unresolved. PASS.
+- I Specification-first: FR-050-01..20, 31, 32 cite the 29 approved claims
+  (cast at 0.2.1). FR-050-21..30 are tagged as documented choices or
+  unresolved. PASS.
 - II Clean-room: the only inputs are the imported exports and RunMat code.
   MATLAB was not invoked. PASS.
 - III Independence: a power with one Newton correction, `ln` after a domain
   check, and delegation to RunMat's own conversion builtins. PASS.
 - IV Provenance: `provenance.md` is pinned to `8f72edb` and was
-  freshness-checked. All 27 claim ids were verified. PASS.
+  freshness-checked. All 29 claim ids were verified (cast pinned to `c80cbcc`). PASS.
 - V Test-first: tests are written before the bodies, and the failing run is
   recorded in `validation.md`. PASS.
 - VII Minimal scope: three new files, plus one `pub(crate) mod` line each in
@@ -64,12 +65,20 @@
    - 2 args: `newclass` text (char row / string scalar), else
      `UnsupportedOption`;
    - 3 args: second arg must be text equal to `like` (any case), else
-     `UnsupportedOption`; gather `p`, take `class(p)`.
+     `UnsupportedOption`; gather `p`, take `class(p)`. Record whether `p`
+     is complex: `Value::Complex`, or a `ComplexTensor` of dtype F64/F32
+     (FR-050-31). A complex integer `ComplexTensor` or a complex
+     `SparseTensor` `p` → `UnsupportedOption` (FR-050-28).
    - The name must be one of the 12 supported classes, else
      `UnsupportedClass`.
 3. `A`: cell → `RunMat:invalidConversion`; numeric, logical, char, sparse,
    complex or gpuArray → allowed; anything else → `UnsupportedOption`.
-4. Return `call_builtin_async(target, [A])`.
+4. `B = call_builtin_async(target, [A])`. If `p` was complex, return
+   `call_builtin_async("complex", [B])`: RunMat's one-argument `complex`
+   keeps an already complex value and otherwise adds a zero imaginary part,
+   giving `Value::Complex(re, 0)` for a double scalar and a `ComplexTensor`
+   (F64 or F32 storage) otherwise (FR-050-31). A complex `A` 'like' a real
+   double stays complex because `double` keeps complex values (FR-050-32).
 
 ## Test plan
 
@@ -77,7 +86,7 @@ Inline `#[cfg(test)]` modules `nthroot_tests`, `reallog_tests` and
 `cast_tests`, calling through `crate::call_builtin_async` (output-count
 tests call the builtin function directly under `push_output_count`).
 
-- Each observed case has one `observed_*` test: 14 + 12 + 16.
+- Each observed case has one `observed_*` test: 14 + 12 + 21.
 - `documented_choice_*` and `unresolved_*` tests cover FR-050-21..30.
 
 ## Risks & rollback

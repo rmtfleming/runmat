@@ -5,7 +5,7 @@
   "version_string": "26.1.0.3276743 (R2026a) Update 3",
   "platform": "GLNXA64",
   "generated_by": "experiments/cast/test_cast_interface.m",
-  "date": "2026-10-29",
+  "date": "2026-10-30",
   "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
   "cases": [
     {
@@ -176,6 +176,111 @@
       "result": {
         "value": "2",
         "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like-complex-parts",
+      "description": "'like' a complex double: class, isreal, real and imaginary parts",
+      "call": "b = cast(2, 'like', 1i); report class(b), isreal(b), real(b), imag(b)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "isreal": "false",
+          "real": "2",
+          "imag": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like-complex-int-src",
+      "description": "int8 source 'like' a complex double",
+      "call": "b = cast(int8(3), 'like', 1i); report as for like-complex-parts",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "isreal": "false",
+          "real": "3",
+          "imag": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like-complex-single",
+      "description": "'like' a complex single",
+      "call": "b = cast(2, 'like', single(1i)); report as for like-complex-parts",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'single'",
+          "isreal": "false",
+          "real": "2",
+          "imag": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like-complex-zero-imag",
+      "description": "'like' complex(1, 0) (complex with zero imaginary part), vector source",
+      "call": "b = cast([1 2], 'like', complex(1, 0)); report as for like-complex-parts",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "isreal": "false",
+          "real": "[1 2]",
+          "imag": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like-real-from-complex",
+      "description": "complex source 'like' a real double",
+      "call": "b = cast(1 + 2i, 'like', 1); report as for like-complex-parts",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "isreal": "false",
+          "real": "1",
+          "imag": "2"
+        },
+        "class": "struct",
         "size": [
           1,
           1
