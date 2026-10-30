@@ -1,0 +1,224 @@
+{
+  "schema_version": "1.0",
+  "function_name": "strvcat",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/strvcat/test_strvcat_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "pad",
+      "description": "rows padded to the longest",
+      "call": "strvcat('a', 'bcd', 'ef')",
+      "errored": false,
+      "result": {
+        "value": "['a  ';'bcd';'ef ']",
+        "class": "char",
+        "size": [
+          3,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pad-size",
+      "description": "size of the padded result",
+      "call": "size(strvcat('a', 'bcd', 'ef'))",
+      "errored": false,
+      "result": {
+        "value": "[3 3]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "skip-empty",
+      "description": "empty char arguments are skipped",
+      "call": "size(strvcat('a', '', 'b'))",
+      "errored": false,
+      "result": {
+        "value": "[2 1]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell",
+      "description": "cell array of char",
+      "call": "strvcat({'ab', 'c'})",
+      "errored": false,
+      "result": {
+        "value": "['ab';'c ']",
+        "class": "char",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell-empty",
+      "description": "empty char inside a cell",
+      "call": "size(strvcat({'a', '', 'b'}))",
+      "errored": false,
+      "result": {
+        "value": "[2 1]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-mixed",
+      "description": "char and cell arguments together",
+      "call": "strvcat('x', {'yy', 'z'})",
+      "errored": true,
+      "error_identifier": "MATLAB:character:InvalidInput"
+    },
+    {
+      "case_id": "numeric",
+      "description": "numeric argument as character codes",
+      "call": "strvcat(65, 'b')",
+      "errored": false,
+      "result": {
+        "value": "['A';'b']",
+        "class": "char",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix-arg",
+      "description": "multi-row char argument",
+      "call": "strvcat(['ab'; 'cd'], 'e')",
+      "errored": false,
+      "result": {
+        "value": "['ab';'cd';'e ']",
+        "class": "char",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one",
+      "description": "single argument",
+      "call": "strvcat('abc')",
+      "errored": false,
+      "result": {
+        "value": "'abc'",
+        "class": "char",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "all-empty",
+      "description": "all arguments empty",
+      "call": "s = strvcat('', ''); report class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'char'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-args",
+      "description": "no arguments",
+      "call": "s = strvcat(); report class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'char'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string",
+      "description": "string-scalar arguments",
+      "call": "strvcat(\"ab\", \"c\")",
+      "errored": false,
+      "result": {
+        "value": "['ab';'c ']",
+        "class": "char",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "trailing-blanks",
+      "description": "trailing blanks in an argument are kept",
+      "call": "strvcat('a  ', 'b')",
+      "errored": false,
+      "result": {
+        "value": "['a  ';'b  ']",
+        "class": "char",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-struct",
+      "description": "struct argument",
+      "call": "strvcat(struct('a', 1))",
+      "errored": true,
+      "error_identifier": "MATLAB:invalidConversion"
+    }
+  ]
+}

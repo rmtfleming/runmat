@@ -1,0 +1,149 @@
+# Provenance for orth (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: orth
+claims:
+- claim_id: orth.signature-primary
+  statement: The invocation form `Q = orth(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+- claim_id: orth.size-rank
+  statement: 'Q had size(A,1) rows and as many columns as the rank of A: 3x3 full rank gave 3x3, rank
+    2 gave 3x2, rank 1 gave 3x1, zeros(3) gave 3x0, a 4x2 full-column-rank matrix gave 4x2, a 2x4 rank-2
+    matrix gave 2x2.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+  - file: observations/orth_observations.json
+    case_id: rank2
+  - file: observations/orth_observations.json
+    case_id: rank1
+  - file: observations/orth_observations.json
+    case_id: zero
+  - file: observations/orth_observations.json
+    case_id: tall
+  - file: observations/orth_observations.json
+    case_id: wide
+- claim_id: orth.orthonormal
+  statement: norm(Q'*Q - I) and the span residual norm(A - Q*(Q'*A)) were at rounding level (below 1.2e-14
+    for double, below 5e-6 for single), including for complex input.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+  - file: observations/orth_observations.json
+    case_id: rank2
+  - file: observations/orth_observations.json
+    case_id: rank1
+  - file: observations/orth_observations.json
+    case_id: tall
+  - file: observations/orth_observations.json
+    case_id: wide
+  - file: observations/orth_observations.json
+    case_id: single
+  - file: observations/orth_observations.json
+    case_id: complex
+- claim_id: orth.class
+  statement: Single input gives single output; complex double input gave a double result.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: single
+  - file: observations/orth_observations.json
+    case_id: complex
+- claim_id: orth.empty
+  statement: orth([]) gives 0x0 and orth(zeros(3,0)) gives 3x0.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: empty
+  - file: observations/orth_observations.json
+    case_id: empty-3x0
+- claim_id: orth.second-arg
+  statement: orth(diag([1 1e-3 0]), 1e-2) returned a 3x1 basis (the 1e-3 direction dropped, span residual
+    1e-3).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: second-arg
+- claim_id: orth.diag
+  statement: 'Observed for the one input diag([2 0 5]): abs(Q) was [0 1; 0 0; 1 0] (first column +/-e3,
+    second +/-e1; signs not recorded). Column order is not required.'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: diag-abs
+- claim_id: orth.basis-not-unique
+  statement: 'Inference (not observed): an orthonormal basis of a range is not unique (signs, and rotations
+    within repeated singular values), so only size, orthonormality and span should be required of an implementation.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+- claim_id: orth.error-sparse
+  statement: A is sparse. The call errors with identifier MATLAB:svd:noSVDsparse.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: err-sparse
+- claim_id: orth.error-int
+  statement: A is an integer or char array. The call errors with identifier MATLAB:svd:inputType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/orth_observations.json
+    case_id: err-int
+  - file: observations/orth_observations.json
+    case_id: err-char

@@ -1,0 +1,115 @@
+# Interface specification for sec (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: sec
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Elementwise secant of floating-point input.
+invocation_forms:
+- signature: Y = sec(X)
+  description: Secant of each element.
+  status: confirmed
+inputs:
+- name: X
+  position: 1
+  required: true
+  description: double or single array, real or complex.
+  status: confirmed
+outputs:
+- name: Y
+  description: Array the size and class of X.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: sec.values-rule
+  statement: sec(0) = 1, sec(pi) = -1, sec(pi/3) = 1.9999999999999996, sec(-pi/4) = 1.4142135623730949
+    (within 1e-12).
+  status: confirmed
+  normative: true
+  provenance: sec.values
+  observations:
+  - file: observations/sec_observations.json
+    case_id: zero
+  - file: observations/sec_observations.json
+    case_id: pi
+  - file: observations/sec_observations.json
+    case_id: pi3
+  - file: observations/sec_observations.json
+    case_id: negative
+- id: sec.pole-rule
+  statement: sec(pi/2) is finite and large (16331239353195370 observed).
+  status: confirmed
+  normative: true
+  provenance: sec.pole
+  observations:
+  - file: observations/sec_observations.json
+    case_id: pole
+- id: sec.shape-rule
+  statement: Output has the size of the input, including empty.
+  status: confirmed
+  normative: true
+  provenance: sec.shape
+  observations:
+  - file: observations/sec_observations.json
+    case_id: matrix
+  - file: observations/sec_observations.json
+    case_id: empty
+- id: sec.nonfinite-rule
+  statement: sec(NaN) and sec(Inf) are NaN.
+  status: confirmed
+  normative: true
+  provenance: sec.nonfinite
+  observations:
+  - file: observations/sec_observations.json
+    case_id: nan
+  - file: observations/sec_observations.json
+    case_id: inf
+- id: sec.complex-rule
+  statement: 'Complex input gives a complex result: sec(1+1i) = 0.49833703055518686+0.59108384172104511i.'
+  status: confirmed
+  normative: true
+  provenance: sec.complex
+  observations:
+  - file: observations/sec_observations.json
+    case_id: complex
+- id: sec.single-rule
+  statement: Single input gives a single result.
+  status: confirmed
+  normative: true
+  provenance: sec.single
+  observations:
+  - file: observations/sec_observations.json
+    case_id: single
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: X is logical, int8 (the one integer class tried) or char.
+  identifier: MATLAB:math:mustBeFloat
+  status: confirmed
+  provenance: sec.error-logical
+  observations:
+  - file: observations/sec_observations.json
+    case_id: err-logical
+  - file: observations/sec_observations.json
+    case_id: err-int
+  - file: observations/sec_observations.json
+    case_id: err-char
+- condition: No input is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: sec.error-none
+  observations:
+  - file: observations/sec_observations.json
+    case_id: err-none
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/sec_observations.json
+  description: 15 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: sec.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

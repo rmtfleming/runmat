@@ -1,0 +1,289 @@
+{
+  "schema_version": "1.0",
+  "function_name": "orth",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/orth/test_orth_interface.m",
+  "date": "2026-10-30",
+  "notes": "Basis vectors are not unique (signs and rotations), so probes record size, class, orthonormality residual, span residual and rank rather than raw values, except where noted; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "full-rank",
+      "description": "3x3 full-rank matrix",
+      "call": "Q = orth(magic(3)); report size, class, norm(Q'*Q - I), norm(A - Q*Q'*A), rank(Q)",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[3 3]",
+          "class": "'double'",
+          "orthonormal_residual": "7.2427647352403656e-16",
+          "span_residual": "1.1042951495254651e-14",
+          "rank_Q": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rank2",
+      "description": "3x3 rank-2 matrix",
+      "call": "Q = orth([1 2 3; 2 4 6; 1 0 1]); report as for full-rank",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[3 2]",
+          "class": "'double'",
+          "orthonormal_residual": "3.943111286301344e-16",
+          "span_residual": "3.0855283919595267e-15",
+          "rank_Q": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rank1",
+      "description": "3x3 rank-1 matrix",
+      "call": "Q = orth(ones(3)); report as for full-rank",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[3 1]",
+          "class": "'double'",
+          "orthonormal_residual": "5.5511151231257827e-16",
+          "span_residual": "1.6653345369377348e-15",
+          "rank_Q": "1"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "3x3 zero matrix",
+      "call": "Q = orth(zeros(3)); report as for full-rank",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[3 0]",
+          "class": "'double'",
+          "orthonormal_residual": "0",
+          "span_residual": "0",
+          "rank_Q": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "tall",
+      "description": "4x2 full-column-rank matrix",
+      "call": "Q = orth([1 0; 0 1; 1 1; 2 0]); report as for full-rank",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[4 2]",
+          "class": "'double'",
+          "orthonormal_residual": "2.6803154833089315e-16",
+          "span_residual": "4.7850970656354905e-16",
+          "rank_Q": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "wide",
+      "description": "2x4 matrix",
+      "call": "Q = orth([1 2 3 4; 0 1 0 1]); report as for full-rank",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[2 2]",
+          "class": "'double'",
+          "orthonormal_residual": "2.2204460492503131e-16",
+          "span_residual": "1.602108806848966e-15",
+          "rank_Q": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "diag-abs",
+      "description": "abs of the basis for diag([2 0 5])",
+      "call": "abs(orth(diag([2 0 5])))",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[0 1;0 0;1 0]",
+        "class": "double",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "0x0 input",
+      "call": "orth([])",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-3x0",
+      "description": "3x0 input",
+      "call": "orth(zeros(3, 0))",
+      "errored": false,
+      "result": {
+        "value": "zeros(3,0)",
+        "class": "double",
+        "size": [
+          3,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single",
+      "description": "single-precision input",
+      "call": "Q = orth(single(magic(3))); report as for full-rank",
+      "tolerance": 1E-5,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[3 3]",
+          "class": "'single'",
+          "orthonormal_residual": "2.7298972327116644e-07",
+          "span_residual": "4.1370994949829765e-06",
+          "rank_Q": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex",
+      "description": "complex input",
+      "call": "Q = orth([1 1i; 1i 1]); report as for full-rank (Q'*Q uses the conjugate transpose)",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[2 2]",
+          "class": "'double'",
+          "orthonormal_residual": "5.3606309666178639e-16",
+          "span_residual": "8.951979685313743e-16",
+          "rank_Q": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "second-arg",
+      "description": "second positional argument (a tolerance-like scalar)",
+      "call": "Q = orth(diag([1 1e-3 0]), 1e-2); report as for full-rank",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[3 1]",
+          "class": "'double'",
+          "orthonormal_residual": "0",
+          "span_residual": "0.001",
+          "rank_Q": "1"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-sparse",
+      "description": "sparse input",
+      "call": "orth(sparse(magic(3)))",
+      "errored": true,
+      "error_identifier": "MATLAB:svd:noSVDsparse"
+    },
+    {
+      "case_id": "err-int",
+      "description": "int8 input",
+      "call": "orth(int8(magic(3)))",
+      "errored": true,
+      "error_identifier": "MATLAB:svd:inputType"
+    },
+    {
+      "case_id": "err-char",
+      "description": "char input",
+      "call": "orth('abc')",
+      "errored": true,
+      "error_identifier": "MATLAB:svd:inputType"
+    }
+  ]
+}

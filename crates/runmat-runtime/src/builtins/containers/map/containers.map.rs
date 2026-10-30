@@ -1379,6 +1379,12 @@ async fn containers_map_is_key(map: Value, key_spec: Value) -> crate::BuiltinRes
     with_store(&map, BUILTIN_IS_KEY, |store| {
         let mut flags = Vec::with_capacity(collection.values.len());
         for value in &collection.values {
+            // A text key on a numeric map (or a numeric key on a char map) is
+            // not present (spec 048, FR-048-08 [isKey.lenient]; U-048-3).
+            if key_category_mismatch(value, store.key_type) {
+                flags.push(false);
+                continue;
+            }
             let normalized = normalize_key(value, store.key_type, BUILTIN_IS_KEY)?;
             flags.push(store.contains(&normalized));
         }
@@ -1405,15 +1411,38 @@ async fn containers_map_remove(map: Value, key_spec: Value) -> crate::BuiltinRes
     ensure_resident_extension(&key_spec, &MAP_RESIDENT_REMOVE_EXTENSION, BUILTIN_REMOVE)?;
     let key_type = with_store(&map, BUILTIN_REMOVE, |store| Ok(store.key_type))?;
     let collection = collect_key_spec(&key_spec, key_type, BUILTIN_REMOVE).await?;
-    with_store_mut(&map, BUILTIN_REMOVE, |store| {
+    // Absent keys (including keys of the wrong class) do not stop the call:
+    // present keys are removed and one NoKeyToRemove warning is issued
+    // (spec 048, FR-048-12 [remove.warning-absent,
+    // remove.present-removed-with-absent]; U-048-2).
+    let any_missing = with_store_mut(&map, BUILTIN_REMOVE, |store| {
+        let mut any_missing = false;
         for value in &collection.values {
+            if key_category_mismatch(value, store.key_type) {
+                any_missing = true;
+                continue;
+            }
             let normalized = normalize_key(value, store.key_type, BUILTIN_REMOVE)?;
-            store.remove(&normalized, BUILTIN_REMOVE)?;
+            if store.contains(&normalized) {
+                store.remove(&normalized, BUILTIN_REMOVE)?;
+            } else {
+                any_missing = true;
+            }
         }
-        Ok(())
+        Ok(any_missing)
     })?;
+    if any_missing {
+        crate::warnings::emit(crate::warnings::WarningRequest {
+            builtin: BUILTIN_REMOVE,
+            identifier: CONTAINERS_MAP_WARNING_NO_KEY_TO_REMOVE,
+            message: "containers.Map: a key to remove is not in the map",
+            show_identifier: true,
+        })?;
+    }
     Ok(map)
 }
+
+const CONTAINERS_MAP_WARNING_NO_KEY_TO_REMOVE: &str = "RunMat:Containers:Map:NoKeyToRemove";
 
 #[runtime_builtin(
     name = "containers.Map.subsref",
@@ -1481,6 +1510,11 @@ async fn containers_map_read_step(
                 BUILTIN_SUBSREF,
             )?;
             with_store(&map, BUILTIN_SUBSREF, |store| {
+                // `M.keys` is the method-call form of keys(M) (spec 048,
+                // FR-048-04 [keys.method-syntax]).
+                if field == "keys" {
+                    return make_row_cell(store.keys(), BUILTIN_SUBSREF);
+                }
                 match field.to_ascii_lowercase().as_str() {
                     "count" => Ok(Value::Int(IntValue::U64(store.len() as u64))),
                     "keytype" => char_array_value(store.key_type.matlab_name(), BUILTIN_SUBSREF),
@@ -2340,6 +2374,24 @@ fn normalize_key(
     }
 }
 
+/// Text key for a numeric KeyType, or a non-text key for a char KeyType
+/// (spec 048, U-048-3). Mismatches between numeric classes are not included:
+/// they keep upstream's KeyType error.
+fn key_category_mismatch(value: &Value, key_type: KeyType) -> bool {
+    let is_text = matches!(
+        value,
+        Value::CharArray(_) | Value::String(_) | Value::StringArray(_)
+    );
+    let is_numeric = matches!(
+        value,
+        Value::Num(_) | Value::Int(_) | Value::Bool(_) | Value::Tensor(_) | Value::LogicalArray(_)
+    );
+    match key_type {
+        KeyType::Char => is_numeric,
+        _ => is_text,
+    }
+}
+
 fn value_matches_key_type(value: &Value, key_type: KeyType) -> bool {
     match key_type {
         KeyType::Char => {
@@ -2833,7 +2885,9 @@ async fn collect_key_spec(
     match &host {
         Value::Cell(cell) => {
             let mut values = Vec::with_capacity(cell.data.len());
-            for ptr in &cell.data {
+            // Column-major order, matching the column-major `LogicalArray`
+            // built by isKey (spec 048, FR-048-06 [isKey.cell-query]).
+            for ptr in cell.iter_column_major() {
                 values.push(
                     gather_if_needed_async(ptr)
                         .await
@@ -3279,21 +3333,24 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[test]
-    fn remove_missing_key_returns_error() {
+    fn remove_missing_key_warns_and_keeps_map() {
+        // Updated by spec 048 (FR-048-12): removing an absent key no longer
+        // raises MissingKey; it issues RunMat:Containers:Map:NoKeyToRemove.
+        crate::warnings::with_policy(|policy| policy.reset());
         let keys = crate::make_cell(vec![Value::from("key")], 1, 1).unwrap();
         let values = crate::make_cell(vec![Value::Num(1.0)], 1, 1).unwrap();
         let map = containers_map_builtin(vec![keys, values]).expect("map");
-        let err = containers_map_remove(
-            map,
+        containers_map_remove(
+            map.clone(),
             crate::make_cell(vec![Value::from("missing")], 1, 1).unwrap(),
         )
-        .expect_err("remove missing");
+        .expect("remove missing completes");
+        let warning = crate::warnings::with_policy(|policy| policy.last_warning());
         assert_eq!(
-            err.identifier(),
-            CONTAINERS_MAP_ERROR_MISSING_KEY.identifier
+            warning.map(|w| w.identifier).as_deref(),
+            Some(CONTAINERS_MAP_WARNING_NO_KEY_TO_REMOVE)
         );
-        let message = error_message(err);
-        assert_eq!(message, CONTAINERS_MAP_ERROR_MISSING_KEY.message);
+        assert_eq!(map_length(&map), Some(1));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

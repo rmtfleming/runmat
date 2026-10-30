@@ -1,0 +1,199 @@
+{
+  "schema_version": "1.0",
+  "function_name": "struct2cell",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/struct2cell/test_struct2cell_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "scalar",
+      "description": "scalar struct with fields in non-alphabetical order",
+      "call": "struct2cell(struct('b', 1, 'a', 'x', 'c', {{2}}))",
+      "errored": false,
+      "result": {
+        "value": [
+          "1",
+          "'x'",
+          [
+            "2"
+          ]
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "array-size",
+      "description": "1x2 struct array: size of the result",
+      "call": "c = struct2cell(struct('a', {1, 2}, 'b', {3, 4})); report size(c) and c(:)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'cell'",
+          "size": "[2 1 2]",
+          "values": [
+            "1",
+            "3",
+            "2",
+            "4"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "column-array-size",
+      "description": "2x1 struct array: size of the result",
+      "call": "c = struct2cell(struct('a', {1; 2})); report size(c) and c(:)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'cell'",
+          "size": "[1 2]",
+          "values": [
+            "1",
+            "2"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix-array-size",
+      "description": "2x2 struct array with one field: size of the result",
+      "call": "c = struct2cell(repmat(struct('a', 5), 2, 2)); report size(c)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'cell'",
+          "size": "[1 2 2]",
+          "values": [
+            "5",
+            "5",
+            "5",
+            "5"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-array",
+      "description": "0x0 struct array with fields",
+      "call": "c = struct2cell(struct('a', {}, 'b', {})); report size and class",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'cell'",
+          "size": "[2 0 0]",
+          "values": []
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-fields",
+      "description": "scalar struct with no fields",
+      "call": "c = struct2cell(struct()); report size and class",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'cell'",
+          "size": "[0 1]",
+          "values": []
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nested",
+      "description": "struct-valued field kept as a struct",
+      "call": "struct2cell(struct('s', struct('x', 1)))",
+      "errored": false,
+      "result": {
+        "value": [
+          {
+            "x": "1"
+          }
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix-value",
+      "description": "matrix-valued field kept whole",
+      "call": "struct2cell(struct('m', [1 2; 3 4]))",
+      "errored": false,
+      "result": {
+        "value": [
+          "[1 2;3 4]"
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-cell",
+      "description": "cell input",
+      "call": "struct2cell({1})",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    },
+    {
+      "case_id": "err-double",
+      "description": "double input",
+      "call": "struct2cell(1)",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

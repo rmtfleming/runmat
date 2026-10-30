@@ -13,6 +13,8 @@ mod variable_editing;
 // F44 (specs/044-table-stack-innerjoin)
 mod innerjoin;
 mod stack;
+// F52 (specs/052-data-n2)
+mod categories;
 
 #[allow(unused_imports)]
 pub(crate) use {

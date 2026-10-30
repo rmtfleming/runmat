@@ -1,0 +1,188 @@
+{
+  "schema_version": "1.0",
+  "function_name": "throw",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/throw/test_throw_interface.m",
+  "date": "2026-10-30",
+  "notes": "Probes catch the thrown exception and report its class, identifier, message and cause count; direct cases record the identifier only.",
+  "cases": [
+    {
+      "case_id": "direct",
+      "description": "throw(MException('n3:demo', 'hello'))",
+      "call": "throw(MException('n3:demo', 'hello'))",
+      "errored": true,
+      "error_identifier": "n3:demo"
+    },
+    {
+      "case_id": "caught",
+      "description": "catch the thrown exception and report its fields",
+      "call": "try throw(MException('n3:demo', 'hello')); catch e; report class, identifier, message, numel(cause); end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "'n3:demo'",
+          "message": "'hello'",
+          "num_causes": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "formatted",
+      "description": "message built from a format and arguments",
+      "call": "try throw(MException('n3:fmt', 'value %d of %s', 3, 'x')); catch e; report as for caught; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "'n3:fmt'",
+          "message": "'value 3 of x'",
+          "num_causes": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dot",
+      "description": "dot syntax ME.throw",
+      "call": "ME = MException('n3:dot', 'dot'); try ME.throw; catch e; report as for caught; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "'n3:dot'",
+          "message": "'dot'",
+          "num_causes": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rethrow-caught",
+      "description": "a caught built-in error passed to throw keeps its identifier",
+      "call": "try error('n3:inner', 'inner'); catch e1; try throw(e1); catch e2; report as for caught; end; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "'n3:inner'",
+          "message": "'inner'",
+          "num_causes": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cause",
+      "description": "exception with one added cause",
+      "call": "ME = addCause(MException('n3:outer', 'outer'), MException('n3:in', 'in')); try throw(ME); catch e; report as for caught plus cause identifier; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "'n3:outer'",
+          "message": "'outer'",
+          "num_causes": "1",
+          "cause_identifier": "'n3:in'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-id",
+      "description": "exception constructed with an empty identifier",
+      "call": "try throw(MException('', 'no id')); catch e; report as for caught; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "''",
+          "message": "'no id'",
+          "num_causes": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "percent",
+      "description": "message with a literal percent and no arguments",
+      "call": "try throw(MException('n3:pct', '100%% sure')); catch e; report as for caught; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "threw": "true",
+          "class": "'MException'",
+          "identifier": "'n3:pct'",
+          "message": "'100% sure'",
+          "num_causes": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-struct",
+      "description": "throw of a struct",
+      "call": "throw(struct('identifier', 'n3:s', 'message', 'm'))",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    },
+    {
+      "case_id": "err-char",
+      "description": "throw of a char vector",
+      "call": "throw('n3 text')",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

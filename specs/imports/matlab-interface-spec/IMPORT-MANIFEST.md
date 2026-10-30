@@ -1,5 +1,23 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 11 — N3: 14 new COBRA-backlog specs — 2026-10-30
+
+- Fourteen newly approved specifications (spec 0.2.0, `status: approved`):
+  `chdir`, `date`, `isfloat`, `orth`, `renamevars`, `rows2vars`, `sec`,
+  `strread`, `struct2cell`, `strvcat`, `throw` (MException method),
+  `findall`, `ishghandle`, `isomorphism`. **Imported only; not selected for
+  implementation**, except that `throw` is in scope for N2 feature F49
+  (`MException`), so it was imported before F49 started.
+- Approval record: source `docs/review/2026-10-30-n3-new-specs-human-loop.md`.
+  Non-normative (status unresolved): `orth.basis-not-unique`,
+  `isomorphism.non-unique`. Dispatch-level `MATLAB:UndefinedFunction` is
+  non-normative throughout. No earlier import (N1, N2, W1, W2) was revised.
+- Revision: committed source **`1156c975db1f393b58252a44e04333a130211398`**
+  (on `origin/main`), read with `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (56 new lines, none changed).
+
+---
+
 ## Batch 10 — N2: 14 new COBRA-backlog specs — 2026-10-30
 
 - Fourteen newly approved specifications (spec 0.2.0, `status: approved`):

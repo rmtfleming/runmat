@@ -78,7 +78,7 @@ parents:
 - `logical/tests/mod.rs`: `isstruct`
 - `math/elementwise/mod.rs`: `psi`
 - `math/mod.rs`: `sparse` (the clean-room `colamd`, `dissect`, `spalloc` live in `math/sparse/`)
-- `diagnostics/mod.rs`: `#[path = "getReport.rs"] get_report`
+- `diagnostics/mod.rs`: `#[path = "getReport.rs"] get_report`, `exceptions_warnings` (spec 049: `MException`, `addCause`, `throw`, `lastwarn`)
 - `strings/search/mod.rs`: `strmatch`, `findstr` (spec 037)
 - `common/mod.rs`: `validateattributes` (spec 038)
 
@@ -90,7 +90,12 @@ parents (no regeneration risk): `svds` (`math/linalg/factor/mod.rs`),
 `amd`/`etree`/`symbfact` (`math/sparse/mod.rs`), `balance`
 (`math/linalg/factor/mod.rs`), `rmnode`/`addedge`/`rmedge`/`laplacian`
 (`graph/domain/mod.rs` → `editing.rs`), `regexptranslate` (`strings/regex/mod.rs`)
-and `dec2base`/`validatestring` (`strings/core/mod.rs`).
+and `dec2base`/`validatestring` (`strings/core/mod.rs`); batch N2: `nthroot`
+(`math/elementwise/roots/mod.rs`), `reallog` (`.../logarithms/mod.rs`),
+`hsv` (in `plotting/ops/colormap_arrays.rs`), `alpha`/`tiledlayout`
+(`plotting/ops/mod.rs`, via `#[path]`), `addnode` (`graph/domain/mod.rs`),
+`categories` (`table/builtins.rs`), `textread` (`io/filetext/mod.rs`) and the
+`containers.Map` conformance tests (`containers/map/mod.rs`).
 
 Re-add these lines whenever upstream regenerates those files. CI does not currently verify
 generated products, so the hand-added lines don't fail the build.

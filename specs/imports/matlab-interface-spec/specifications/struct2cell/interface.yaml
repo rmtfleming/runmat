@@ -1,0 +1,95 @@
+# Interface specification for struct2cell (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: struct2cell
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Convert a struct (array) to a cell array whose first dimension runs over the fields in field
+  order.
+invocation_forms:
+- signature: C = struct2cell(S)
+  description: Field values as a cell array.
+  status: confirmed
+inputs:
+- name: S
+  position: 1
+  required: true
+  description: struct scalar or array.
+  status: confirmed
+outputs:
+- name: C
+  description: cell of size [numfields, size(S)].
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: struct2cell.scalar-rule
+  statement: A scalar struct gives an n-by-1 cell of field values in field-definition order (fields b,
+    a, c gave {1; 'x'; {2}}), values kept whole (matrix, nested struct).
+  status: confirmed
+  normative: true
+  provenance: struct2cell.scalar
+  observations:
+  - file: observations/struct2cell_observations.json
+    case_id: scalar
+  - file: observations/struct2cell_observations.json
+    case_id: matrix-value
+  - file: observations/struct2cell_observations.json
+    case_id: nested
+- id: struct2cell.array-size-rule
+  statement: 'The size is [numfields, size(S)] with trailing singleton dimensions dropped: 1x2 struct
+    with 2 fields gave 2x1x2; 2x1 with 1 field gave 1x2; 2x2 with 1 field gave 1x2x2; 0x0 with 2 fields
+    gave 2x0x0.'
+  status: confirmed
+  normative: true
+  provenance: struct2cell.array-size
+  observations:
+  - file: observations/struct2cell_observations.json
+    case_id: array-size
+  - file: observations/struct2cell_observations.json
+    case_id: column-array-size
+  - file: observations/struct2cell_observations.json
+    case_id: matrix-array-size
+  - file: observations/struct2cell_observations.json
+    case_id: empty-array
+- id: struct2cell.array-order-rule
+  statement: For a 1x2 struct array with fields a, b, C(:) was [a1, b1, a2, b2] (fields vary fastest).
+  status: confirmed
+  normative: true
+  provenance: struct2cell.array-order
+  observations:
+  - file: observations/struct2cell_observations.json
+    case_id: array-size
+- id: struct2cell.no-fields-rule
+  statement: A scalar struct with no fields gives a 0x1 cell.
+  status: confirmed
+  normative: true
+  provenance: struct2cell.no-fields
+  observations:
+  - file: observations/struct2cell_observations.json
+    case_id: no-fields
+numerical_edge_cases:
+- id: struct2cell.non-struct-rule
+  statement: 'Observed: cell and double inputs errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  status: confirmed
+  normative: false
+  provenance: struct2cell.non-struct
+  observations:
+  - file: observations/struct2cell_observations.json
+    case_id: err-cell
+  - file: observations/struct2cell_observations.json
+    case_id: err-double
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/struct2cell_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: struct2cell.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

@@ -3,6 +3,7 @@
 
 pub mod assert;
 pub mod error;
+pub mod exceptions_warnings;
 #[path = "getReport.rs"]
 pub mod get_report;
 pub mod rethrow;

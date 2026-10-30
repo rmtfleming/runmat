@@ -1,0 +1,145 @@
+# Interface specification for strread (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: strread
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Read formatted fields from a text value; one output per format conversion, fields assigned to
+  outputs in cyclic order.
+invocation_forms:
+- signature: A = strread(str)
+  description: Whitespace-separated numbers, no format.
+  status: confirmed
+- signature: A = strread(str, format)
+  description: One conversion (%s, %d, %f).
+  status: confirmed
+- signature: '[A, B] = strread(str, format, ''delimiter'', d)'
+  description: Two conversions and a delimiter (two outputs observed).
+  status: confirmed
+inputs:
+- name: str
+  position: 1
+  required: true
+  description: char row vector.
+  status: confirmed
+- name: format
+  position: 2
+  required: false
+  description: Format text of %s, %d and %f conversions.
+  status: confirmed
+name_value_arguments:
+- name: delimiter
+  description: Field delimiter character(s) (',' and '!' observed).
+  status: confirmed
+outputs:
+- name: A
+  description: 'Column: cell of char for %s, double for %d/%f; the no-format form returned a 1-by-n row.'
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: strread.default-rule
+  statement: With no format, strread('1 2 3') returned the double row [1 2 3].
+  status: confirmed
+  normative: true
+  provenance: strread.default
+  observations:
+  - file: observations/strread_observations.json
+    case_id: default
+- id: strread.s-rule
+  statement: '%s on whitespace-separated words returns a column cell of char ({''ab'';''cd'';''ef''});
+    strread(num2str([10 2 300]), ''%s'') gave {''10'';''2'';''300''}.'
+  status: confirmed
+  normative: true
+  provenance: strread.s
+  observations:
+  - file: observations/strread_observations.json
+    case_id: s
+  - file: observations/strread_observations.json
+    case_id: num2str-form
+- id: strread.numeric-rule
+  statement: '%d and %f return double columns ([4;5;6], [1.5;2.25], [7;8]).'
+  status: confirmed
+  normative: true
+  provenance: strread.numeric
+  observations:
+  - file: observations/strread_observations.json
+    case_id: d
+  - file: observations/strread_observations.json
+    case_id: f
+  - file: observations/strread_observations.json
+    case_id: orientation
+- id: strread.cyclic-rule
+  statement: 'With two conversions, fields are assigned alternately: ''x!y!z!w'' with ''%s%s'' and delimiter
+    ''!'' gave a = {''x'';''z''}, b = {''y'';''w''}; ''p 1 q 2'' with ''%s%d'' gave a = {''p'';''q''},
+    b = [1;2]; ''1 2 3'' with ''%d%d'' gave a = [1;3], b = 2.'
+  status: confirmed
+  normative: true
+  provenance: strread.cyclic
+  observations:
+  - file: observations/strread_observations.json
+    case_id: two-out
+  - file: observations/strread_observations.json
+    case_id: two-out-mixed
+  - file: observations/strread_observations.json
+    case_id: two-out-uneven
+- id: strread.delimiter-rule
+  statement: 'With delimiter '','', fields are split only at commas: ''a b, c d'' gave {''a b'';''c d''}
+    (the inner space kept, the space after the comma not present in the field).'
+  status: confirmed
+  normative: true
+  provenance: strread.delimiter
+  observations:
+  - file: observations/strread_observations.json
+    case_id: delimiter-comma
+  - file: observations/strread_observations.json
+    case_id: delimiter-spaces
+- id: strread.empty-rule
+  statement: Empty text with '%s' gives a 0x1 cell.
+  status: confirmed
+  normative: true
+  provenance: strread.empty
+  observations:
+  - file: observations/strread_observations.json
+    case_id: empty
+- id: strread.no-warning-rule
+  statement: No warning was recorded for strread('1 2').
+  status: confirmed
+  normative: true
+  provenance: strread.no-warning
+  observations:
+  - file: observations/strread_observations.json
+    case_id: warn
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The first argument is numeric.
+  identifier: MATLAB:textio:dataread:SecondInputFilenameOrString
+  status: confirmed
+  provenance: strread.error-numeric
+  observations:
+  - file: observations/strread_observations.json
+    case_id: err-numeric
+- condition: Text cannot be read with the given numeric conversion.
+  identifier: MATLAB:textio:dataread:TroubleReading
+  status: confirmed
+  provenance: strread.error-bad-format
+  observations:
+  - file: observations/strread_observations.json
+    case_id: err-bad-format
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/strread_observations.json
+  description: 15 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: strread.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: strread.q-more-options
+  question: Options other than 'delimiter', other conversions and repeat counts were not exercised.
+- id: strread.q-error-ids
+  question: The error identifiers name another function (dataread); whether an implementation must reproduce
+    them is a human-review question (constitution 8.2).

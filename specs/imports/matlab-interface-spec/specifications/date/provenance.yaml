@@ -1,0 +1,64 @@
+# Provenance for date (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: date
+claims:
+- claim_id: date.signature-primary
+  statement: The invocation form `d = date` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/date_observations.json
+    case_id: class-shape
+- claim_id: date.output-class
+  statement: The output is a 1x11 char vector.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/date_observations.json
+    case_id: class-shape
+- claim_id: date.format
+  statement: The text matched the pattern ^\d{2}-[A-Z][a-z]{2}-\d{4}$ and the day field had two characters
+    on the run date.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/date_observations.json
+    case_id: pattern
+  - file: observations/date_observations.json
+    case_id: leading-zero
+- claim_id: date.agrees-clock
+  statement: The day, month and year fields agreed with clock; on the run date (October) the month field
+    was 'Oct'; other months were not observed.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/date_observations.json
+    case_id: agrees-clock
+- claim_id: date.error-arg
+  statement: An input argument is given. The call errors with identifier MATLAB:TooManyInputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/date_observations.json
+    case_id: err-arg

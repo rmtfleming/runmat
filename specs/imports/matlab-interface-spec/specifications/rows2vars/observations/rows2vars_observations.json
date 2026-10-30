@@ -1,0 +1,716 @@
+{
+  "schema_version": "1.0",
+  "function_name": "rows2vars",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/rows2vars/test_rows2vars_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "basic",
+      "description": "numeric table without row names",
+      "call": "rows2vars(table([1;2], [3;4], 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "Var1",
+            "Var2"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            },
+            {
+              "name": "Var1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "Var2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rownames",
+      "description": "table with row names",
+      "call": "rows2vars(table([1;2], [3;4], 'VariableNames', {'x','y'}, 'RowNames', {'r1','r2'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "r1",
+            "r2"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            },
+            {
+              "name": "r1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "r2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "source-name",
+      "description": "VariableNamesSource given by variable name",
+      "call": "rows2vars(table({'k1';'k2'}, [1;2], [3;4], 'VariableNames', {'id','x','y'}), 'VariableNamesSource', 'id')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "k1",
+            "k2"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            },
+            {
+              "name": "k1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "k2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "source-index",
+      "description": "VariableNamesSource given by index",
+      "call": "rows2vars(table({'k1';'k2'}, [1;2], [3;4], 'VariableNames', {'id','x','y'}), 'VariableNamesSource', 1)",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "k1",
+            "k2"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            },
+            {
+              "name": "k1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "k2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "source-string",
+      "description": "string-scalar option names and value (as in COBRA call sites)",
+      "call": "rows2vars(table({'k1';'k2'}, [1;2], [3;4], 'VariableNames', {'id','x','y'}), \"VariableNamesSource\", \"id\")",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "k1",
+            "k2"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            },
+            {
+              "name": "k1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;3]"
+            },
+            {
+              "name": "k2",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[2;4]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "naming-default",
+      "description": "names that are not valid identifiers, default naming rule",
+      "call": "rows2vars(table({'a b';'1c'}, [1;2], 'VariableNames', {'id','x'}), 'VariableNamesSource', 'id')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "aB",
+            "x1c"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                1,
+                1
+              ],
+              "value": [
+                "'x'"
+              ]
+            },
+            {
+              "name": "aB",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "x1c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "naming-preserve",
+      "description": "names that are not valid identifiers, VariableNamingRule preserve",
+      "call": "rows2vars(table({'a b';'1c'}, [1;2], 'VariableNames', {'id','x'}), 'VariableNamesSource', 'id', 'VariableNamingRule', 'preserve')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "a b",
+            "1c"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                1,
+                1
+              ],
+              "value": [
+                "'x'"
+              ]
+            },
+            {
+              "name": "a b",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "1c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "warn-naming-default",
+      "description": "warning identifier (lastwarn) for the default naming rule with non-identifier names",
+      "call": "lastwarn(''); rows2vars(... as naming-default ...); report value and lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "value": {
+            "variable_names": [
+              "OriginalVariableNames",
+              "aB",
+              "x1c"
+            ],
+            "variables": [
+              {
+                "name": "OriginalVariableNames",
+                "class": "cell",
+                "size": [
+                  1,
+                  1
+                ],
+                "value": [
+                  "'x'"
+                ]
+              },
+              {
+                "name": "aB",
+                "class": "double",
+                "size": [
+                  1,
+                  1
+                ],
+                "value": "1"
+              },
+              {
+                "name": "x1c",
+                "class": "double",
+                "size": [
+                  1,
+                  1
+                ],
+                "value": "2"
+              }
+            ]
+          },
+          "warning_id": "'MATLAB:table:ModifiedVarnamesRows2Vars'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "naming-modify",
+      "description": "VariableNamingRule modify",
+      "call": "rows2vars(table({'a b';'1c'}, [1;2], 'VariableNames', {'id','x'}), 'VariableNamesSource', 'id', 'VariableNamingRule', 'modify')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "aB",
+            "x1c"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                1,
+                1
+              ],
+              "value": [
+                "'x'"
+              ]
+            },
+            {
+              "name": "aB",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "x1c",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mixed",
+      "description": "variables of different classes (double and cellstr)",
+      "call": "rows2vars(table([1;2], {'p';'q'}, 'VariableNames', {'n','s'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "Var1",
+            "Var2"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'n'",
+                "'s'"
+              ]
+            },
+            {
+              "name": "Var1",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "1",
+                "'p'"
+              ]
+            },
+            {
+              "name": "Var2",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "2",
+                "'q'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-row",
+      "description": "single-row table",
+      "call": "rows2vars(table(1, 2, 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "Var1"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            },
+            {
+              "name": "Var1",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-rows",
+      "description": "table with zero rows",
+      "call": "rows2vars(table(zeros(0, 1), zeros(0, 1), 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-multicol",
+      "description": "variable with two columns",
+      "call": "rows2vars(table([1 2; 3 4], 'VariableNames', {'m'}))",
+      "errored": true,
+      "error_identifier": "MATLAB:table:rows2vars:CannotTransposeMulticolumnVar"
+    },
+    {
+      "case_id": "dup-source",
+      "description": "VariableNamesSource with duplicate values",
+      "call": "rows2vars(table({'k';'k'}, [1;2], 'VariableNames', {'id','x'}), 'VariableNamesSource', 'id')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "OriginalVariableNames",
+            "k",
+            "k_1"
+          ],
+          "variables": [
+            {
+              "name": "OriginalVariableNames",
+              "class": "cell",
+              "size": [
+                1,
+                1
+              ],
+              "value": [
+                "'x'"
+              ]
+            },
+            {
+              "name": "k",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "k_1",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-unknown-source",
+      "description": "VariableNamesSource naming an absent variable",
+      "call": "rows2vars(table({'k1';'k2'}, [1;2], [3;4], 'VariableNames', {'id','x','y'}), 'VariableNamesSource', 'nope')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-not-table",
+      "description": "numeric matrix input",
+      "call": "rows2vars([1 2; 3 4])",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    },
+    {
+      "case_id": "err-bad-rule",
+      "description": "unrecognised VariableNamingRule value",
+      "call": "rows2vars(table({'k1';'k2'}, [1;2], [3;4], 'VariableNames', {'id','x','y'}), 'VariableNamesSource', 'id', 'VariableNamingRule', 'nope')",
+      "errored": true,
+      "error_identifier": "MATLAB:rows2vars:unrecognizedStringChoice"
+    }
+  ]
+}

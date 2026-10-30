@@ -1,0 +1,97 @@
+# Provenance for chdir (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: chdir
+claims:
+- claim_id: chdir.signature-primary
+  statement: The invocation form `chdir(folder)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: changes
+- claim_id: chdir.changes
+  statement: After chdir(tempdir) the current folder (pwd) is the temp folder; a string-scalar target
+    behaves the same.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: changes
+  - file: observations/chdir_observations.json
+    case_id: string
+- claim_id: chdir.trailing-sep
+  statement: The target with and without a trailing file separator led to the same folder.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: trailing-sep
+- claim_id: chdir.relative
+  statement: chdir('..') from the temp folder moved to its parent folder.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: relative
+- claim_id: chdir.output-old
+  statement: old = chdir(folder) returned a 1-by-n char row equal to the folder that was current before
+    the call (which was not the temp folder), and still changed folder.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: output-old
+- claim_id: chdir.no-arg
+  statement: d = chdir with no input returned a 1-by-n char row equal to pwd.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: no-arg-output
+- claim_id: chdir.error-missing
+  statement: The folder does not exist. The call errors with identifier MATLAB:cd:NonExistentFolder.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: err-missing
+- claim_id: chdir.error-numeric
+  statement: The folder argument is numeric. The call errors with identifier MATLAB:string.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/chdir_observations.json
+    case_id: err-numeric

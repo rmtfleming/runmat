@@ -1,0 +1,76 @@
+# Interface specification for date (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: date
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the current date as a 1x11 char vector: day, hyphen, three-letter month, hyphen, four-digit
+  year (observed on one date).'
+invocation_forms:
+- signature: d = date
+  description: Current date as text.
+  status: confirmed
+inputs: []
+outputs:
+- name: d
+  description: '1x11 char vector: day (two digits on the observed date, 30), hyphen, three-letter month
+    with a capital first letter, hyphen, four-digit year.'
+  status: confirmed
+output_type_rules:
+- id: date.output-class-rule
+  statement: The output is a 1x11 char vector.
+  status: confirmed
+  normative: true
+  provenance: date.output-class
+  observations:
+  - file: observations/date_observations.json
+    case_id: class-shape
+output_shape_rules:
+- id: date.format-rule
+  statement: The text matched the pattern ^\d{2}-[A-Z][a-z]{2}-\d{4}$ and the day field had two characters
+    on the run date.
+  status: confirmed
+  normative: true
+  provenance: date.format
+  observations:
+  - file: observations/date_observations.json
+    case_id: pattern
+  - file: observations/date_observations.json
+    case_id: leading-zero
+- id: date.agrees-clock-rule
+  statement: The day, month and year fields agreed with clock; on the run date (October) the month field
+    was 'Oct'; other months were not observed.
+  status: confirmed
+  normative: true
+  provenance: date.agrees-clock
+  observations:
+  - file: observations/date_observations.json
+    case_id: agrees-clock
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: An input argument is given.
+  identifier: MATLAB:TooManyInputs
+  status: confirmed
+  provenance: date.error-arg
+  observations:
+  - file: observations/date_observations.json
+    case_id: err-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/date_observations.json
+  description: 5 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: date.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: date.q-zero-pad
+  question: 'Whether a day below 10 is zero-padded is not established: only day 30 was observed.'
+- id: date.q-other-months
+  question: Month text was observed only for October.
+- id: date.q-locale
+  question: Only one locale was exercised; whether the month text depends on locale is not established.

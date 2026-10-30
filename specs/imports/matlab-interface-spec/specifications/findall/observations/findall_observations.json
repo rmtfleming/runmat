@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "function_name": "findall",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/findall/test_findall_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe draws into a fresh invisible figure and closes it on exit; results are reported as counts, sizes and sorted Type lists rather than handles; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "type-line",
+      "description": "findall(f, 'Type', 'line') with two lines",
+      "call": "f = figure; plot(1:3); hold on; plot(3:-1:1); h = findall(f, 'Type', 'line'); report numel, size, class",
+      "errored": false,
+      "result": {
+        "value": {
+          "numel": "2",
+          "size": "[2 1]",
+          "class": "'matlab.graphics.chart.primitive.Line'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-axes",
+      "description": "findall(f, 'Type', 'axes')",
+      "call": "same figure; findall(f, 'Type', 'axes'); report as for type-line",
+      "errored": false,
+      "result": {
+        "value": {
+          "numel": "1",
+          "size": "[1 1]",
+          "class": "'matlab.graphics.axis.Axes'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-text-hidden",
+      "description": "findall vs findobj for 'Type','text' after title/xlabel",
+      "call": "same figure with title('t') and xlabel('x'); report numel(findall(f,'Type','text')) and numel(findobj(f,'Type','text'))",
+      "errored": false,
+      "result": {
+        "value": {
+          "findall": "2",
+          "findobj": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "property-fontsize",
+      "description": "findall(f, '-property', 'FontSize'): sorted unique Type values found",
+      "call": "same figure plus text(1,1,'a'); h = findall(f, '-property', 'FontSize'); report unique(get(h,'Type'))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'axes'",
+          "'text'"
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "set-fontsize",
+      "description": "set(findall(fig, '-property', 'FontSize'), 'FontSize', 12) (the COBRA form, with the figure handle in place of gcf) then read FontSize of the axes and a text object",
+      "call": "as described",
+      "errored": false,
+      "result": {
+        "value": {
+          "axes_fontsize": "12",
+          "text_fontsize": "12"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-match",
+      "description": "query with no match: class and size",
+      "call": "findall(f, 'Type', 'surface') on a figure with only lines",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.GraphicsPlaceholder'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "self",
+      "description": "the figure itself is included in findall(f)",
+      "call": "report any(findall(f) == f) and the Type of the first element",
+      "errored": false,
+      "result": {
+        "value": {
+          "contains_figure": "true",
+          "first_type": "'figure'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-not-handle",
+      "description": "numeric non-handle first argument",
+      "call": "findall(123456)",
+      "errored": true,
+      "error_identifier": "MATLAB:findall:InvalidHandles"
+    },
+    {
+      "case_id": "deleted",
+      "description": "deleted figure handle: class and size of the result",
+      "call": "f = figure; delete(f); h = findall(f)",
+      "errored": false,
+      "result": {
+        "value": "<matlab.graphics.GraphicsPlaceholder [0 0]>",
+        "class": "matlab.graphics.GraphicsPlaceholder",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

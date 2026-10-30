@@ -312,6 +312,18 @@ async fn load_scalar_member_with_context(
                         .map_err(|e| format!("MException.stack: {e}"))?;
                     Value::Cell(cell)
                 }
+                // spec 049: RunMat exceptions carry no causes (D-049-1), so
+                // `ME.cause` is an empty 0x1 cell [MException.properties].
+                "cause" => Value::Cell(
+                    runmat_value::CellArray::new(Vec::new(), 0, 1)
+                        .map_err(|e| format!("MException.cause: {e}"))?,
+                ),
+                // spec 049: `ME.throw` throws the exception [throw.caught, case dot].
+                "throw" => {
+                    return Err(
+                        crate::builtins::diagnostics::exceptions_warnings::throw_error(&mexn),
+                    )
+                }
                 other => return Err(format!("Reference to non-existent field '{}'.", other).into()),
             };
             Ok(value)

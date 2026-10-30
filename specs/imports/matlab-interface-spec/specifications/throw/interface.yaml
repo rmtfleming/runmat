@@ -1,0 +1,112 @@
+# Interface specification for throw (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: throw
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Throw an MException object as an error; the caught exception carries its identifier, message
+  and causes.
+invocation_forms:
+- signature: throw(ME)
+  description: Throw ME.
+  status: confirmed
+- signature: ME.throw
+  description: Dot-call syntax.
+  status: confirmed
+inputs:
+- name: ME
+  position: 1
+  required: true
+  description: MException object.
+  status: confirmed
+outputs: []
+output_type_rules: []
+output_shape_rules:
+- id: throw.identifier-rule
+  statement: The raised error has the identifier of ME (n3:demo); case direct errors by design, as throwing
+    is the purpose of the function.
+  status: confirmed
+  normative: true
+  provenance: throw.identifier
+  observations:
+  - file: observations/throw_observations.json
+    case_id: direct
+  - file: observations/throw_observations.json
+    case_id: caught
+- id: throw.caught-rule
+  statement: The caught exception is an MException with the same identifier and message and the same number
+    of causes.
+  status: confirmed
+  normative: true
+  provenance: throw.caught
+  observations:
+  - file: observations/throw_observations.json
+    case_id: caught
+  - file: observations/throw_observations.json
+    case_id: dot
+  - file: observations/throw_observations.json
+    case_id: cause
+- id: throw.formatted-rule
+  statement: A message built from a format and arguments is caught already formatted ('value 3 of x');
+    '100%% sure' with no arguments gave '100% sure'.
+  status: confirmed
+  normative: true
+  provenance: throw.formatted
+  observations:
+  - file: observations/throw_observations.json
+    case_id: formatted
+  - file: observations/throw_observations.json
+    case_id: percent
+- id: throw.rethrow-rule
+  statement: Throwing an error that was raised by error('n3:inner', 'inner') and caught keeps its identifier
+    and message.
+  status: confirmed
+  normative: true
+  provenance: throw.rethrow
+  observations:
+  - file: observations/throw_observations.json
+    case_id: rethrow-caught
+- id: throw.cause-rule
+  statement: A cause added with addCause is present on the caught exception (one cause, identifier n3:in).
+  status: confirmed
+  normative: true
+  provenance: throw.cause
+  observations:
+  - file: observations/throw_observations.json
+    case_id: cause
+- id: throw.no-id-rule
+  statement: An exception with an empty identifier is thrown and caught with identifier ''.
+  status: confirmed
+  normative: true
+  provenance: throw.no-id
+  observations:
+  - file: observations/throw_observations.json
+    case_id: no-id
+numerical_edge_cases:
+- id: throw.non-mexception-rule
+  statement: 'Observed: a struct or char argument errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  status: confirmed
+  normative: false
+  provenance: throw.non-mexception
+  observations:
+  - file: observations/throw_observations.json
+    case_id: err-struct
+  - file: observations/throw_observations.json
+    case_id: err-char
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/throw_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: throw.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: throw.q-stack
+  question: The stack of the thrown exception was not recorded.

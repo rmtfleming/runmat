@@ -1,0 +1,98 @@
+# Provenance for ishghandle (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: ishghandle
+claims:
+- claim_id: ishghandle.signature-primary
+  statement: The invocation form `tf = ishghandle(h)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/ishghandle_observations.json
+    case_id: figure
+- claim_id: ishghandle.live
+  statement: True for live figure, axes and line handles, for an array [f ax ln] (elementwise), for double(f)
+    of a live figure, and for the value 0 and groot.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ishghandle_observations.json
+    case_id: figure
+  - file: observations/ishghandle_observations.json
+    case_id: line
+  - file: observations/ishghandle_observations.json
+    case_id: array
+  - file: observations/ishghandle_observations.json
+    case_id: double-of-figure
+  - file: observations/ishghandle_observations.json
+    case_id: root
+  - file: observations/ishghandle_observations.json
+    case_id: groot
+- claim_id: ishghandle.type
+  statement: ishghandle(f, 'figure') and ishghandle(ax, 'axes') are true; ishghandle(ax, 'figure') is
+    false.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ishghandle_observations.json
+    case_id: figure-type
+  - file: observations/ishghandle_observations.json
+    case_id: axes-type
+  - file: observations/ishghandle_observations.json
+    case_id: axes-as-figure
+- claim_id: ishghandle.false-cases
+  statement: False for a deleted figure, a number that is not a handle, char, struct and a graph object;
+    the observed non-integer numeric matrix gave a false matrix of its size.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ishghandle_observations.json
+    case_id: deleted
+  - file: observations/ishghandle_observations.json
+    case_id: number
+  - file: observations/ishghandle_observations.json
+    case_id: char
+  - file: observations/ishghandle_observations.json
+    case_id: struct
+  - file: observations/ishghandle_observations.json
+    case_id: graph
+  - file: observations/ishghandle_observations.json
+    case_id: matrix-number
+- claim_id: ishghandle.empty
+  statement: Empty input gives a 0x0 logical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ishghandle_observations.json
+    case_id: empty
+- claim_id: ishghandle.error-none
+  statement: No input is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ishghandle_observations.json
+    case_id: err-none

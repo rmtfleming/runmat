@@ -1,0 +1,557 @@
+{
+  "schema_version": "1.0",
+  "function_name": "renamevars",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/renamevars/test_renamevars_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one",
+      "description": "rename one variable by name",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 'b', 'B')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "B",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "B",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "many",
+      "description": "rename two variables by cellstr",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), {'a','c'}, {'x','z'})",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "x",
+            "b",
+            "z"
+          ],
+          "variables": [
+            {
+              "name": "x",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "index",
+      "description": "rename by numeric index",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 2, 'B')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "B",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "B",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "index-many",
+      "description": "rename by a numeric index vector",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), [3 1], {'Z','X'})",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "X",
+            "b",
+            "Z"
+          ],
+          "variables": [
+            {
+              "name": "X",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "Z",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "logical",
+      "description": "rename by logical index",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), [false true false], 'B')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "B",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "B",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string",
+      "description": "names given as string arrays",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), [\"a\" \"b\"], [\"p\" \"q\"])",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "q",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-name",
+      "description": "rename a variable to its current name",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 'a', 'a')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "a",
+            "b",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "swap",
+      "description": "swap two names in one call",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), {'a','b'}, {'b','a'})",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "b",
+            "a",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "a",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rownames",
+      "description": "row names after renaming",
+      "call": "T2 = renamevars(table([1;2], 'VariableNames', {'a'}, 'RowNames', {'r1','r2'}), 'a', 'b'); report T2 and T2.Properties.RowNames",
+      "errored": false,
+      "result": {
+        "value": {
+          "table": {
+            "variable_names": [
+              "b"
+            ],
+            "variables": [
+              {
+                "name": "b",
+                "class": "double",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": "[1;2]"
+              }
+            ]
+          },
+          "RowNames": [
+            "'r1'",
+            "'r2'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "non-identifier",
+      "description": "new name that is not a valid identifier",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 'a', 'my var')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "my var",
+            "b",
+            "c"
+          ],
+          "variables": [
+            {
+              "name": "my var",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "b",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[3;4]"
+            },
+            {
+              "name": "c",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[5;6]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-dim-Row",
+      "description": "renaming 'Row' on a table with row names and no variable called 'Row'",
+      "call": "renamevars(table([1;2], 'VariableNames', {'a'}, 'RowNames', {'r1','r2'}), 'Row', 'ID')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:renamevars:RenameDim"
+    },
+    {
+      "case_id": "err-duplicate",
+      "description": "new name equal to another existing variable",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 'a', 'b')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:DuplicateVarNames"
+    },
+    {
+      "case_id": "err-unknown",
+      "description": "unknown variable",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 'nope', 'x')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-count",
+      "description": "different numbers of old and new names",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), {'a','b'}, {'x'})",
+      "errored": true,
+      "error_identifier": "MATLAB:table:renamevars:NumNamesMismatch"
+    },
+    {
+      "case_id": "err-empty-name",
+      "description": "empty new name",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 'a', '')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:InvalidVarNames"
+    },
+    {
+      "case_id": "err-index-range",
+      "description": "index past the last variable",
+      "call": "renamevars(table([1;2], [3;4], [5;6], 'VariableNames', {'a','b','c'}), 4, 'x')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:VarIndexOutOfRange"
+    },
+    {
+      "case_id": "err-not-table",
+      "description": "struct input",
+      "call": "renamevars(struct('a', 1), 'a', 'b')",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

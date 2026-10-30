@@ -1,0 +1,278 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isomorphism",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isomorphism/test_isomorphism_interface.m",
+  "date": "2026-10-30",
+  "notes": "Probes report the permutation together with booleans showing which reordering direction reproduces the adjacency of the first graph; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "asym",
+      "description": "isomorphic asymmetric 6-node graphs (unique permutation)",
+      "call": "P = isomorphism(graph([1 2 3 4 3 5], [2 3 4 5 5 6]), graph([6 5 4 3 4 2], [5 4 3 2 2 1])); report P, class, size, adjacency checks",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[6 5 4 3 2 1]",
+          "class": "'double'",
+          "size": "[6 1]",
+          "reorder_G2_by_P_equals_G1": "true",
+          "reorder_G1_by_P_equals_G2": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "asym-swapped",
+      "description": "the same graphs with arguments swapped",
+      "call": "P = isomorphism(graph([6 5 4 3 4 2], [5 4 3 2 2 1]), graph([1 2 3 4 3 5], [2 3 4 5 5 6])); report as for asym",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[6 5 4 3 2 1]",
+          "class": "'double'",
+          "size": "[6 1]",
+          "reorder_G2_by_P_equals_G1": "true",
+          "reorder_G1_by_P_equals_G2": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "identical",
+      "description": "a graph with itself (path 1-2-3)",
+      "call": "P = isomorphism(graph([1 2], [2 3]), graph([1 2], [2 3])); report as for asym",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[1 2 3]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "reorder_G2_by_P_equals_G1": "true",
+          "reorder_G1_by_P_equals_G2": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "not-iso",
+      "description": "non-isomorphic graphs (path vs star on 4 nodes)",
+      "call": "P = isomorphism(graph([1 2 3], [2 3 4]), graph([1 1 1], [2 3 4])); report class and size of P",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "node-count",
+      "description": "graphs with different node counts",
+      "call": "P = isomorphism(graph(1, 2), graph([1 2], [2 3])); report class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph",
+      "description": "isomorphic digraphs 1->2->3 and 3->1->2 (unique permutation)",
+      "call": "P = isomorphism(digraph([1 2], [2 3]), digraph([3 1], [1 2])); report as for asym",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[3 1 2]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "reorder_G2_by_P_equals_G1": "true",
+          "reorder_G1_by_P_equals_G2": "false"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph-direction",
+      "description": "digraphs differing only in edge direction (1->2 vs 2->1 with node 3 attached to 2)",
+      "call": "P = isomorphism(digraph([1 2], [2 3]), digraph([2 2], [1 3])); report class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edgeperm",
+      "description": "[P, edgeperm] for the asymmetric graphs",
+      "call": "[P, ep] = isomorphism(graph([1 2 3 4 3 5], [2 3 4 5 5 6]), graph([6 5 4 3 4 2], [5 4 3 2 2 1])); report P, ep, class and size of ep",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[6 5 4 3 2 1]",
+          "edgeperm": "[1 2 3 4 5 6]",
+          "edgeperm_class": "'double'",
+          "edgeperm_size": "[6 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nodevars-match",
+      "description": "NodeVariables with matching node labels",
+      "call": "G1, G2 = path 1-2-3 with node variable Met = [10;20;30] and its reversal with Met = [30;20;10]; isomorphism(G1, G2, 'NodeVariables', 'Met')",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[3 2 1]",
+          "size": "[3 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nodevars-mismatch",
+      "description": "NodeVariables with labels that rule out every mapping",
+      "call": "as nodevars-match but G2 Met = [10;30;20]",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[]",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edgevars",
+      "description": "EdgeVariables with Weight distinguishing the two edges of a path",
+      "call": "G1 = graph([1 2],[2 3],[5 7]); G2 = graph([1 2],[2 3],[7 5]); isomorphism(G1, G2, 'EdgeVariables', 'Weight')",
+      "errored": false,
+      "result": {
+        "value": {
+          "P": "[3 2 1]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "reorder_G2_by_P_equals_G1": "true",
+          "reorder_G1_by_P_equals_G2": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-graphs",
+      "description": "two empty graphs",
+      "call": "P = isomorphism(graph(), graph()); report class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[1 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-mixed",
+      "description": "graph and digraph",
+      "call": "isomorphism(graph(1, 2), digraph(1, 2))",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:isomorphism:ClassMismatch"
+    },
+    {
+      "case_id": "err-not-graph",
+      "description": "numeric inputs",
+      "call": "isomorphism([0 1; 1 0], [0 1; 1 0])",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    },
+    {
+      "case_id": "err-unknown-nodevar",
+      "description": "NodeVariables naming an absent variable",
+      "call": "isomorphism(graph(1, 2), graph(1, 2), 'NodeVariables', 'nope')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:isomorphism:NodeVarNotInFirstGraph"
+    }
+  ]
+}

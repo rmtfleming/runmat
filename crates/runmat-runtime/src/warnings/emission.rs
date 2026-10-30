@@ -17,6 +17,9 @@ pub(crate) fn emit(request: WarningRequest<'_>) -> Result<(), RuntimeError> {
         message: request.message.to_string(),
     };
     let action = with_policy(|policy| {
+        // `lastwarn` sees every warning, including suppressed ones
+        // (spec 049, FR-049-10 [lastwarn.disabled]).
+        policy.set_lastwarn(Some(warning.clone()));
         let action = policy.action_for(request.identifier);
         if !matches!(action, WarningAction::Suppress) {
             policy.record_last(warning.clone());

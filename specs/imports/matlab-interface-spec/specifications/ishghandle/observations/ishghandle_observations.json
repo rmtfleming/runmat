@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "function_name": "ishghandle",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/ishghandle/test_ishghandle_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe uses a fresh invisible figure closed on exit; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "figure",
+      "description": "live figure handle",
+      "call": "f = figure; ishghandle(f)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "figure-type",
+      "description": "ishghandle(f, 'figure')",
+      "call": "ishghandle(f, 'figure')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "axes-as-figure",
+      "description": "ishghandle(ax, 'figure') for an axes",
+      "call": "ishghandle(ax, 'figure')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "axes-type",
+      "description": "ishghandle(ax, 'axes')",
+      "call": "ishghandle(ax, 'axes')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "line",
+      "description": "line handle",
+      "call": "ishghandle(ln)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "array",
+      "description": "array [f ax ln]",
+      "call": "ishghandle([f ax ln])",
+      "errored": false,
+      "result": {
+        "value": "[true true true]",
+        "class": "logical",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "deleted",
+      "description": "deleted figure handle",
+      "call": "f = figure; delete(f); ishghandle(f)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "double-of-figure",
+      "description": "double(f) of a live figure",
+      "call": "ishghandle(double(f))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "root",
+      "description": "0 (the root)",
+      "call": "ishghandle(0)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "groot",
+      "description": "groot object",
+      "call": "ishghandle(groot)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "number",
+      "description": "number that is not a handle",
+      "call": "ishghandle(123456)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty input",
+      "call": "ishghandle([])",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "logical",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix-number",
+      "description": "numeric matrix",
+      "call": "ishghandle([1.5 2.5; 3.5 4.5])",
+      "errored": false,
+      "result": {
+        "value": "[false false;false false]",
+        "class": "logical",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char",
+      "description": "char input",
+      "call": "ishghandle('a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "struct",
+      "description": "struct input",
+      "call": "ishghandle(struct('a', 1))",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "graph",
+      "description": "graph object (not graphics)",
+      "call": "ishghandle(graph(1, 2))",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-none",
+      "description": "no argument",
+      "call": "ishghandle()",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

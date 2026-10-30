@@ -1,0 +1,180 @@
+# Provenance for rows2vars (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: rows2vars
+claims:
+- claim_id: rows2vars.signature-primary
+  statement: The invocation form `T2 = rows2vars(T)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: basic
+- claim_id: rows2vars.layout
+  statement: 'For a 2x2 table with variables x, y, the result is 2x3: OriginalVariableNames (cell {''x'';''y''}),
+    then one variable per original row holding that row''s values ([1;3] and [2;4]).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: basic
+- claim_id: rows2vars.default-names
+  statement: Without row names or VariableNamesSource the new variables are named Var1, Var2, ...; with
+    row names they take the row names.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: basic
+  - file: observations/rows2vars_observations.json
+    case_id: one-row
+  - file: observations/rows2vars_observations.json
+    case_id: rownames
+- claim_id: rows2vars.names-source
+  statement: VariableNamesSource by name or by index (char or string option name and value) takes the
+    new names from that variable, which is then left out of the transposed rows.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: source-name
+  - file: observations/rows2vars_observations.json
+    case_id: source-index
+  - file: observations/rows2vars_observations.json
+    case_id: source-string
+- claim_id: rows2vars.naming-modify
+  statement: With the default rule, or 'modify', names that are not valid identifiers are changed ('a
+    b' became 'aB', '1c' became 'x1c') and the warning MATLAB:table:ModifiedVarnamesRows2Vars is issued
+    (default rule).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: naming-default
+  - file: observations/rows2vars_observations.json
+    case_id: naming-modify
+  - file: observations/rows2vars_observations.json
+    case_id: warn-naming-default
+- claim_id: rows2vars.naming-preserve
+  statement: With VariableNamingRule 'preserve' the names are kept as given ('a b', '1c').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: naming-preserve
+- claim_id: rows2vars.duplicate-source
+  statement: Duplicate VariableNamesSource values are made unique ('k', 'k' became k and k_1).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: dup-source
+- claim_id: rows2vars.mixed
+  statement: When the original variables have different classes (double and cellstr), each new variable
+    is a cell column.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: mixed
+- claim_id: rows2vars.empty-rows
+  statement: A table with zero rows gives a table with only OriginalVariableNames, one row per original
+    variable.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: empty-rows
+- claim_id: rows2vars.non-table
+  statement: 'Observed: a numeric matrix input errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: err-not-table
+- claim_id: rows2vars.error-multicol
+  statement: A variable has more than one column. The call errors with identifier MATLAB:table:rows2vars:CannotTransposeMulticolumnVar.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: err-multicol
+- claim_id: rows2vars.error-unknown-source
+  statement: VariableNamesSource names an absent variable. The call errors with identifier MATLAB:table:UnrecognizedVarName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: err-unknown-source
+- claim_id: rows2vars.error-bad-rule
+  statement: VariableNamingRule has an unrecognised value. The call errors with identifier MATLAB:rows2vars:unrecognizedStringChoice.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: err-bad-rule
+- claim_id: rows2vars.warning-warn-naming-default
+  statement: Names that are not valid identifiers were modified under the default naming rule. The call
+    completes and issues a warning with identifier MATLAB:table:ModifiedVarnamesRows2Vars.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rows2vars_observations.json
+    case_id: warn-naming-default

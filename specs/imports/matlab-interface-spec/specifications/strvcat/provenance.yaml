@@ -1,0 +1,136 @@
+# Provenance for strvcat (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: strvcat
+claims:
+- claim_id: strvcat.signature-primary
+  statement: The invocation form `S = strvcat(t1, t2, ...)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: pad
+- claim_id: strvcat.pad
+  statement: Rows are padded with blanks to the longest ('a','bcd','ef' gave ['a  ';'bcd';'ef '], size
+    3x3); trailing blanks in an input are kept.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: pad
+  - file: observations/strvcat_observations.json
+    case_id: pad-size
+  - file: observations/strvcat_observations.json
+    case_id: trailing-blanks
+- claim_id: strvcat.skip-empty
+  statement: Empty char inputs, including inside a cell, are skipped (three inputs with one empty gave
+    2 rows).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: skip-empty
+  - file: observations/strvcat_observations.json
+    case_id: cell-empty
+- claim_id: strvcat.cell
+  statement: A cell array of char gives one row per element.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: cell
+- claim_id: strvcat.matrix-arg
+  statement: A multi-row char input contributes each of its rows.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: matrix-arg
+- claim_id: strvcat.numeric
+  statement: A numeric input is taken as character codes (65 gave 'A').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: numeric
+- claim_id: strvcat.string
+  statement: String scalars are accepted and give char rows.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: string
+- claim_id: strvcat.empty
+  statement: No inputs, or only empty inputs, give a 0x0 char.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: no-args
+  - file: observations/strvcat_observations.json
+    case_id: all-empty
+- claim_id: strvcat.one
+  statement: A single char row is returned unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: one
+- claim_id: strvcat.error-mixed
+  statement: A char input and a cell input are mixed in one call. The call errors with identifier MATLAB:character:InvalidInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: err-mixed
+- claim_id: strvcat.error-struct
+  statement: An input is a struct. The call errors with identifier MATLAB:invalidConversion.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/strvcat_observations.json
+    case_id: err-struct

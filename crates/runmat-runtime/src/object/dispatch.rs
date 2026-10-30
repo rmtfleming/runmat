@@ -600,6 +600,10 @@ pub async fn call_method_or_member_index_named_with_outputs(
         Value::Foreign(reference) => {
             crate::foreign::invoke_foreign_method(reference, name, args, requested_outputs).await
         }
+        // spec 049: `ME.throw()` throws the exception [throw.caught, case dot].
+        Value::MException(exception) if name == "throw" && args.is_empty() => {
+            Err(crate::builtins::diagnostics::exceptions_warnings::throw_error(&exception))
+        }
         other => call_getfield_with_indices(other, name, args, requested_outputs)
             .await
             .and_then(|value| {

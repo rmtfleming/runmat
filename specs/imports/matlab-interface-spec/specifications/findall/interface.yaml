@@ -1,0 +1,121 @@
+# Interface specification for findall (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: findall
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Find graphics objects under a handle, optionally filtered by Type or by property; it found text
+  objects that findobj did not.
+invocation_forms:
+- signature: h = findall(obj)
+  description: All objects under obj, including obj.
+  status: confirmed
+- signature: h = findall(obj, 'Type', t)
+  description: Objects of a given Type.
+  status: confirmed
+- signature: h = findall(obj, '-property', name)
+  description: Objects that have a given property (COBRA form).
+  status: confirmed
+inputs:
+- name: obj
+  position: 1
+  required: true
+  description: Graphics handle (a figure was observed).
+  status: confirmed
+- name: query
+  position: 2
+  required: false
+  description: '''Type'', value pairs or ''-property'', name.'
+  status: confirmed
+outputs:
+- name: h
+  description: Column array of graphics objects; an empty GraphicsPlaceholder array when nothing matches.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: findall.type-rule
+  statement: '''Type'',''line'' on a figure with two lines returned a 2x1 Line array; ''Type'',''axes''
+    returned the one Axes.'
+  status: confirmed
+  normative: true
+  provenance: findall.type
+  observations:
+  - file: observations/findall_observations.json
+    case_id: type-line
+  - file: observations/findall_observations.json
+    case_id: type-axes
+- id: findall.hidden-rule
+  statement: On a figure with a title and an xlabel, findall(f, 'Type', 'text') found 2 objects where
+    findobj found 0 (which objects they were was not recorded).
+  status: confirmed
+  normative: true
+  provenance: findall.hidden
+  observations:
+  - file: observations/findall_observations.json
+    case_id: type-text-hidden
+- id: findall.property-rule
+  statement: '''-property'',''FontSize'' on a figure with lines, title, label and a text object returned
+    objects of Type axes and text only.'
+  status: confirmed
+  normative: true
+  provenance: findall.property
+  observations:
+  - file: observations/findall_observations.json
+    case_id: property-fontsize
+- id: findall.set-pattern-rule
+  statement: set(findall(fig, '-property', 'FontSize'), 'FontSize', 12) set FontSize 12 on the axes and
+    on a text object.
+  status: confirmed
+  normative: true
+  provenance: findall.set-pattern
+  observations:
+  - file: observations/findall_observations.json
+    case_id: set-fontsize
+- id: findall.self-rule
+  statement: findall(fig) includes fig itself; the first element had Type 'figure'.
+  status: confirmed
+  normative: true
+  provenance: findall.self
+  observations:
+  - file: observations/findall_observations.json
+    case_id: self
+- id: findall.no-match-rule
+  statement: No match returns a 0x0 matlab.graphics.GraphicsPlaceholder array.
+  status: confirmed
+  normative: true
+  provenance: findall.no-match
+  observations:
+  - file: observations/findall_observations.json
+    case_id: no-match
+- id: findall.deleted-rule
+  statement: A deleted figure handle returns the same 0x0 GraphicsPlaceholder array without error.
+  status: confirmed
+  normative: true
+  provenance: findall.deleted
+  observations:
+  - file: observations/findall_observations.json
+    case_id: deleted
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The first argument is a number that is not a graphics handle.
+  identifier: MATLAB:findall:InvalidHandles
+  status: confirmed
+  provenance: findall.error-not-handle
+  observations:
+  - file: observations/findall_observations.json
+    case_id: err-not-handle
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/findall_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: findall.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: findall.q-order
+  question: The order of the returned objects beyond the first element was not recorded.

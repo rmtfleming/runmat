@@ -1,0 +1,88 @@
+# Provenance for isfloat (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isfloat
+claims:
+- claim_id: isfloat.signature-primary
+  statement: The invocation form `tf = isfloat(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isfloat_observations.json
+    case_id: double
+- claim_id: isfloat.true-cases
+  statement: True for double and single values, including complex, NaN, empty, sparse and matrix inputs
+    (a matrix gives a scalar result).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isfloat_observations.json
+    case_id: double
+  - file: observations/isfloat_observations.json
+    case_id: single
+  - file: observations/isfloat_observations.json
+    case_id: complex
+  - file: observations/isfloat_observations.json
+    case_id: nan
+  - file: observations/isfloat_observations.json
+    case_id: empty
+  - file: observations/isfloat_observations.json
+    case_id: sparse
+  - file: observations/isfloat_observations.json
+    case_id: matrix
+- claim_id: isfloat.false-cases
+  statement: False for int8, uint64, logical, char, string, cell (even one holding a double), struct and
+    function handle.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isfloat_observations.json
+    case_id: int8
+  - file: observations/isfloat_observations.json
+    case_id: uint64
+  - file: observations/isfloat_observations.json
+    case_id: logical
+  - file: observations/isfloat_observations.json
+    case_id: char
+  - file: observations/isfloat_observations.json
+    case_id: string
+  - file: observations/isfloat_observations.json
+    case_id: cell
+  - file: observations/isfloat_observations.json
+    case_id: struct
+  - file: observations/isfloat_observations.json
+    case_id: handle
+- claim_id: isfloat.error-none
+  statement: No input is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isfloat_observations.json
+    case_id: err-none
+- claim_id: isfloat.error-two
+  statement: Two inputs are given. The call errors with identifier MATLAB:maxrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isfloat_observations.json
+    case_id: err-two

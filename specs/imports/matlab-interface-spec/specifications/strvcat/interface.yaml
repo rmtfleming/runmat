@@ -1,0 +1,130 @@
+# Interface specification for strvcat (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: strvcat
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Stack text vertically into a char matrix, padding rows with trailing blanks and skipping empty
+  inputs.
+invocation_forms:
+- signature: S = strvcat(t1, t2, ...)
+  description: Char matrix with one row per non-empty text row.
+  status: confirmed
+- signature: S = strvcat(c)
+  description: Rows from a cell array of char.
+  status: confirmed
+inputs:
+- name: t
+  position: 1
+  required: false
+  description: char (row or matrix), string scalar, numeric codes, or a cell array of char; repeated.
+  status: confirmed
+outputs:
+- name: S
+  description: char matrix.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: strvcat.pad-rule
+  statement: Rows are padded with blanks to the longest ('a','bcd','ef' gave ['a  ';'bcd';'ef '], size
+    3x3); trailing blanks in an input are kept.
+  status: confirmed
+  normative: true
+  provenance: strvcat.pad
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: pad
+  - file: observations/strvcat_observations.json
+    case_id: pad-size
+  - file: observations/strvcat_observations.json
+    case_id: trailing-blanks
+- id: strvcat.skip-empty-rule
+  statement: Empty char inputs, including inside a cell, are skipped (three inputs with one empty gave
+    2 rows).
+  status: confirmed
+  normative: true
+  provenance: strvcat.skip-empty
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: skip-empty
+  - file: observations/strvcat_observations.json
+    case_id: cell-empty
+- id: strvcat.cell-rule
+  statement: A cell array of char gives one row per element.
+  status: confirmed
+  normative: true
+  provenance: strvcat.cell
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: cell
+- id: strvcat.matrix-arg-rule
+  statement: A multi-row char input contributes each of its rows.
+  status: confirmed
+  normative: true
+  provenance: strvcat.matrix-arg
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: matrix-arg
+- id: strvcat.numeric-rule
+  statement: A numeric input is taken as character codes (65 gave 'A').
+  status: confirmed
+  normative: true
+  provenance: strvcat.numeric
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: numeric
+- id: strvcat.string-rule
+  statement: String scalars are accepted and give char rows.
+  status: confirmed
+  normative: true
+  provenance: strvcat.string
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: string
+- id: strvcat.empty-rule
+  statement: No inputs, or only empty inputs, give a 0x0 char.
+  status: confirmed
+  normative: true
+  provenance: strvcat.empty
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: no-args
+  - file: observations/strvcat_observations.json
+    case_id: all-empty
+- id: strvcat.one-rule
+  statement: A single char row is returned unchanged.
+  status: confirmed
+  normative: true
+  provenance: strvcat.one
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: one
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A char input and a cell input are mixed in one call.
+  identifier: MATLAB:character:InvalidInput
+  status: confirmed
+  provenance: strvcat.error-mixed
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: err-mixed
+- condition: An input is a struct.
+  identifier: MATLAB:invalidConversion
+  status: confirmed
+  provenance: strvcat.error-struct
+  observations:
+  - file: observations/strvcat_observations.json
+    case_id: err-struct
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/strvcat_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: strvcat.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

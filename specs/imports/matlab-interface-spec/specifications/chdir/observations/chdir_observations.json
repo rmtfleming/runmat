@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "function_name": "chdir",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/chdir/test_chdir_interface.m",
+  "date": "2026-10-30",
+  "notes": "Every probe restores the start folder on exit. Only booleans comparing folders are recorded, never path text; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "changes",
+      "description": "chdir(tempdir) makes the current folder the temp folder",
+      "call": "old = pwd; chdir(tempdir); report same folder as tempdir; restore",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "trailing-sep",
+      "description": "target given with and without a trailing file separator",
+      "call": "chdir(tempdir) vs chdir(tempdir without trailing filesep); report both land in the same folder",
+      "errored": false,
+      "result": {
+        "value": {
+          "same_folder": "true",
+          "is_tempdir": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "output-old",
+      "description": "d = chdir(tempdir) returns the folder that was current before the call",
+      "call": "old = pwd; d = chdir(tempdir); report class(d), strcmp(d, old)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'char'",
+          "size": "[1 74]",
+          "start_was_tempdir": "false",
+          "equals_previous": "true",
+          "now_tempdir": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-arg-output",
+      "description": "d = chdir with no argument returns the current folder",
+      "call": "d = chdir; report class(d), strcmp(d, pwd)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'char'",
+          "size": "[1 74]",
+          "equals_pwd": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "relative",
+      "description": "relative target '..'",
+      "call": "chdir(tempdir); chdir('..'); report current folder equals parent of tempdir",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string",
+      "description": "string-scalar target",
+      "call": "chdir(string(tempdir)); report same folder as tempdir",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-missing",
+      "description": "folder that does not exist",
+      "call": "chdir(fullfile(tempdir, 'no_such_folder_n3'))",
+      "errored": true,
+      "error_identifier": "MATLAB:cd:NonExistentFolder"
+    },
+    {
+      "case_id": "err-numeric",
+      "description": "numeric argument",
+      "call": "chdir(5)",
+      "errored": true,
+      "error_identifier": "MATLAB:string"
+    }
+  ]
+}

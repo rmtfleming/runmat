@@ -1,0 +1,176 @@
+# Interface specification for rows2vars (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: rows2vars
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Transpose a table: each original variable becomes a row, each original row becomes a variable,
+  and the first output variable lists the original variable names.'
+invocation_forms:
+- signature: T2 = rows2vars(T)
+  description: Transposed table.
+  status: confirmed
+- signature: T2 = rows2vars(T, Name, Value)
+  description: With VariableNamesSource and VariableNamingRule options.
+  status: confirmed
+inputs:
+- name: T
+  position: 1
+  required: true
+  description: table whose variables each have one column.
+  status: confirmed
+name_value_arguments:
+- name: VariableNamesSource
+  description: Variable (by name or numeric index) whose values become the new variable names; that variable
+    is not transposed. char or string option name and value observed.
+  status: confirmed
+- name: VariableNamingRule
+  description: '''modify'' (observed default behaviour) or ''preserve''.'
+  status: confirmed
+outputs:
+- name: T2
+  description: table with one row per original (transposed) variable; first variable OriginalVariableNames.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: rows2vars.layout-rule
+  statement: 'For a 2x2 table with variables x, y, the result is 2x3: OriginalVariableNames (cell {''x'';''y''}),
+    then one variable per original row holding that row''s values ([1;3] and [2;4]).'
+  status: confirmed
+  normative: true
+  provenance: rows2vars.layout
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: basic
+- id: rows2vars.default-names-rule
+  statement: Without row names or VariableNamesSource the new variables are named Var1, Var2, ...; with
+    row names they take the row names.
+  status: confirmed
+  normative: true
+  provenance: rows2vars.default-names
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: basic
+  - file: observations/rows2vars_observations.json
+    case_id: one-row
+  - file: observations/rows2vars_observations.json
+    case_id: rownames
+- id: rows2vars.names-source-rule
+  statement: VariableNamesSource by name or by index (char or string option name and value) takes the
+    new names from that variable, which is then left out of the transposed rows.
+  status: confirmed
+  normative: true
+  provenance: rows2vars.names-source
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: source-name
+  - file: observations/rows2vars_observations.json
+    case_id: source-index
+  - file: observations/rows2vars_observations.json
+    case_id: source-string
+- id: rows2vars.naming-modify-rule
+  statement: With the default rule, or 'modify', names that are not valid identifiers are changed ('a
+    b' became 'aB', '1c' became 'x1c') and the warning MATLAB:table:ModifiedVarnamesRows2Vars is issued
+    (default rule).
+  status: confirmed
+  normative: true
+  provenance: rows2vars.naming-modify
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: naming-default
+  - file: observations/rows2vars_observations.json
+    case_id: naming-modify
+  - file: observations/rows2vars_observations.json
+    case_id: warn-naming-default
+- id: rows2vars.naming-preserve-rule
+  statement: With VariableNamingRule 'preserve' the names are kept as given ('a b', '1c').
+  status: confirmed
+  normative: true
+  provenance: rows2vars.naming-preserve
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: naming-preserve
+- id: rows2vars.duplicate-source-rule
+  statement: Duplicate VariableNamesSource values are made unique ('k', 'k' became k and k_1).
+  status: confirmed
+  normative: true
+  provenance: rows2vars.duplicate-source
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: dup-source
+- id: rows2vars.mixed-rule
+  statement: When the original variables have different classes (double and cellstr), each new variable
+    is a cell column.
+  status: confirmed
+  normative: true
+  provenance: rows2vars.mixed
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: mixed
+- id: rows2vars.empty-rows-rule
+  statement: A table with zero rows gives a table with only OriginalVariableNames, one row per original
+    variable.
+  status: confirmed
+  normative: true
+  provenance: rows2vars.empty-rows
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: empty-rows
+numerical_edge_cases:
+- id: rows2vars.non-table-rule
+  statement: 'Observed: a numeric matrix input errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  status: confirmed
+  normative: false
+  provenance: rows2vars.non-table
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: err-not-table
+warnings:
+- condition: Names that are not valid identifiers were modified under the default naming rule.
+  identifier: MATLAB:table:ModifiedVarnamesRows2Vars
+  status: confirmed
+  provenance: rows2vars.warning-warn-naming-default
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: warn-naming-default
+errors:
+- condition: A variable has more than one column.
+  identifier: MATLAB:table:rows2vars:CannotTransposeMulticolumnVar
+  status: confirmed
+  provenance: rows2vars.error-multicol
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: err-multicol
+- condition: VariableNamesSource names an absent variable.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: rows2vars.error-unknown-source
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: err-unknown-source
+- condition: VariableNamingRule has an unrecognised value.
+  identifier: MATLAB:rows2vars:unrecognizedStringChoice
+  status: confirmed
+  provenance: rows2vars.error-bad-rule
+  observations:
+  - file: observations/rows2vars_observations.json
+    case_id: err-bad-rule
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/rows2vars_observations.json
+  description: 17 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: rows2vars.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: rows2vars.q-more
+  question: Timetables, other option names and the class of mixed results for other class combinations
+    were not exercised.
+- id: rows2vars.q-rownames-dup-warning
+  question: Whether the output has row names, and whether duplicate VariableNamesSource values raise a
+    warning, were not recorded.

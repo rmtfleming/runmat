@@ -1,0 +1,266 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isfloat",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isfloat/test_isfloat_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "double",
+      "description": "double scalar",
+      "call": "isfloat(1)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single",
+      "description": "single scalar",
+      "call": "isfloat(single(1))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex",
+      "description": "complex double",
+      "call": "isfloat(1 + 2i)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nan",
+      "description": "NaN",
+      "call": "isfloat(NaN)",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty double",
+      "call": "isfloat([])",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "sparse",
+      "description": "sparse double",
+      "call": "isfloat(sparse(1))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "matrix input returns a scalar",
+      "call": "isfloat(ones(2, 3))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "int8",
+      "description": "int8",
+      "call": "isfloat(int8(1))",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "uint64",
+      "description": "uint64",
+      "call": "isfloat(uint64(1))",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "logical",
+      "description": "logical",
+      "call": "isfloat(true)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char",
+      "description": "char",
+      "call": "isfloat('a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string",
+      "description": "string",
+      "call": "isfloat(\"a\")",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell",
+      "description": "cell containing a double",
+      "call": "isfloat({1})",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "struct",
+      "description": "struct",
+      "call": "isfloat(struct('a', 1))",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "handle",
+      "description": "function handle",
+      "call": "isfloat(@sin)",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-none",
+      "description": "no argument",
+      "call": "isfloat()",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    },
+    {
+      "case_id": "err-two",
+      "description": "two arguments",
+      "call": "isfloat(1, 2)",
+      "errored": true,
+      "error_identifier": "MATLAB:maxrhs"
+    }
+  ]
+}

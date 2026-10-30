@@ -1,0 +1,120 @@
+# Provenance for sec (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: sec
+claims:
+- claim_id: sec.signature-primary
+  statement: The invocation form `Y = sec(X)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: zero
+- claim_id: sec.values
+  statement: sec(0) = 1, sec(pi) = -1, sec(pi/3) = 1.9999999999999996, sec(-pi/4) = 1.4142135623730949
+    (within 1e-12).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: zero
+  - file: observations/sec_observations.json
+    case_id: pi
+  - file: observations/sec_observations.json
+    case_id: pi3
+  - file: observations/sec_observations.json
+    case_id: negative
+- claim_id: sec.pole
+  statement: sec(pi/2) is finite and large (16331239353195370 observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: pole
+- claim_id: sec.shape
+  statement: Output has the size of the input, including empty.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: matrix
+  - file: observations/sec_observations.json
+    case_id: empty
+- claim_id: sec.nonfinite
+  statement: sec(NaN) and sec(Inf) are NaN.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: nan
+  - file: observations/sec_observations.json
+    case_id: inf
+- claim_id: sec.complex
+  statement: 'Complex input gives a complex result: sec(1+1i) = 0.49833703055518686+0.59108384172104511i.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: complex
+- claim_id: sec.single
+  statement: Single input gives a single result.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: single
+- claim_id: sec.error-logical
+  statement: X is logical, int8 (the one integer class tried) or char. The call errors with identifier
+    MATLAB:math:mustBeFloat.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: err-logical
+  - file: observations/sec_observations.json
+    case_id: err-int
+  - file: observations/sec_observations.json
+    case_id: err-char
+- claim_id: sec.error-none
+  statement: No input is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sec_observations.json
+    case_id: err-none

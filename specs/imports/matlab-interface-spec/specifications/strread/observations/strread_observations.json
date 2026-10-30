@@ -1,0 +1,270 @@
+{
+  "schema_version": "1.0",
+  "function_name": "strread",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/strread/test_strread_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "default",
+      "description": "no format: whitespace-separated numbers",
+      "call": "strread('1 2 3')",
+      "errored": false,
+      "result": {
+        "value": "[1 2 3]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "s",
+      "description": "%s on whitespace-separated words",
+      "call": "strread('ab cd ef', '%s')",
+      "errored": false,
+      "result": {
+        "value": [
+          "'ab'",
+          "'cd'",
+          "'ef'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "d",
+      "description": "%d on whitespace-separated integers",
+      "call": "strread('4 5 6', '%d')",
+      "errored": false,
+      "result": {
+        "value": "[4;5;6]",
+        "class": "double",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "f",
+      "description": "%f on decimals",
+      "call": "strread('1.5 2.25', '%f')",
+      "errored": false,
+      "result": {
+        "value": "[1.5;2.25]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-out",
+      "description": "[a, b] = strread with '%s%s' and delimiter '!' (the COBRA call form)",
+      "call": "[a, b] = strread('x!y!z!w', '%s%s', 'delimiter', '!'); report a and b",
+      "errored": false,
+      "result": {
+        "value": {
+          "a": [
+            "'x'",
+            "'z'"
+          ],
+          "b": [
+            "'y'",
+            "'w'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-out-mixed",
+      "description": "[a, b] = strread with '%s%d'",
+      "call": "[a, b] = strread('p 1 q 2', '%s%d'); report a and b",
+      "errored": false,
+      "result": {
+        "value": {
+          "a": [
+            "'p'",
+            "'q'"
+          ],
+          "b": "[1;2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-out-uneven",
+      "description": "[a, b] with an odd number of fields",
+      "call": "[a, b] = strread('1 2 3', '%d%d'); report a and b",
+      "errored": false,
+      "result": {
+        "value": {
+          "a": "[1;3]",
+          "b": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "delimiter-comma",
+      "description": "delimiter ','",
+      "call": "strread('a,b,c', '%s', 'delimiter', ',')",
+      "errored": false,
+      "result": {
+        "value": [
+          "'a'",
+          "'b'",
+          "'c'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "delimiter-spaces",
+      "description": "delimiter ',' keeps or trims spaces around fields",
+      "call": "strread('a b, c d', '%s', 'delimiter', ',')",
+      "errored": false,
+      "result": {
+        "value": [
+          "'a b'",
+          "'c d'"
+        ],
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "num2str-form",
+      "description": "strread(num2str(v), '%s') (COBRA form)",
+      "call": "strread(num2str([10 2 300]), '%s')",
+      "errored": false,
+      "result": {
+        "value": [
+          "'10'",
+          "'2'",
+          "'300'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty text",
+      "call": "strread('', '%s')",
+      "errored": false,
+      "result": {
+        "value": [],
+        "class": "cell",
+        "size": [
+          0,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "orientation",
+      "description": "row text gives column output",
+      "call": "strread('7 8', '%d')",
+      "errored": false,
+      "result": {
+        "value": "[7;8]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "warn",
+      "description": "warning identifier (lastwarn) for an ordinary call",
+      "call": "lastwarn(''); s = strread('1 2'); report s and lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "value": "[1 2]",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-numeric",
+      "description": "numeric first argument",
+      "call": "strread(5)",
+      "errored": true,
+      "error_identifier": "MATLAB:textio:dataread:SecondInputFilenameOrString"
+    },
+    {
+      "case_id": "err-bad-format",
+      "description": "%d on non-numeric text",
+      "call": "strread('a b', '%d')",
+      "errored": true,
+      "error_identifier": "MATLAB:textio:dataread:TroubleReading"
+    }
+  ]
+}

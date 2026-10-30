@@ -1,0 +1,174 @@
+# Interface specification for isomorphism (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isomorphism
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a node permutation mapping one graph onto another when they are isomorphic, and an empty
+  array otherwise.
+invocation_forms:
+- signature: P = isomorphism(G1, G2)
+  description: Node permutation, or empty.
+  status: confirmed
+- signature: '[P, edgeperm] = isomorphism(G1, G2)'
+  description: Also an edge permutation.
+  status: confirmed
+- signature: P = isomorphism(G1, G2, Name, Value)
+  description: NodeVariables / EdgeVariables must also match (COBRA form).
+  status: confirmed
+inputs:
+- name: G1
+  position: 1
+  required: true
+  description: graph or digraph.
+  status: confirmed
+- name: G2
+  position: 2
+  required: true
+  description: Same class as G1.
+  status: confirmed
+name_value_arguments:
+- name: NodeVariables
+  description: Node table variable whose values must be preserved by the mapping (one variable observed).
+  status: confirmed
+- name: EdgeVariables
+  description: Edge table variable whose values must be preserved ('Weight' observed).
+  status: confirmed
+outputs:
+- name: P
+  description: Column vector of node indices (double); empty when not isomorphic.
+  status: confirmed
+- name: edgeperm
+  description: Column vector of edge indices (double).
+  status: confirmed
+output_type_rules:
+- id: isomorphism.output-class-rule
+  statement: P is a double column vector with numnodes entries.
+  status: confirmed
+  normative: true
+  provenance: isomorphism.output-class
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: asym
+  - file: observations/isomorphism_observations.json
+    case_id: identical
+  - file: observations/isomorphism_observations.json
+    case_id: digraph
+output_shape_rules:
+- id: isomorphism.orientation-rule
+  statement: reordernodes(G2, P) had the same adjacency as G1 in every case where this was checked; for
+    the digraph case (1->2->3 vs 3->1->2, P = [3 1 2]) the other direction, reordernodes(G1, P) = G2,
+    did not hold.
+  status: confirmed
+  normative: true
+  provenance: isomorphism.orientation
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: asym
+  - file: observations/isomorphism_observations.json
+    case_id: asym-swapped
+  - file: observations/isomorphism_observations.json
+    case_id: identical
+  - file: observations/isomorphism_observations.json
+    case_id: digraph
+  - file: observations/isomorphism_observations.json
+    case_id: edgevars
+- id: isomorphism.not-isomorphic-rule
+  statement: Non-isomorphic graphs (path vs star, different node counts, digraphs differing in edge direction)
+    give a 0x0 double.
+  status: confirmed
+  normative: true
+  provenance: isomorphism.not-isomorphic
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: not-iso
+  - file: observations/isomorphism_observations.json
+    case_id: node-count
+  - file: observations/isomorphism_observations.json
+    case_id: digraph-direction
+- id: isomorphism.empty-graphs-rule
+  statement: Two empty graphs give a 1x0 double.
+  status: confirmed
+  normative: true
+  provenance: isomorphism.empty-graphs
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: empty-graphs
+- id: isomorphism.edgeperm-rule
+  statement: '[P, edgeperm] returns a double column with numedges entries ([1..6]'' for the asymmetric
+    6-node pair).'
+  status: confirmed
+  normative: true
+  provenance: isomorphism.edgeperm
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: edgeperm
+- id: isomorphism.node-variables-rule
+  statement: With NodeVariables 'Met', a mapping that preserves Met is returned ([3 2 1] for a path whose
+    labels are reversed); when no mapping preserves the labels the result is empty.
+  status: confirmed
+  normative: true
+  provenance: isomorphism.node-variables
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: nodevars-match
+  - file: observations/isomorphism_observations.json
+    case_id: nodevars-mismatch
+- id: isomorphism.edge-variables-rule
+  statement: With EdgeVariables 'Weight', a path with weights [5 7] and one with [7 5] gave P = [3 2 1],
+    the mapping that pairs equal weights (the weights themselves were not compared by the harness).
+  status: confirmed
+  normative: true
+  provenance: isomorphism.edge-variables
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: edgevars
+numerical_edge_cases:
+- id: isomorphism.non-graph-rule
+  statement: 'Observed: numeric inputs errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  status: confirmed
+  normative: false
+  provenance: isomorphism.non-graph
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: err-not-graph
+- id: isomorphism.non-unique-rule
+  statement: 'Inference (not observed): when several permutations are valid, which one is returned should
+    not be required. The path 1-2-3 compared with itself has two valid permutations and [1 2 3] was returned;
+    the asymmetric 6-node pair has exactly one.'
+  status: unresolved
+  normative: false
+  provenance: isomorphism.non-unique
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: identical
+warnings: []
+errors:
+- condition: One input is a graph and the other a digraph.
+  identifier: MATLAB:graphfun:isomorphism:ClassMismatch
+  status: confirmed
+  provenance: isomorphism.error-mixed
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: err-mixed
+- condition: NodeVariables names a variable that neither graph has.
+  identifier: MATLAB:graphfun:isomorphism:NodeVarNotInFirstGraph
+  status: confirmed
+  provenance: isomorphism.error-unknown-nodevar
+  observations:
+  - file: observations/isomorphism_observations.json
+    case_id: err-unknown-nodevar
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isomorphism_observations.json
+  description: 15 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isomorphism.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: isomorphism.q-more
+  question: Multigraphs, self-loops and multiple node/edge variables were not exercised.

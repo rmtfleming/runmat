@@ -1,0 +1,162 @@
+# Interface specification for renamevars (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: renamevars
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a table with selected variables renamed; variable order, data and row names were kept
+  in the observed cases.
+invocation_forms:
+- signature: T2 = renamevars(T, vars, newNames)
+  description: Rename the variables selected by `vars` to `newNames`.
+  status: confirmed
+inputs:
+- name: T
+  position: 1
+  required: true
+  description: table.
+  status: confirmed
+- name: vars
+  position: 2
+  required: true
+  description: Variable name (char), cellstr or string array of names, numeric index or index vector,
+    or logical mask.
+  status: confirmed
+- name: newNames
+  position: 3
+  required: true
+  description: char, cellstr or string array with one name per selected variable.
+  status: confirmed
+outputs:
+- name: T2
+  description: table of the same size with renamed variables.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: renamevars.selection-rule
+  statement: 'Variables can be selected by name, cellstr, string array, numeric index, index vector (paired
+    with new names in the given order: [3 1] with {''Z'',''X''} renamed c to Z and a to X) and logical
+    mask.'
+  status: confirmed
+  normative: true
+  provenance: renamevars.selection
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: one
+  - file: observations/renamevars_observations.json
+    case_id: many
+  - file: observations/renamevars_observations.json
+    case_id: string
+  - file: observations/renamevars_observations.json
+    case_id: index
+  - file: observations/renamevars_observations.json
+    case_id: index-many
+  - file: observations/renamevars_observations.json
+    case_id: logical
+- id: renamevars.keeps-data-rule
+  statement: Variable order and data are unchanged; row names r1, r2 were kept.
+  status: confirmed
+  normative: true
+  provenance: renamevars.keeps-data
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: one
+  - file: observations/renamevars_observations.json
+    case_id: many
+  - file: observations/renamevars_observations.json
+    case_id: rownames
+- id: renamevars.same-name-rule
+  statement: Renaming a variable to its own name is allowed and leaves the table unchanged.
+  status: confirmed
+  normative: true
+  provenance: renamevars.same-name
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: same-name
+- id: renamevars.swap-rule
+  statement: Two names can be swapped in one call ({'a','b'} to {'b','a'}).
+  status: confirmed
+  normative: true
+  provenance: renamevars.swap
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: swap
+- id: renamevars.non-identifier-rule
+  statement: A new name that is not a valid identifier ('my var') is accepted unchanged.
+  status: confirmed
+  normative: true
+  provenance: renamevars.non-identifier
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: non-identifier
+numerical_edge_cases:
+- id: renamevars.non-table-rule
+  statement: 'Observed: a struct input errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  status: confirmed
+  normative: false
+  provenance: renamevars.non-table
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-not-table
+warnings: []
+errors:
+- condition: A new name equals another existing variable name.
+  identifier: MATLAB:table:DuplicateVarNames
+  status: confirmed
+  provenance: renamevars.error-duplicate
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-duplicate
+- condition: An old name is not a variable of T.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: renamevars.error-unknown
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-unknown
+- condition: The numbers of old and new names differ.
+  identifier: MATLAB:table:renamevars:NumNamesMismatch
+  status: confirmed
+  provenance: renamevars.error-count
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-count
+- condition: A new name is empty.
+  identifier: MATLAB:table:InvalidVarNames
+  status: confirmed
+  provenance: renamevars.error-empty-name
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-empty-name
+- condition: A numeric index is past the last variable.
+  identifier: MATLAB:table:VarIndexOutOfRange
+  status: confirmed
+  provenance: renamevars.error-index-range
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-index-range
+- condition: The old name is 'Row' (the row dimension name) on a table that has row names and no variable
+    of that name.
+  identifier: MATLAB:table:renamevars:RenameDim
+  status: confirmed
+  provenance: renamevars.error-dim-Row
+  observations:
+  - file: observations/renamevars_observations.json
+    case_id: err-dim-Row
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/renamevars_observations.json
+  description: 17 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: renamevars.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: renamevars.q-timetable
+  question: Timetables and renaming of dimension names were not exercised beyond the one error case.
+- id: renamevars.q-row-variable
+  question: Renaming a variable literally named 'Row' (the COBRA call renamevars(data, 'Row', 'ID')) was
+    not observed; no case builds such a table.

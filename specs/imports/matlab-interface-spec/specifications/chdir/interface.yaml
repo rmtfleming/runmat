@@ -1,0 +1,105 @@
+# Interface specification for chdir (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: chdir
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Change the current folder; with an output, return the folder that was current before the call.
+invocation_forms:
+- signature: chdir(folder)
+  description: Make `folder` the current folder.
+  status: confirmed
+- signature: old = chdir(folder)
+  description: Change folder and return the previous current folder.
+  status: confirmed
+- signature: d = chdir
+  description: Return the current folder without changing it.
+  status: confirmed
+inputs:
+- name: folder
+  position: 1
+  required: false
+  description: Folder as char or string scalar; absolute or relative ('..' observed); a trailing file
+    separator is optional.
+  status: confirmed
+outputs:
+- name: old
+  description: 'char vector: the current folder before the call (with no input, the current folder).'
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: chdir.changes-rule
+  statement: After chdir(tempdir) the current folder (pwd) is the temp folder; a string-scalar target
+    behaves the same.
+  status: confirmed
+  normative: true
+  provenance: chdir.changes
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: changes
+  - file: observations/chdir_observations.json
+    case_id: string
+- id: chdir.trailing-sep-rule
+  statement: The target with and without a trailing file separator led to the same folder.
+  status: confirmed
+  normative: true
+  provenance: chdir.trailing-sep
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: trailing-sep
+- id: chdir.relative-rule
+  statement: chdir('..') from the temp folder moved to its parent folder.
+  status: confirmed
+  normative: true
+  provenance: chdir.relative
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: relative
+- id: chdir.output-old-rule
+  statement: old = chdir(folder) returned a 1-by-n char row equal to the folder that was current before
+    the call (which was not the temp folder), and still changed folder.
+  status: confirmed
+  normative: true
+  provenance: chdir.output-old
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: output-old
+- id: chdir.no-arg-rule
+  statement: d = chdir with no input returned a 1-by-n char row equal to pwd.
+  status: confirmed
+  normative: true
+  provenance: chdir.no-arg
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: no-arg-output
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The folder does not exist.
+  identifier: MATLAB:cd:NonExistentFolder
+  status: confirmed
+  provenance: chdir.error-missing
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: err-missing
+- condition: The folder argument is numeric.
+  identifier: MATLAB:string
+  status: confirmed
+  provenance: chdir.error-numeric
+  observations:
+  - file: observations/chdir_observations.json
+    case_id: err-numeric
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/chdir_observations.json
+  description: 8 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: chdir.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: chdir.q-display
+  question: The no-input, no-output form (display of the current folder) was not exercised.

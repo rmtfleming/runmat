@@ -1,0 +1,111 @@
+# Provenance for findall (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: findall
+claims:
+- claim_id: findall.signature-primary
+  statement: The invocation form `h = findall(obj, 'Type', t)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: type-line
+- claim_id: findall.type
+  statement: '''Type'',''line'' on a figure with two lines returned a 2x1 Line array; ''Type'',''axes''
+    returned the one Axes.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: type-line
+  - file: observations/findall_observations.json
+    case_id: type-axes
+- claim_id: findall.hidden
+  statement: On a figure with a title and an xlabel, findall(f, 'Type', 'text') found 2 objects where
+    findobj found 0 (which objects they were was not recorded).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: type-text-hidden
+- claim_id: findall.property
+  statement: '''-property'',''FontSize'' on a figure with lines, title, label and a text object returned
+    objects of Type axes and text only.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: property-fontsize
+- claim_id: findall.set-pattern
+  statement: set(findall(fig, '-property', 'FontSize'), 'FontSize', 12) set FontSize 12 on the axes and
+    on a text object.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: set-fontsize
+- claim_id: findall.self
+  statement: findall(fig) includes fig itself; the first element had Type 'figure'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: self
+- claim_id: findall.no-match
+  statement: No match returns a 0x0 matlab.graphics.GraphicsPlaceholder array.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: no-match
+- claim_id: findall.deleted
+  statement: A deleted figure handle returns the same 0x0 GraphicsPlaceholder array without error.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: deleted
+- claim_id: findall.error-not-handle
+  statement: The first argument is a number that is not a graphics handle. The call errors with identifier
+    MATLAB:findall:InvalidHandles.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/findall_observations.json
+    case_id: err-not-handle

@@ -216,6 +216,7 @@ async fn gather_values(values: Vec<Value>) -> BuiltinResult<Vec<Value>> {
     Ok(gathered)
 }
 
+mod addnode;
 mod algorithms;
 mod class_registry;
 mod construction;

@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0",
+  "function_name": "sec",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/sec/test_sec_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "zero",
+      "description": "sec(0)",
+      "call": "sec(0)",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pi3",
+      "description": "sec(pi/3)",
+      "call": "sec(pi/3)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "1.9999999999999996",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pi",
+      "description": "sec(pi)",
+      "call": "sec(pi)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "-1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "negative",
+      "description": "sec(-pi/4)",
+      "call": "sec(-pi/4)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "1.4142135623730949",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pole",
+      "description": "sec(pi/2)",
+      "call": "sec(pi/2)",
+      "errored": false,
+      "result": {
+        "value": "16331239353195370",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "matrix shape kept",
+      "call": "sec([0 pi; pi/3 -pi/3])",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 -1;1.9999999999999996 1.9999999999999996]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nan",
+      "description": "sec(NaN)",
+      "call": "sec(NaN)",
+      "errored": false,
+      "result": {
+        "value": "NaN",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "inf",
+      "description": "sec(Inf)",
+      "call": "sec(Inf)",
+      "errored": false,
+      "result": {
+        "value": "NaN",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex",
+      "description": "complex input",
+      "call": "sec(1 + 1i)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "0.49833703055518686+0.59108384172104511i",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single",
+      "description": "single input",
+      "call": "sec(single(1))",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": "1.8508157730102539",
+        "class": "single",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty input",
+      "call": "sec([])",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-logical",
+      "description": "logical input",
+      "call": "sec(true)",
+      "errored": true,
+      "error_identifier": "MATLAB:math:mustBeFloat"
+    },
+    {
+      "case_id": "err-int",
+      "description": "int8 input",
+      "call": "sec(int8(1))",
+      "errored": true,
+      "error_identifier": "MATLAB:math:mustBeFloat"
+    },
+    {
+      "case_id": "err-char",
+      "description": "char input",
+      "call": "sec('a')",
+      "errored": true,
+      "error_identifier": "MATLAB:math:mustBeFloat"
+    },
+    {
+      "case_id": "err-none",
+      "description": "no argument",
+      "call": "sec()",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

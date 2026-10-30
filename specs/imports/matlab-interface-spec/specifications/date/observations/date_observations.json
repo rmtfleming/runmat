@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0",
+  "function_name": "date",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/date/test_date_interface.m",
+  "date": "2026-10-30",
+  "notes": "The current date changes, so only class, size, a pattern match and agreement with clock are recorded; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "class-shape",
+      "description": "class and size of date()",
+      "call": "d = date; report class(d), size(d)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'char'",
+          "size": "[1 11]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pattern",
+      "description": "text matches dd-Mmm-yyyy (two digits, hyphen, capitalised three-letter month, hyphen, four digits)",
+      "call": "d = date; report ~isempty(regexp(d, '^\\d{2}-[A-Z][a-z]{2}-\\d{4}$', 'once'))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "agrees-clock",
+      "description": "day, month and year fields agree with clock",
+      "call": "d = date; c = clock; compare day, month index in {'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'}, year",
+      "errored": false,
+      "result": {
+        "value": {
+          "day_ok": "true",
+          "month_ok": "true",
+          "year_ok": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "leading-zero",
+      "description": "day field is zero-padded to two characters",
+      "call": "d = date; report the day field has two characters",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-arg",
+      "description": "one input argument",
+      "call": "date(1)",
+      "errored": true,
+      "error_identifier": "MATLAB:TooManyInputs"
+    }
+  ]
+}

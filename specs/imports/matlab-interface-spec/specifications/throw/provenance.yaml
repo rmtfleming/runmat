@@ -1,0 +1,108 @@
+# Provenance for throw (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: throw
+claims:
+- claim_id: throw.signature-primary
+  statement: The invocation form `throw(ME)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: direct
+- claim_id: throw.identifier
+  statement: The raised error has the identifier of ME (n3:demo); case direct errors by design, as throwing
+    is the purpose of the function.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: direct
+  - file: observations/throw_observations.json
+    case_id: caught
+- claim_id: throw.caught
+  statement: The caught exception is an MException with the same identifier and message and the same number
+    of causes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: caught
+  - file: observations/throw_observations.json
+    case_id: dot
+  - file: observations/throw_observations.json
+    case_id: cause
+- claim_id: throw.formatted
+  statement: A message built from a format and arguments is caught already formatted ('value 3 of x');
+    '100%% sure' with no arguments gave '100% sure'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: formatted
+  - file: observations/throw_observations.json
+    case_id: percent
+- claim_id: throw.rethrow
+  statement: Throwing an error that was raised by error('n3:inner', 'inner') and caught keeps its identifier
+    and message.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: rethrow-caught
+- claim_id: throw.cause
+  statement: A cause added with addCause is present on the caught exception (one cause, identifier n3:in).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: cause
+- claim_id: throw.no-id
+  statement: An exception with an empty identifier is thrown and caught with identifier ''.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: no-id
+- claim_id: throw.non-mexception
+  statement: 'Observed: a struct or char argument errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/throw_observations.json
+    case_id: err-struct
+  - file: observations/throw_observations.json
+    case_id: err-char

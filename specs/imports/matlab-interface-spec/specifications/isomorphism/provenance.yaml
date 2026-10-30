@@ -1,0 +1,163 @@
+# Provenance for isomorphism (created 2026-10-30, batch N3, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isomorphism
+claims:
+- claim_id: isomorphism.signature-primary
+  statement: The invocation form `P = isomorphism(G1, G2)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: asym
+- claim_id: isomorphism.output-class
+  statement: P is a double column vector with numnodes entries.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: asym
+  - file: observations/isomorphism_observations.json
+    case_id: identical
+  - file: observations/isomorphism_observations.json
+    case_id: digraph
+- claim_id: isomorphism.orientation
+  statement: reordernodes(G2, P) had the same adjacency as G1 in every case where this was checked; for
+    the digraph case (1->2->3 vs 3->1->2, P = [3 1 2]) the other direction, reordernodes(G1, P) = G2,
+    did not hold.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: asym
+  - file: observations/isomorphism_observations.json
+    case_id: asym-swapped
+  - file: observations/isomorphism_observations.json
+    case_id: identical
+  - file: observations/isomorphism_observations.json
+    case_id: digraph
+  - file: observations/isomorphism_observations.json
+    case_id: edgevars
+- claim_id: isomorphism.not-isomorphic
+  statement: Non-isomorphic graphs (path vs star, different node counts, digraphs differing in edge direction)
+    give a 0x0 double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: not-iso
+  - file: observations/isomorphism_observations.json
+    case_id: node-count
+  - file: observations/isomorphism_observations.json
+    case_id: digraph-direction
+- claim_id: isomorphism.empty-graphs
+  statement: Two empty graphs give a 1x0 double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: empty-graphs
+- claim_id: isomorphism.edgeperm
+  statement: '[P, edgeperm] returns a double column with numedges entries ([1..6]'' for the asymmetric
+    6-node pair).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: edgeperm
+- claim_id: isomorphism.node-variables
+  statement: With NodeVariables 'Met', a mapping that preserves Met is returned ([3 2 1] for a path whose
+    labels are reversed); when no mapping preserves the labels the result is empty.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: nodevars-match
+  - file: observations/isomorphism_observations.json
+    case_id: nodevars-mismatch
+- claim_id: isomorphism.edge-variables
+  statement: With EdgeVariables 'Weight', a path with weights [5 7] and one with [7 5] gave P = [3 2 1],
+    the mapping that pairs equal weights (the weights themselves were not compared by the harness).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: edgevars
+- claim_id: isomorphism.non-graph
+  statement: 'Observed: numeric inputs errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: err-not-graph
+- claim_id: isomorphism.non-unique
+  statement: 'Inference (not observed): when several permutations are valid, which one is returned should
+    not be required. The path 1-2-3 compared with itself has two valid permutations and [1 2 3] was returned;
+    the asymmetric 6-node pair has exactly one.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: identical
+- claim_id: isomorphism.error-mixed
+  statement: One input is a graph and the other a digraph. The call errors with identifier MATLAB:graphfun:isomorphism:ClassMismatch.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: err-mixed
+- claim_id: isomorphism.error-unknown-nodevar
+  statement: NodeVariables names a variable that neither graph has. The call errors with identifier MATLAB:graphfun:isomorphism:NodeVarNotInFirstGraph.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isomorphism_observations.json
+    case_id: err-unknown-nodevar

@@ -1,0 +1,96 @@
+# Interface specification for isfloat (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isfloat
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return true for double and single inputs and false for the other observed classes.
+invocation_forms:
+- signature: tf = isfloat(A)
+  description: Logical scalar.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Any value.
+  status: confirmed
+outputs:
+- name: tf
+  description: Logical scalar.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: isfloat.true-cases-rule
+  statement: True for double and single values, including complex, NaN, empty, sparse and matrix inputs
+    (a matrix gives a scalar result).
+  status: confirmed
+  normative: true
+  provenance: isfloat.true-cases
+  observations:
+  - file: observations/isfloat_observations.json
+    case_id: double
+  - file: observations/isfloat_observations.json
+    case_id: single
+  - file: observations/isfloat_observations.json
+    case_id: complex
+  - file: observations/isfloat_observations.json
+    case_id: nan
+  - file: observations/isfloat_observations.json
+    case_id: empty
+  - file: observations/isfloat_observations.json
+    case_id: sparse
+  - file: observations/isfloat_observations.json
+    case_id: matrix
+- id: isfloat.false-cases-rule
+  statement: False for int8, uint64, logical, char, string, cell (even one holding a double), struct and
+    function handle.
+  status: confirmed
+  normative: true
+  provenance: isfloat.false-cases
+  observations:
+  - file: observations/isfloat_observations.json
+    case_id: int8
+  - file: observations/isfloat_observations.json
+    case_id: uint64
+  - file: observations/isfloat_observations.json
+    case_id: logical
+  - file: observations/isfloat_observations.json
+    case_id: char
+  - file: observations/isfloat_observations.json
+    case_id: string
+  - file: observations/isfloat_observations.json
+    case_id: cell
+  - file: observations/isfloat_observations.json
+    case_id: struct
+  - file: observations/isfloat_observations.json
+    case_id: handle
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: No input is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: isfloat.error-none
+  observations:
+  - file: observations/isfloat_observations.json
+    case_id: err-none
+- condition: Two inputs are given.
+  identifier: MATLAB:maxrhs
+  status: confirmed
+  provenance: isfloat.error-two
+  observations:
+  - file: observations/isfloat_observations.json
+    case_id: err-two
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isfloat_observations.json
+  description: 17 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isfloat.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

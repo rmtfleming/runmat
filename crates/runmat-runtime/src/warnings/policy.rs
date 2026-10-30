@@ -58,6 +58,9 @@ pub(crate) struct WarningPolicy {
     backtrace_enabled: bool,
     verbose_enabled: bool,
     last_warning: Option<RuntimeWarning>,
+    /// State reported and set by `lastwarn` (spec 049): updated by every
+    /// emitted warning, including suppressed ones [lastwarn.disabled].
+    lastwarn: Option<RuntimeWarning>,
 }
 
 impl Default for WarningPolicy {
@@ -69,6 +72,7 @@ impl Default for WarningPolicy {
             backtrace_enabled: false,
             verbose_enabled: false,
             last_warning: None,
+            lastwarn: None,
         }
     }
 }
@@ -145,6 +149,14 @@ impl WarningPolicy {
 
     pub(crate) fn last_warning(&self) -> Option<RuntimeWarning> {
         self.last_warning.clone()
+    }
+
+    pub(crate) fn lastwarn(&self) -> Option<RuntimeWarning> {
+        self.lastwarn.clone()
+    }
+
+    pub(crate) fn set_lastwarn(&mut self, warning: Option<RuntimeWarning>) {
+        self.lastwarn = warning;
     }
 
     #[cfg(test)]

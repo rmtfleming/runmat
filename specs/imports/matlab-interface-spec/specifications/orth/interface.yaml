@@ -1,0 +1,160 @@
+# Interface specification for orth (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: orth
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a matrix with orthonormal columns spanning the range (column space) of the input; for
+  the observed inputs the number of columns equalled the rank of the input.
+invocation_forms:
+- signature: Q = orth(A)
+  description: Orthonormal basis of range(A).
+  status: confirmed
+- signature: Q = orth(A, t)
+  description: A second numeric argument is accepted and changed the number of basis columns in the one
+    case observed.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Full double or single matrix, real or complex; sparse, integer and char inputs error.
+  status: confirmed
+- name: t
+  position: 2
+  required: false
+  description: Numeric scalar (1e-2 observed); its meaning is not established (see q-second-arg).
+  status: confirmed
+outputs:
+- name: Q
+  description: size(A,1)-by-r matrix with orthonormal columns, r the observed rank; same class as A.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: orth.size-rank-rule
+  statement: 'Q had size(A,1) rows and as many columns as the rank of A: 3x3 full rank gave 3x3, rank
+    2 gave 3x2, rank 1 gave 3x1, zeros(3) gave 3x0, a 4x2 full-column-rank matrix gave 4x2, a 2x4 rank-2
+    matrix gave 2x2.'
+  status: confirmed
+  normative: true
+  provenance: orth.size-rank
+  observations:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+  - file: observations/orth_observations.json
+    case_id: rank2
+  - file: observations/orth_observations.json
+    case_id: rank1
+  - file: observations/orth_observations.json
+    case_id: zero
+  - file: observations/orth_observations.json
+    case_id: tall
+  - file: observations/orth_observations.json
+    case_id: wide
+- id: orth.orthonormal-rule
+  statement: norm(Q'*Q - I) and the span residual norm(A - Q*(Q'*A)) were at rounding level (below 1.2e-14
+    for double, below 5e-6 for single), including for complex input.
+  status: confirmed
+  normative: true
+  provenance: orth.orthonormal
+  observations:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+  - file: observations/orth_observations.json
+    case_id: rank2
+  - file: observations/orth_observations.json
+    case_id: rank1
+  - file: observations/orth_observations.json
+    case_id: tall
+  - file: observations/orth_observations.json
+    case_id: wide
+  - file: observations/orth_observations.json
+    case_id: single
+  - file: observations/orth_observations.json
+    case_id: complex
+- id: orth.class-rule
+  statement: Single input gives single output; complex double input gave a double result.
+  status: confirmed
+  normative: true
+  provenance: orth.class
+  observations:
+  - file: observations/orth_observations.json
+    case_id: single
+  - file: observations/orth_observations.json
+    case_id: complex
+- id: orth.empty-rule
+  statement: orth([]) gives 0x0 and orth(zeros(3,0)) gives 3x0.
+  status: confirmed
+  normative: true
+  provenance: orth.empty
+  observations:
+  - file: observations/orth_observations.json
+    case_id: empty
+  - file: observations/orth_observations.json
+    case_id: empty-3x0
+- id: orth.second-arg-rule
+  statement: orth(diag([1 1e-3 0]), 1e-2) returned a 3x1 basis (the 1e-3 direction dropped, span residual
+    1e-3).
+  status: confirmed
+  normative: true
+  provenance: orth.second-arg
+  observations:
+  - file: observations/orth_observations.json
+    case_id: second-arg
+numerical_edge_cases:
+- id: orth.diag-rule
+  statement: 'Observed for the one input diag([2 0 5]): abs(Q) was [0 1; 0 0; 1 0] (first column +/-e3,
+    second +/-e1; signs not recorded). Column order is not required.'
+  status: confirmed
+  normative: false
+  provenance: orth.diag
+  observations:
+  - file: observations/orth_observations.json
+    case_id: diag-abs
+- id: orth.basis-not-unique-rule
+  statement: 'Inference (not observed): an orthonormal basis of a range is not unique (signs, and rotations
+    within repeated singular values), so only size, orthonormality and span should be required of an implementation.'
+  status: unresolved
+  normative: false
+  provenance: orth.basis-not-unique
+  observations:
+  - file: observations/orth_observations.json
+    case_id: full-rank
+warnings: []
+errors:
+- condition: A is sparse.
+  identifier: MATLAB:svd:noSVDsparse
+  status: confirmed
+  provenance: orth.error-sparse
+  observations:
+  - file: observations/orth_observations.json
+    case_id: err-sparse
+- condition: A is an integer or char array.
+  identifier: MATLAB:svd:inputType
+  status: confirmed
+  provenance: orth.error-int
+  observations:
+  - file: observations/orth_observations.json
+    case_id: err-int
+  - file: observations/orth_observations.json
+    case_id: err-char
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/orth_observations.json
+  description: 15 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: orth.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: orth.q-default-tol
+  question: The default rank threshold was not measured; only clearly separated singular values were exercised.
+- id: orth.q-second-arg
+  question: 'Whether the second argument is an absolute threshold or relative to the largest singular
+    value is not established: the one case had largest singular value 1.'
+- id: orth.q-error-ids
+  question: The error identifiers name another function (svd); whether an implementation must reproduce
+    them is a human-review question (constitution 8.2).

@@ -1,0 +1,115 @@
+# Interface specification for ishghandle (created 2026-10-30, batch N3, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: ishghandle
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return, elementwise, whether values are valid graphics handles, optionally of a given type.
+invocation_forms:
+- signature: tf = ishghandle(h)
+  description: True for valid graphics handles.
+  status: confirmed
+- signature: tf = ishghandle(h, type)
+  description: True for valid handles of the given Type (COBRA form with 'figure').
+  status: confirmed
+inputs:
+- name: h
+  position: 1
+  required: true
+  description: Any value.
+  status: confirmed
+- name: type
+  position: 2
+  required: false
+  description: Type name ('figure' and 'axes' observed).
+  status: confirmed
+outputs:
+- name: tf
+  description: Logical array the size of h.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: ishghandle.live-rule
+  statement: True for live figure, axes and line handles, for an array [f ax ln] (elementwise), for double(f)
+    of a live figure, and for the value 0 and groot.
+  status: confirmed
+  normative: true
+  provenance: ishghandle.live
+  observations:
+  - file: observations/ishghandle_observations.json
+    case_id: figure
+  - file: observations/ishghandle_observations.json
+    case_id: line
+  - file: observations/ishghandle_observations.json
+    case_id: array
+  - file: observations/ishghandle_observations.json
+    case_id: double-of-figure
+  - file: observations/ishghandle_observations.json
+    case_id: root
+  - file: observations/ishghandle_observations.json
+    case_id: groot
+- id: ishghandle.type-rule
+  statement: ishghandle(f, 'figure') and ishghandle(ax, 'axes') are true; ishghandle(ax, 'figure') is
+    false.
+  status: confirmed
+  normative: true
+  provenance: ishghandle.type
+  observations:
+  - file: observations/ishghandle_observations.json
+    case_id: figure-type
+  - file: observations/ishghandle_observations.json
+    case_id: axes-type
+  - file: observations/ishghandle_observations.json
+    case_id: axes-as-figure
+- id: ishghandle.false-cases-rule
+  statement: False for a deleted figure, a number that is not a handle, char, struct and a graph object;
+    the observed non-integer numeric matrix gave a false matrix of its size.
+  status: confirmed
+  normative: true
+  provenance: ishghandle.false-cases
+  observations:
+  - file: observations/ishghandle_observations.json
+    case_id: deleted
+  - file: observations/ishghandle_observations.json
+    case_id: number
+  - file: observations/ishghandle_observations.json
+    case_id: char
+  - file: observations/ishghandle_observations.json
+    case_id: struct
+  - file: observations/ishghandle_observations.json
+    case_id: graph
+  - file: observations/ishghandle_observations.json
+    case_id: matrix-number
+- id: ishghandle.empty-rule
+  statement: Empty input gives a 0x0 logical.
+  status: confirmed
+  normative: true
+  provenance: ishghandle.empty
+  observations:
+  - file: observations/ishghandle_observations.json
+    case_id: empty
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: No input is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: ishghandle.error-none
+  observations:
+  - file: observations/ishghandle_observations.json
+    case_id: err-none
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/ishghandle_observations.json
+  description: 17 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: ishghandle.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: ishghandle.q-numeric-handles
+  question: Which numeric values count as handles (integer figure numbers, other integers) is not established
+    beyond double(f) of a live figure, 0, and the non-integer values tried.
