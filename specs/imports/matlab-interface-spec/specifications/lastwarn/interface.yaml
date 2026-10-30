@@ -1,0 +1,109 @@
+# Interface specification for lastwarn (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: lastwarn
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Query or set the message and identifier of the most recent warning.
+invocation_forms:
+- signature: '[msg, id] = lastwarn'
+  description: Last warning message and identifier.
+  status: confirmed
+- signature: lastwarn(msg, id)
+  description: Set the stored message and identifier.
+  status: confirmed
+- signature: '[msg, id] = lastwarn(newMsg, newId)'
+  description: Set, returning the previous values.
+  status: confirmed
+inputs:
+- name: newMsg
+  position: 1
+  required: false
+  description: Message to store.
+  status: confirmed
+- name: newId
+  position: 2
+  required: false
+  description: Identifier to store.
+  status: confirmed
+outputs:
+- name: msg
+  description: Char message.
+  status: confirmed
+- name: id
+  description: Char identifier.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: lastwarn.after-warning-rule
+  statement: After warning('t:id', 'hello %d', 3), lastwarn returns the formatted message 'hello 3' and
+    the identifier 't:id'; with one output it returns the message.
+  status: confirmed
+  normative: true
+  provenance: lastwarn.after-warning
+  observations:
+  - file: observations/lastwarn_observations.json
+    case_id: after-warning
+  - file: observations/lastwarn_observations.json
+    case_id: single-output
+- id: lastwarn.set-rule
+  statement: lastwarn(msg, id) stores both values; lastwarn(msg) stores the message and an empty identifier;
+    lastwarn('') clears the message and the identifier.
+  status: confirmed
+  normative: true
+  provenance: lastwarn.set
+  observations:
+  - file: observations/lastwarn_observations.json
+    case_id: set
+  - file: observations/lastwarn_observations.json
+    case_id: set-msg-only
+  - file: observations/lastwarn_observations.json
+    case_id: reset
+- id: lastwarn.set-return-rule
+  statement: A setting call with outputs returns the previous message and identifier, then the new values
+    are stored.
+  status: confirmed
+  normative: true
+  provenance: lastwarn.set-return
+  observations:
+  - file: observations/lastwarn_observations.json
+    case_id: set-return
+- id: lastwarn.disabled-rule
+  statement: A warning whose identifier is turned off still updates lastwarn.
+  status: confirmed
+  normative: true
+  provenance: lastwarn.disabled
+  observations:
+  - file: observations/lastwarn_observations.json
+    case_id: disabled
+- id: lastwarn.no-id-rule
+  statement: A warning raised without an identifier leaves an empty identifier.
+  status: confirmed
+  normative: true
+  provenance: lastwarn.no-id
+  observations:
+  - file: observations/lastwarn_observations.json
+    case_id: no-id
+- id: lastwarn.empty-class-rule
+  statement: After clearing, both outputs are 0x0 char.
+  status: confirmed
+  normative: true
+  provenance: lastwarn.empty-class
+  observations:
+  - file: observations/lastwarn_observations.json
+    case_id: class
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/lastwarn_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: lastwarn.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "function_name": "alpha",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/alpha/test_alpha_interface.m",
+  "date": "2026-10-29",
+  "notes": "Each probe draws into a fresh invisible figure, reports public graphics properties, then closes it; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "scalar",
+      "description": "alpha(0.5) after drawing a surface",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha(0.5); report s.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "0.5",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "object",
+      "description": "alpha(s, 0.3) on the surface object",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha(s, 0.3); report s.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "0.29999999999999999",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "clear",
+      "description": "alpha('clear')",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha('clear'); report s.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "opaque",
+      "description": "alpha('opaque')",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha(0.2); alpha('opaque'); report s.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "flat",
+      "description": "alpha('flat')",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha('flat'); report s.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "'flat'",
+        "class": "char",
+        "size": [
+          1,
+          4
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "interp",
+      "description": "alpha('interp')",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha('interp'); report s.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "'interp'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "patch",
+      "description": "alpha on a patch",
+      "call": "f = figure('Visible','off'); p = patch([0 1 0], [0 0 1], 'r'); alpha(0.4); report p.FaceAlpha",
+      "errored": false,
+      "result": {
+        "value": "0.40000000000000002",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edge-untouched",
+      "description": "EdgeAlpha after alpha(0.5)",
+      "call": "f = figure('Visible','off'); s = surf(magic(3)); alpha(0.5); report s.EdgeAlpha",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "line-only",
+      "description": "alpha(0.5) when the axes holds only a line",
+      "call": "f = figure('Visible','off'); plot(1:3); alpha(0.5); report true",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "output-arg",
+      "description": "requesting an output",
+      "call": "f = figure('Visible','off'); surf(magic(3)); a = alpha(0.5)",
+      "errored": true,
+      "error_identifier": "MATLAB:TooManyOutputs"
+    },
+    {
+      "case_id": "err-bad-keyword",
+      "description": "unrecognised keyword",
+      "call": "f = figure('Visible','off'); surf(magic(3)); alpha('nope')",
+      "errored": true,
+      "error_identifier": "MATLAB:alpha:UnknownAlphaValue"
+    }
+  ]
+}

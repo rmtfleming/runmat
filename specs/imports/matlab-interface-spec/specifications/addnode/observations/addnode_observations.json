@@ -1,0 +1,223 @@
+{
+  "schema_version": "1.0",
+  "function_name": "addnode",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/addnode/test_addnode_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "count",
+      "description": "add two nodes by count",
+      "call": "G = addnode(graph([1 2], [2 3]), 2); report numnodes, numedges, EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "5",
+          "numedges": "2",
+          "EndNodes": "[1 2;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "add zero nodes",
+      "call": "G = addnode(graph([1 2], [2 3]), 0); report as for count",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "2",
+          "EndNodes": "[1 2;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names",
+      "description": "add named nodes to a named graph",
+      "call": "G = addnode(graph({'a'}, {'b'}), {'c','d'}); report as for count plus names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "4",
+          "numedges": "1",
+          "EndNodes": [
+            "'a'",
+            "'b'"
+          ],
+          "NodeNames": [
+            "'a'",
+            "'b'",
+            "'c'",
+            "'d'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "name-char",
+      "description": "add one named node given as char",
+      "call": "G = addnode(graph({'a'}, {'b'}), 'c'); report as for names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "1",
+          "EndNodes": [
+            "'a'",
+            "'b'"
+          ],
+          "NodeNames": [
+            "'a'",
+            "'b'",
+            "'c'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph",
+      "description": "add nodes to a digraph",
+      "call": "G = addnode(digraph(1, 2), 1); report as for count",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "3",
+          "numedges": "1",
+          "EndNodes": "[1 2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "add nodes to an empty graph",
+      "call": "G = addnode(graph(), 3); report as for count",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "0",
+          "EndNodes": "zeros(0,2)"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names-to-unnamed-empty",
+      "description": "add named nodes to an empty graph",
+      "call": "G = addnode(graph(), {'p','q'}); report as for names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "numedges": "0",
+          "EndNodes": [],
+          "NodeNames": [
+            "'p'",
+            "'q'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-dup-name",
+      "description": "name already present",
+      "call": "addnode(graph({'a'}, {'b'}), 'a')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graph:NonUniqueNames"
+    },
+    {
+      "case_id": "names-to-unnamed",
+      "description": "names added to a graph whose nodes are unnamed",
+      "call": "G = addnode(graph(1, 2), {'x'}); report as for names",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "3",
+          "numedges": "1",
+          "EndNodes": [
+            "'Node1'",
+            "'Node2'"
+          ],
+          "NodeNames": [
+            "'Node1'",
+            "'Node2'",
+            "'x'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-negative",
+      "description": "negative count",
+      "call": "addnode(graph(1, 2), -1)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:addnode:InvalidNrNodes"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+# Provenance for reallog (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: reallog
+claims:
+- claim_id: reallog.signature-primary
+  statement: The invocation form `y = reallog(x)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: one
+- claim_id: reallog.values
+  statement: 'Values equal the natural log: reallog(1) = 0, reallog(exp(2)) = 2, [1 10 100] gave [0 log(10)
+    log(100)] (within 1e-12).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: one
+  - file: observations/reallog_observations.json
+    case_id: e
+  - file: observations/reallog_observations.json
+    case_id: vector
+- claim_id: reallog.specials
+  statement: reallog(0) = -Inf, reallog(Inf) = Inf, reallog(NaN) = NaN.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: zero
+  - file: observations/reallog_observations.json
+    case_id: inf
+  - file: observations/reallog_observations.json
+    case_id: nan
+- claim_id: reallog.shape-class
+  statement: Matrix shape is kept; single input gives single; [] gives [].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: matrix
+  - file: observations/reallog_observations.json
+    case_id: single
+  - file: observations/reallog_observations.json
+    case_id: empty
+- claim_id: reallog.error-negative
+  statement: x contains a negative value. The call errors with identifier MATLAB:reallog:complexResult.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: err-negative
+- claim_id: reallog.error-complex
+  statement: x is complex. The call errors with identifier MATLAB:validators:mustBeReal.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: err-complex
+- claim_id: reallog.error-int
+  statement: x is of an integer class. The call errors with identifier MATLAB:math:mustBeFloat.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reallog_observations.json
+    case_id: err-int

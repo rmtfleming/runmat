@@ -1,0 +1,125 @@
+# Provenance for tiledlayout (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: tiledlayout
+claims:
+- claim_id: tiledlayout.signature-primary
+  statement: The invocation form `t = tiledlayout(m, n)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: grid
+- claim_id: tiledlayout.output-class
+  statement: The output is a matlab.graphics.layout.TiledChartLayout.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: grid
+  - file: observations/tiledlayout_observations.json
+    case_id: flow
+  - file: observations/tiledlayout_observations.json
+    case_id: spacing
+- claim_id: tiledlayout.grid
+  statement: tiledlayout(2,3) gives GridSize [2 3], TileArrangement 'fixed', and TileSpacing and Padding
+    'loose', with no children until tiles are added.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: grid
+- claim_id: tiledlayout.tiles
+  statement: Each nexttile adds one child axes (two calls gave 2 children).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: tiles
+  - file: observations/tiledlayout_observations.json
+    case_id: flow-tiles
+- claim_id: tiledlayout.flow
+  statement: '''flow'' gives TileArrangement ''flow'' and GridSize [1 1] when empty; after three tiles
+    the GridSize was [2 2].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: flow
+  - file: observations/tiledlayout_observations.json
+    case_id: flow-tiles
+- claim_id: tiledlayout.options
+  statement: TileSpacing 'compact' and Padding 'tight' are stored as given.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: spacing
+- claim_id: tiledlayout.parent
+  statement: A figure passed first becomes the layout's Parent.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: parent
+- claim_id: tiledlayout.error-one-arg
+  statement: A single numeric argument is given. The call errors with identifier MATLAB:narginchk:notEnoughInputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: err-one-arg
+- claim_id: tiledlayout.error-zero
+  statement: A grid dimension is zero. The call errors with identifier MATLAB:tiledchartlayout:InvalidGridSize.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: err-zero
+- claim_id: tiledlayout.error-spacing
+  statement: TileSpacing is not a recognised value. The call errors with identifier MATLAB:datatypes:InvalidEnumValue.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/tiledlayout_observations.json
+    case_id: err-spacing

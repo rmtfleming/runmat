@@ -1,0 +1,171 @@
+{
+  "schema_version": "1.0",
+  "function_name": "categories",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/categories/test_categories_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "from-cellstr",
+      "description": "categories of a categorical built from unsorted text",
+      "call": "categories(categorical({'b','a','c','a'}))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'a'",
+          "'b'",
+          "'c'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "explicit",
+      "description": "explicit category list kept in the given order, including an unused one",
+      "call": "categories(categorical({'b','a'}, {'c','b','a'}))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'c'",
+          "'b'",
+          "'a'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "ordinal",
+      "description": "ordinal categorical",
+      "call": "categories(categorical({'lo','hi'}, {'lo','hi'}, 'Ordinal', true))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'lo'",
+          "'hi'"
+        ],
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric",
+      "description": "categorical from numbers",
+      "call": "categories(categorical([3 1 2 1]))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'1'",
+          "'2'",
+          "'3'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "missing",
+      "description": "undefined element is not a category",
+      "call": "categories(categorical({'a', ''}))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'a'"
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty categorical",
+      "call": "categories(categorical({}))",
+      "errored": false,
+      "result": {
+        "value": [],
+        "class": "cell",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-src",
+      "description": "categorical from a string array",
+      "call": "categories(categorical([\"y\" \"x\"]))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'x'",
+          "'y'"
+        ],
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "case",
+      "description": "upper- and lower-case text",
+      "call": "categories(categorical({'b','B','a'}))",
+      "errored": false,
+      "result": {
+        "value": [
+          "'B'",
+          "'a'",
+          "'b'"
+        ],
+        "class": "cell",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-not-categorical",
+      "description": "cellstr input",
+      "call": "categories({'a','b'})",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

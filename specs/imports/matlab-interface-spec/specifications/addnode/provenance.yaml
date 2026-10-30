@@ -1,0 +1,95 @@
+# Provenance for addnode (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: addnode
+claims:
+- claim_id: addnode.signature-primary
+  statement: The invocation form `H = addnode(G, nodeCount)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: count
+- claim_id: addnode.count
+  statement: A count adds that many nodes at the end and leaves the edges unchanged (2 nodes added to
+    a 3-node path gave 5 nodes and the same 2 edges); 0 adds none.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: count
+  - file: observations/addnode_observations.json
+    case_id: zero
+  - file: observations/addnode_observations.json
+    case_id: digraph
+  - file: observations/addnode_observations.json
+    case_id: empty
+- claim_id: addnode.names
+  statement: Names add nodes with those names at the end (a char name or a cellstr).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: names
+  - file: observations/addnode_observations.json
+    case_id: name-char
+  - file: observations/addnode_observations.json
+    case_id: names-to-unnamed-empty
+- claim_id: addnode.names-to-unnamed
+  statement: Adding the name 'x' to a 2-node graph with unnamed nodes gave node names Node1, Node2, x.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: names-to-unnamed
+- claim_id: addnode.class
+  statement: The result keeps the input class.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: count
+  - file: observations/addnode_observations.json
+    case_id: digraph
+- claim_id: addnode.error-dup-name
+  statement: A name is already used by a node. The call errors with identifier MATLAB:graphfun:graph:NonUniqueNames.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: err-dup-name
+- claim_id: addnode.error-negative
+  statement: The count is negative. The call errors with identifier MATLAB:graphfun:addnode:InvalidNrNodes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addnode_observations.json
+    case_id: err-negative

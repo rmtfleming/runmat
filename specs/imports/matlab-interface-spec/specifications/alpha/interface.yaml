@@ -1,0 +1,113 @@
+# Interface specification for alpha (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: alpha
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Set the face transparency of the surfaces and patches in the current axes, or of a given object;
+  returns no output.
+invocation_forms:
+- signature: alpha(value)
+  description: Set FaceAlpha of surfaces/patches in the current axes.
+  status: confirmed
+- signature: alpha(obj, value)
+  description: Set FaceAlpha of `obj`.
+  status: confirmed
+inputs:
+- name: obj
+  position: 1
+  required: false
+  description: Graphics object (a surface was observed).
+  status: confirmed
+- name: value
+  position: 2
+  required: true
+  description: Numeric value (0.2, 0.3, 0.4 and 0.5 observed), or 'clear', 'opaque', 'flat', 'interp'.
+  status: confirmed
+outputs: []
+output_type_rules: []
+output_shape_rules:
+- id: alpha.scalar-rule
+  statement: A numeric value sets FaceAlpha of a surface (0.5) or patch (0.4) in the current axes; alpha(obj,
+    0.3) sets it on the given object.
+  status: confirmed
+  normative: true
+  provenance: alpha.scalar
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: scalar
+  - file: observations/alpha_observations.json
+    case_id: patch
+  - file: observations/alpha_observations.json
+    case_id: object
+- id: alpha.keywords-rule
+  statement: '''clear'' sets FaceAlpha 0, ''opaque'' sets 1, and ''flat'' and ''interp'' set FaceAlpha
+    to those keywords.'
+  status: confirmed
+  normative: true
+  provenance: alpha.keywords
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: clear
+  - file: observations/alpha_observations.json
+    case_id: opaque
+  - file: observations/alpha_observations.json
+    case_id: flat
+  - file: observations/alpha_observations.json
+    case_id: interp
+- id: alpha.edge-untouched-rule
+  statement: EdgeAlpha stayed 1 after alpha(0.5).
+  status: confirmed
+  normative: true
+  provenance: alpha.edge-untouched
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: edge-untouched
+- id: alpha.line-only-rule
+  statement: With only a line in the axes, alpha(0.5) completes without error.
+  status: confirmed
+  normative: true
+  provenance: alpha.line-only
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: line-only
+- id: alpha.no-output-rule
+  statement: Requesting an output errors.
+  status: confirmed
+  normative: true
+  provenance: alpha.no-output
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: output-arg
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: An unrecognised keyword is given.
+  identifier: MATLAB:alpha:UnknownAlphaValue
+  status: confirmed
+  provenance: alpha.error-bad-keyword
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: err-bad-keyword
+- condition: An output argument is requested.
+  identifier: MATLAB:TooManyOutputs
+  status: confirmed
+  provenance: alpha.error-output-arg
+  observations:
+  - file: observations/alpha_observations.json
+    case_id: output-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/alpha_observations.json
+  description: 11 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: alpha.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: alpha.q-more-forms
+  question: Forms with more arguments, numeric values outside those observed, and other object types were
+    not exercised.

@@ -1,5 +1,21 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 10 — N2: 14 new COBRA-backlog specs — 2026-10-30
+
+- Fourteen newly approved specifications (spec 0.2.0, `status: approved`):
+  `alpha`, `keys`, `isKey`, `remove`, `hsv`, `tiledlayout`, `lastwarn`,
+  `nthroot`, `textread`, `MException`, `reallog`, `addnode`, `cast`,
+  `categories`. **Imported only; not selected for implementation.**
+  (The backlog's lower-cased `iskey`/`mexception` are `isKey`/`MException`.)
+- Approval record: source `docs/review/2026-10-30-n2-new-specs-human-loop.md`
+  ("Approve all 14"). Left open for review: `cast(x,'like',complex)` gave a
+  real result.
+- Revision: committed source **`8f72edb119511f95884fb63f550e6c88682c327b`** (on `origin/main`), read
+  with `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (56 new lines, none changed).
+
+---
+
 ## Batch 9 — N1: 14 new COBRA-backlog specs — 2026-10-29
 
 - Fourteen newly approved specifications (spec 0.2.0, `status: approved`)

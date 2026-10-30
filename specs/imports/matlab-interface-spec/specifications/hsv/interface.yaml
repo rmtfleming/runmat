@@ -1,0 +1,106 @@
+# Interface specification for hsv (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: hsv
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the hue-saturation-value colormap as an n-by-3 matrix of RGB values.
+invocation_forms:
+- signature: c = hsv(n)
+  description: n-by-3 colormap.
+  status: confirmed
+- signature: c = hsv
+  description: Colormap of the default length.
+  status: confirmed
+inputs:
+- name: n
+  position: 1
+  required: false
+  description: Non-negative integer number of colours.
+  status: confirmed
+outputs:
+- name: c
+  description: n-by-3 double matrix with values in [0, 1].
+  status: confirmed
+output_type_rules:
+- id: hsv.output-class-rule
+  statement: The output is an n-by-3 double matrix.
+  status: confirmed
+  normative: true
+  provenance: hsv.output-class
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: six
+  - file: observations/hsv_observations.json
+    case_id: four
+  - file: observations/hsv_observations.json
+    case_id: class
+output_shape_rules:
+- id: hsv.values-rule
+  statement: hsv(6) gave [1 0 0; 1 1 0; 0 1 0; 0 1 1; 0 0 1; 1 0 1]; hsv(4) gave [1 0 0; 0.5 1 0; 0 1
+    1; 0.5 0 1]; hsv(1) gave [1 0 0].
+  status: confirmed
+  normative: true
+  provenance: hsv.values
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: six
+  - file: observations/hsv_observations.json
+    case_id: four
+  - file: observations/hsv_observations.json
+    case_id: one
+- id: hsv.range-rule
+  statement: hsv(64) has values in [0, 1], first row [1 0 0] and last row [1 0 0.09375].
+  status: confirmed
+  normative: true
+  provenance: hsv.range
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: range
+- id: hsv.zero-rule
+  statement: hsv(0) is a 0-by-3 empty matrix.
+  status: confirmed
+  normative: true
+  provenance: hsv.zero
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: zero
+- id: hsv.default-rule
+  statement: With no argument and no figure open, the result was 256-by-3.
+  status: confirmed
+  normative: true
+  provenance: hsv.default
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: default-size
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: n is negative.
+  identifier: MATLAB:validators:mustBeNonnegative
+  status: confirmed
+  provenance: hsv.error-negative
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: err-negative
+- condition: n is not an integer.
+  identifier: MATLAB:validators:mustBeInteger
+  status: confirmed
+  provenance: hsv.error-fraction
+  observations:
+  - file: observations/hsv_observations.json
+    case_id: err-fraction
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/hsv_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: hsv.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: hsv.q-default-with-figure
+  question: The default length when a figure with a colormap is open was not exercised.

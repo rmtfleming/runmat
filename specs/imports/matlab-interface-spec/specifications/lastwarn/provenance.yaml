@@ -1,0 +1,91 @@
+# Provenance for lastwarn (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: lastwarn
+claims:
+- claim_id: lastwarn.signature-primary
+  statement: The invocation form `[msg, id] = lastwarn` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: after-warning
+- claim_id: lastwarn.after-warning
+  statement: After warning('t:id', 'hello %d', 3), lastwarn returns the formatted message 'hello 3' and
+    the identifier 't:id'; with one output it returns the message.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: after-warning
+  - file: observations/lastwarn_observations.json
+    case_id: single-output
+- claim_id: lastwarn.set
+  statement: lastwarn(msg, id) stores both values; lastwarn(msg) stores the message and an empty identifier;
+    lastwarn('') clears the message and the identifier.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: set
+  - file: observations/lastwarn_observations.json
+    case_id: set-msg-only
+  - file: observations/lastwarn_observations.json
+    case_id: reset
+- claim_id: lastwarn.set-return
+  statement: A setting call with outputs returns the previous message and identifier, then the new values
+    are stored.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: set-return
+- claim_id: lastwarn.disabled
+  statement: A warning whose identifier is turned off still updates lastwarn.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: disabled
+- claim_id: lastwarn.no-id
+  statement: A warning raised without an identifier leaves an empty identifier.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: no-id
+- claim_id: lastwarn.empty-class
+  statement: After clearing, both outputs are 0x0 char.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lastwarn_observations.json
+    case_id: class

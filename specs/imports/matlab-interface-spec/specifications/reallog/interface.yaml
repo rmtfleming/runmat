@@ -1,0 +1,97 @@
+# Interface specification for reallog (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: reallog
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the natural logarithm of non-negative real input, erroring instead of producing complex
+  results.
+invocation_forms:
+- signature: y = reallog(x)
+  description: Natural log of x.
+  status: confirmed
+inputs:
+- name: x
+  position: 1
+  required: true
+  description: Real non-negative double or single array.
+  status: confirmed
+outputs:
+- name: y
+  description: Real array of the same size and class.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: reallog.values-rule
+  statement: 'Values equal the natural log: reallog(1) = 0, reallog(exp(2)) = 2, [1 10 100] gave [0 log(10)
+    log(100)] (within 1e-12).'
+  status: confirmed
+  normative: true
+  provenance: reallog.values
+  observations:
+  - file: observations/reallog_observations.json
+    case_id: one
+  - file: observations/reallog_observations.json
+    case_id: e
+  - file: observations/reallog_observations.json
+    case_id: vector
+- id: reallog.specials-rule
+  statement: reallog(0) = -Inf, reallog(Inf) = Inf, reallog(NaN) = NaN.
+  status: confirmed
+  normative: true
+  provenance: reallog.specials
+  observations:
+  - file: observations/reallog_observations.json
+    case_id: zero
+  - file: observations/reallog_observations.json
+    case_id: inf
+  - file: observations/reallog_observations.json
+    case_id: nan
+- id: reallog.shape-class-rule
+  statement: Matrix shape is kept; single input gives single; [] gives [].
+  status: confirmed
+  normative: true
+  provenance: reallog.shape-class
+  observations:
+  - file: observations/reallog_observations.json
+    case_id: matrix
+  - file: observations/reallog_observations.json
+    case_id: single
+  - file: observations/reallog_observations.json
+    case_id: empty
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: x contains a negative value.
+  identifier: MATLAB:reallog:complexResult
+  status: confirmed
+  provenance: reallog.error-negative
+  observations:
+  - file: observations/reallog_observations.json
+    case_id: err-negative
+- condition: x is complex.
+  identifier: MATLAB:validators:mustBeReal
+  status: confirmed
+  provenance: reallog.error-complex
+  observations:
+  - file: observations/reallog_observations.json
+    case_id: err-complex
+- condition: x is of an integer class.
+  identifier: MATLAB:math:mustBeFloat
+  status: confirmed
+  provenance: reallog.error-int
+  observations:
+  - file: observations/reallog_observations.json
+    case_id: err-int
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/reallog_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: reallog.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

@@ -1,0 +1,241 @@
+{
+  "schema_version": "1.0",
+  "function_name": "cast",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/cast/test_cast_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "round",
+      "description": "1.5, 2.5 and -1.5 to int32",
+      "call": "cast([1.5 2.5 -1.5], 'int32')",
+      "errored": false,
+      "result": {
+        "value": "[2 3 -2]",
+        "class": "int32",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "saturate",
+      "description": "out-of-range values to uint8",
+      "call": "cast([-1 300 255.6], 'uint8')",
+      "errored": false,
+      "result": {
+        "value": "[0 255 255]",
+        "class": "uint8",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nan-inf",
+      "description": "NaN, Inf, -Inf to int8",
+      "call": "cast([NaN Inf -Inf], 'int8')",
+      "errored": false,
+      "result": {
+        "value": "[0 127 -128]",
+        "class": "int8",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "to-single",
+      "description": "double to single",
+      "call": "cast(1/3, 'single')",
+      "errored": false,
+      "result": {
+        "value": "0.3333333432674408",
+        "class": "single",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char-to-double",
+      "description": "char to double",
+      "call": "cast('ab', 'double')",
+      "errored": false,
+      "result": {
+        "value": "[97 98]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "logical-to-double",
+      "description": "logical to double",
+      "call": "cast([true false], 'double')",
+      "errored": false,
+      "result": {
+        "value": "[1 0]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "int-to-int",
+      "description": "int16 to int8 with saturation",
+      "call": "cast(int16([-200 5 200]), 'int8')",
+      "errored": false,
+      "result": {
+        "value": "[-128 5 127]",
+        "class": "int8",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "to-logical",
+      "description": "double to logical",
+      "call": "cast([0 2], 'logical')",
+      "errored": false,
+      "result": {
+        "value": "[false true]",
+        "class": "logical",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "to-char",
+      "description": "double to char",
+      "call": "cast([72 105], 'char')",
+      "errored": false,
+      "result": {
+        "value": "'Hi'",
+        "class": "char",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like",
+      "description": "'like' a uint16 value",
+      "call": "cast(70000, 'like', uint16(1))",
+      "errored": false,
+      "result": {
+        "value": "65535",
+        "class": "uint16",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "like-complex",
+      "description": "'like' a complex double",
+      "call": "cast(2, 'like', 1i)",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "shape",
+      "description": "matrix shape kept",
+      "call": "cast([1 2; 3 4], 'uint8')",
+      "errored": false,
+      "result": {
+        "value": "[1 2;3 4]",
+        "class": "uint8",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-class",
+      "description": "cast to the same class",
+      "call": "cast(int8(5), 'int8')",
+      "errored": false,
+      "result": {
+        "value": "5",
+        "class": "int8",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-type",
+      "description": "unknown class name",
+      "call": "cast(1, 'notaclass')",
+      "errored": true,
+      "error_identifier": "MATLAB:cast:UnsupportedClass"
+    },
+    {
+      "case_id": "err-cell",
+      "description": "cell input",
+      "call": "cast({1}, 'double')",
+      "errored": true,
+      "error_identifier": "MATLAB:invalidConversion"
+    },
+    {
+      "case_id": "err-struct-type",
+      "description": "'struct' as the target",
+      "call": "cast(1, 'struct')",
+      "errored": true,
+      "error_identifier": "MATLAB:cast:UnsupportedClass"
+    }
+  ]
+}

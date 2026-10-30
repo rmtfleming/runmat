@@ -1,0 +1,90 @@
+# Provenance for remove (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: remove
+claims:
+- claim_id: remove.signature-primary
+  statement: The invocation form `M = remove(M, keySet)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/remove_observations.json
+    case_id: one
+- claim_id: remove.removes
+  statement: The given key(s) are removed (one key, a cell array of keys, a numeric key, or every key).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/remove_observations.json
+    case_id: one
+  - file: observations/remove_observations.json
+    case_id: several
+  - file: observations/remove_observations.json
+    case_id: numeric
+  - file: observations/remove_observations.json
+    case_id: all
+- claim_id: remove.handle
+  statement: The original map variable showed the same keys and Count as the returned map after the call.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/remove_observations.json
+    case_id: one
+  - file: observations/remove_observations.json
+    case_id: several
+  - file: observations/remove_observations.json
+    case_id: numeric
+  - file: observations/remove_observations.json
+    case_id: all
+- claim_id: remove.returns-map
+  statement: The returned value is a containers.Map.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/remove_observations.json
+    case_id: one
+  - file: observations/remove_observations.json
+    case_id: absent
+- claim_id: remove.present-removed-with-absent
+  statement: With a cell list that includes an absent key, the present keys are still removed.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/remove_observations.json
+    case_id: partly-absent
+- claim_id: remove.warning-absent
+  statement: A key to remove is not in the map (also a char key on a numeric map); the call completes
+    and the map keeps its other keys. The call completes and issues a warning with identifier MATLAB:Containers:Map:NoKeyToRemove.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/remove_observations.json
+    case_id: absent
+  - file: observations/remove_observations.json
+    case_id: partly-absent
+  - file: observations/remove_observations.json
+    case_id: type-mismatch

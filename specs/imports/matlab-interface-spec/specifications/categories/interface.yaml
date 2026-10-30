@@ -1,0 +1,106 @@
+# Interface specification for categories (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: categories
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the list of categories of a categorical array as a cell column of char vectors.
+invocation_forms:
+- signature: C = categories(A)
+  description: Categories of categorical A.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: categorical array.
+  status: confirmed
+outputs:
+- name: C
+  description: n-by-1 cell array of char vectors (0-by-0 for an empty categorical).
+  status: confirmed
+output_type_rules:
+- id: categories.output-class-rule
+  statement: For non-empty input the output is an n-by-1 cell array of char vectors.
+  status: confirmed
+  normative: true
+  provenance: categories.output-class
+  observations:
+  - file: observations/categories_observations.json
+    case_id: from-cellstr
+  - file: observations/categories_observations.json
+    case_id: numeric
+  - file: observations/categories_observations.json
+    case_id: explicit
+output_shape_rules:
+- id: categories.sorted-default-rule
+  statement: 'For the observed text inputs the categories came back sorted: b,a,c,a gave a,b,c; b,B,a
+    gave B,a,b; a string array y,x gave x,y.'
+  status: confirmed
+  normative: true
+  provenance: categories.sorted-default
+  observations:
+  - file: observations/categories_observations.json
+    case_id: from-cellstr
+  - file: observations/categories_observations.json
+    case_id: case
+  - file: observations/categories_observations.json
+    case_id: string-src
+- id: categories.explicit-order-rule
+  statement: An explicit category list is kept in the given order, including unused categories (c,b,a
+    with data b,a).
+  status: confirmed
+  normative: true
+  provenance: categories.explicit-order
+  observations:
+  - file: observations/categories_observations.json
+    case_id: explicit
+  - file: observations/categories_observations.json
+    case_id: ordinal
+- id: categories.numeric-rule
+  statement: A categorical made from numbers [3 1 2 1] has categories '1', '2', '3' as char.
+  status: confirmed
+  normative: true
+  provenance: categories.numeric
+  observations:
+  - file: observations/categories_observations.json
+    case_id: numeric
+- id: categories.missing-rule
+  statement: For data {'a', ''}, the empty text did not appear as a category (categories {'a'}).
+  status: confirmed
+  normative: true
+  provenance: categories.missing
+  observations:
+  - file: observations/categories_observations.json
+    case_id: missing
+- id: categories.empty-rule
+  statement: An empty categorical gives a 0x0 cell.
+  status: confirmed
+  normative: true
+  provenance: categories.empty
+  observations:
+  - file: observations/categories_observations.json
+    case_id: empty
+numerical_edge_cases:
+- id: categories.non-categorical-rule
+  statement: 'Observed: a cellstr input errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  status: confirmed
+  normative: false
+  provenance: categories.non-categorical
+  observations:
+  - file: observations/categories_observations.json
+    case_id: err-not-categorical
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/categories_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: categories.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

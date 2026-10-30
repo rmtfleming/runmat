@@ -1,0 +1,148 @@
+{
+  "schema_version": "1.0",
+  "function_name": "hsv",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/hsv/test_hsv_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "six",
+      "description": "hsv(6)",
+      "call": "hsv(6)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 0 0;1 1 0;0 1 0;0 1 1;0 0 1;1 0 1]",
+        "class": "double",
+        "size": [
+          6,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "four",
+      "description": "hsv(4)",
+      "call": "hsv(4)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 0 0;0.5 1 0;0 1 1;0.5 0 1]",
+        "class": "double",
+        "size": [
+          4,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one",
+      "description": "hsv(1)",
+      "call": "hsv(1)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[1 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "hsv(0)",
+      "call": "hsv(0)",
+      "errored": false,
+      "result": {
+        "value": "zeros(0,3)",
+        "class": "double",
+        "size": [
+          0,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "default-size",
+      "description": "size of hsv with no argument (no figure open)",
+      "call": "close all; size(hsv)",
+      "errored": false,
+      "result": {
+        "value": "[256 3]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "range",
+      "description": "min and max over hsv(64), and size",
+      "call": "M = hsv(64); report size(M), min(M(:)), max(M(:)), M(1,:), M(end,:)",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": {
+          "size": "[64 3]",
+          "min": "0",
+          "max": "1",
+          "first": "[1 0 0]",
+          "last": "[1 0 0.09375]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "class",
+      "description": "class of hsv(3)",
+      "call": "class(hsv(3))",
+      "errored": false,
+      "result": {
+        "value": "'double'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-negative",
+      "description": "negative length",
+      "call": "hsv(-1)",
+      "errored": true,
+      "error_identifier": "MATLAB:validators:mustBeNonnegative"
+    },
+    {
+      "case_id": "err-fraction",
+      "description": "non-integer length",
+      "call": "hsv(2.5)",
+      "errored": true,
+      "error_identifier": "MATLAB:validators:mustBeInteger"
+    }
+  ]
+}

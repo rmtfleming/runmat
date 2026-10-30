@@ -1,0 +1,145 @@
+# Interface specification for tiledlayout (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: tiledlayout
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Create a tiled chart layout for arranging axes in a grid in the current (or given) figure.
+invocation_forms:
+- signature: t = tiledlayout(m, n)
+  description: Fixed m-by-n grid.
+  status: confirmed
+- signature: t = tiledlayout('flow')
+  description: Grid that grows as tiles are added.
+  status: confirmed
+- signature: t = tiledlayout(___, Name, Value)
+  description: With spacing options.
+  status: confirmed
+- signature: t = tiledlayout(parent, m, n)
+  description: In a given figure.
+  status: confirmed
+inputs:
+- name: parent
+  position: 1
+  required: false
+  description: Figure.
+  status: confirmed
+- name: m
+  position: 1
+  required: false
+  description: Number of rows (positive).
+  status: confirmed
+- name: n
+  position: 2
+  required: false
+  description: Number of columns.
+  status: confirmed
+name_value_arguments:
+- name: TileSpacing
+  description: '''loose'' (default observed) and ''compact'' observed; ''nope'' errored.'
+  status: confirmed
+- name: Padding
+  description: '''loose'' (default observed), ''tight'' observed.'
+  status: confirmed
+outputs:
+- name: t
+  description: matlab.graphics.layout.TiledChartLayout object.
+  status: confirmed
+output_type_rules:
+- id: tiledlayout.output-class-rule
+  statement: The output is a matlab.graphics.layout.TiledChartLayout.
+  status: confirmed
+  normative: true
+  provenance: tiledlayout.output-class
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: grid
+  - file: observations/tiledlayout_observations.json
+    case_id: flow
+  - file: observations/tiledlayout_observations.json
+    case_id: spacing
+output_shape_rules:
+- id: tiledlayout.grid-rule
+  statement: tiledlayout(2,3) gives GridSize [2 3], TileArrangement 'fixed', and TileSpacing and Padding
+    'loose', with no children until tiles are added.
+  status: confirmed
+  normative: true
+  provenance: tiledlayout.grid
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: grid
+- id: tiledlayout.tiles-rule
+  statement: Each nexttile adds one child axes (two calls gave 2 children).
+  status: confirmed
+  normative: true
+  provenance: tiledlayout.tiles
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: tiles
+  - file: observations/tiledlayout_observations.json
+    case_id: flow-tiles
+- id: tiledlayout.flow-rule
+  statement: '''flow'' gives TileArrangement ''flow'' and GridSize [1 1] when empty; after three tiles
+    the GridSize was [2 2].'
+  status: confirmed
+  normative: true
+  provenance: tiledlayout.flow
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: flow
+  - file: observations/tiledlayout_observations.json
+    case_id: flow-tiles
+- id: tiledlayout.options-rule
+  statement: TileSpacing 'compact' and Padding 'tight' are stored as given.
+  status: confirmed
+  normative: true
+  provenance: tiledlayout.options
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: spacing
+- id: tiledlayout.parent-rule
+  statement: A figure passed first becomes the layout's Parent.
+  status: confirmed
+  normative: true
+  provenance: tiledlayout.parent
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: parent
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A single numeric argument is given.
+  identifier: MATLAB:narginchk:notEnoughInputs
+  status: confirmed
+  provenance: tiledlayout.error-one-arg
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: err-one-arg
+- condition: A grid dimension is zero.
+  identifier: MATLAB:tiledchartlayout:InvalidGridSize
+  status: confirmed
+  provenance: tiledlayout.error-zero
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: err-zero
+- condition: TileSpacing is not a recognised value.
+  identifier: MATLAB:datatypes:InvalidEnumValue
+  status: confirmed
+  provenance: tiledlayout.error-spacing
+  observations:
+  - file: observations/tiledlayout_observations.json
+    case_id: err-spacing
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/tiledlayout_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: tiledlayout.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: tiledlayout.q-flow-growth
+  question: The flow grid size was observed for 0 and 3 tiles only.

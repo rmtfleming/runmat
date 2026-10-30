@@ -1,0 +1,102 @@
+# Interface specification for remove (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: remove
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Remove keys and their values from a containers.Map; the map object itself is modified and also
+  returned.
+invocation_forms:
+- signature: M = remove(M, keySet)
+  description: Remove one key or a cell array of keys.
+  status: confirmed
+inputs:
+- name: M
+  position: 1
+  required: true
+  description: containers.Map object.
+  status: confirmed
+- name: keySet
+  position: 2
+  required: true
+  description: A key or a cell array of keys.
+  status: confirmed
+outputs:
+- name: M
+  description: The same containers.Map, with the keys removed.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: remove.removes-rule
+  statement: The given key(s) are removed (one key, a cell array of keys, a numeric key, or every key).
+  status: confirmed
+  normative: true
+  provenance: remove.removes
+  observations:
+  - file: observations/remove_observations.json
+    case_id: one
+  - file: observations/remove_observations.json
+    case_id: several
+  - file: observations/remove_observations.json
+    case_id: numeric
+  - file: observations/remove_observations.json
+    case_id: all
+- id: remove.handle-rule
+  statement: The original map variable showed the same keys and Count as the returned map after the call.
+  status: confirmed
+  normative: true
+  provenance: remove.handle
+  observations:
+  - file: observations/remove_observations.json
+    case_id: one
+  - file: observations/remove_observations.json
+    case_id: several
+  - file: observations/remove_observations.json
+    case_id: numeric
+  - file: observations/remove_observations.json
+    case_id: all
+- id: remove.returns-map-rule
+  statement: The returned value is a containers.Map.
+  status: confirmed
+  normative: true
+  provenance: remove.returns-map
+  observations:
+  - file: observations/remove_observations.json
+    case_id: one
+  - file: observations/remove_observations.json
+    case_id: absent
+- id: remove.present-removed-with-absent-rule
+  statement: With a cell list that includes an absent key, the present keys are still removed.
+  status: confirmed
+  normative: true
+  provenance: remove.present-removed-with-absent
+  observations:
+  - file: observations/remove_observations.json
+    case_id: partly-absent
+numerical_edge_cases: []
+warnings:
+- condition: A key to remove is not in the map (also a char key on a numeric map); the call completes
+    and the map keeps its other keys.
+  identifier: MATLAB:Containers:Map:NoKeyToRemove
+  status: confirmed
+  provenance: remove.warning-absent
+  observations:
+  - file: observations/remove_observations.json
+    case_id: absent
+  - file: observations/remove_observations.json
+    case_id: partly-absent
+  - file: observations/remove_observations.json
+    case_id: type-mismatch
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/remove_observations.json
+  description: 7 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: remove.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

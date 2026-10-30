@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.0",
+  "function_name": "remove",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/remove/test_remove_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one",
+      "description": "remove one key; report keys of the returned map and of the original",
+      "call": "M = containers.Map({'b','a','c'}, {1, 2, 3}); lastwarn(''); M2 = remove(M, 'a'); report keys(M2), keys(M), M.Count, class(M2), lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [
+            "'b'",
+            "'c'"
+          ],
+          "keys_original": [
+            "'b'",
+            "'c'"
+          ],
+          "count_original": "2",
+          "class": "'containers.Map'",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "several",
+      "description": "remove a cell array of keys",
+      "call": "M = containers.Map({'b','a','c'}, {1, 2, 3}); M2 = remove(M, {'a','c'}); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [
+            "'b'"
+          ],
+          "keys_original": [
+            "'b'"
+          ],
+          "count_original": "1",
+          "class": "'containers.Map'",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric",
+      "description": "remove a numeric key",
+      "call": "M = containers.Map([3 1 2], {'x','y','z'}); M2 = remove(M, 1); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [
+            "2",
+            "3"
+          ],
+          "keys_original": [
+            "2",
+            "3"
+          ],
+          "count_original": "2",
+          "class": "'containers.Map'",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "all",
+      "description": "remove every key",
+      "call": "M = containers.Map({'b','a','c'}, {1, 2, 3}); M2 = remove(M, {'a','b','c'}); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [],
+          "keys_original": [],
+          "count_original": "0",
+          "class": "'containers.Map'",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "absent",
+      "description": "absent key; report as for one",
+      "call": "M = containers.Map({'b','a','c'}, {1, 2, 3}); M2 = remove(M, 'z'); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [
+            "'a'",
+            "'b'",
+            "'c'"
+          ],
+          "keys_original": [
+            "'a'",
+            "'b'",
+            "'c'"
+          ],
+          "count_original": "3",
+          "class": "'containers.Map'",
+          "warning_id": "'MATLAB:Containers:Map:NoKeyToRemove'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "partly-absent",
+      "description": "cell list with one absent key; report as for one",
+      "call": "M = containers.Map({'b','a','c'}, {1, 2, 3}); M2 = remove(M, {'a','z'}); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [
+            "'b'",
+            "'c'"
+          ],
+          "keys_original": [
+            "'b'",
+            "'c'"
+          ],
+          "count_original": "2",
+          "class": "'containers.Map'",
+          "warning_id": "'MATLAB:Containers:Map:NoKeyToRemove'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-mismatch",
+      "description": "char key on a numeric map; report as for one",
+      "call": "M = containers.Map([3 1 2], {'x','y','z'}); M2 = remove(M, 'a'); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "keys_returned": [
+            "1",
+            "2",
+            "3"
+          ],
+          "keys_original": [
+            "1",
+            "2",
+            "3"
+          ],
+          "count_original": "3",
+          "class": "'containers.Map'",
+          "warning_id": "'MATLAB:Containers:Map:NoKeyToRemove'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

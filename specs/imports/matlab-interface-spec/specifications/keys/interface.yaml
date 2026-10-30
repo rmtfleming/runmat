@@ -1,0 +1,93 @@
+# Interface specification for keys (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: keys
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the keys of a containers.Map as a sorted 1-by-n cell array.
+invocation_forms:
+- signature: k = keys(M)
+  description: All keys of map M.
+  status: confirmed
+- signature: k = M.keys
+  description: Method-call syntax.
+  status: confirmed
+inputs:
+- name: M
+  position: 1
+  required: true
+  description: containers.Map object.
+  status: confirmed
+outputs:
+- name: k
+  description: 1-by-n cell array of keys.
+  status: confirmed
+output_type_rules:
+- id: keys.output-class-rule
+  statement: The output is a 1-by-n cell array (1-by-0 for an empty map).
+  status: confirmed
+  normative: true
+  provenance: keys.output-class
+  observations:
+  - file: observations/keys_observations.json
+    case_id: char
+  - file: observations/keys_observations.json
+    case_id: numeric
+  - file: observations/keys_observations.json
+    case_id: empty
+output_shape_rules:
+- id: keys.sorted-rule
+  statement: 'Keys came back in sorted order for every observed input: char keys inserted as b,a,c gave
+    a,b,c; b,B,a,A gave A,B,a,b; numeric keys inserted as 3,1,2 gave 1,2,3.'
+  status: confirmed
+  normative: true
+  provenance: keys.sorted
+  observations:
+  - file: observations/keys_observations.json
+    case_id: char
+  - file: observations/keys_observations.json
+    case_id: case-order
+  - file: observations/keys_observations.json
+    case_id: numeric
+- id: keys.aligned-with-values-rule
+  statement: values(M) is returned in the same order as keys(M) (keys a,b,c gave values 2,1,3 for the
+    map b->1, a->2, c->3).
+  status: confirmed
+  normative: true
+  provenance: keys.aligned-with-values
+  observations:
+  - file: observations/keys_observations.json
+    case_id: values-aligned
+- id: keys.method-syntax-rule
+  statement: M.keys gives the same result.
+  status: confirmed
+  normative: true
+  provenance: keys.method-syntax
+  observations:
+  - file: observations/keys_observations.json
+    case_id: method-syntax
+  - file: observations/keys_observations.json
+    case_id: char
+numerical_edge_cases:
+- id: keys.non-map-rule
+  statement: 'Observed: a struct input errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  status: confirmed
+  normative: false
+  provenance: keys.non-map
+  observations:
+  - file: observations/keys_observations.json
+    case_id: err-not-map
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/keys_observations.json
+  description: 7 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: keys.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

@@ -1,0 +1,135 @@
+# Interface specification for cast (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: cast
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Convert values to another numeric, logical or char class, rounding and saturating as for that
+  class.
+invocation_forms:
+- signature: B = cast(A, newclass)
+  description: Convert to class `newclass`.
+  status: confirmed
+- signature: B = cast(A, 'like', p)
+  description: Convert to the class of p.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Numeric, logical or char array.
+  status: confirmed
+- name: newclass
+  position: 2
+  required: true
+  description: Name of a numeric class, 'logical' or 'char'.
+  status: confirmed
+outputs:
+- name: B
+  description: Array of the target class with the shape of A.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: cast.rounding-rule
+  statement: 'Conversion to an integer class rounded to nearest with halves away from zero for the observed
+    inputs: [1.5 2.5 -1.5] to int32 gave [2 3 -2].'
+  status: confirmed
+  normative: true
+  provenance: cast.rounding
+  observations:
+  - file: observations/cast_observations.json
+    case_id: round
+- id: cast.saturation-rule
+  statement: 'Out-of-range values saturate: [-1 300 255.6] to uint8 gave [0 255 255]; int16 [-200 5 200]
+    to int8 gave [-128 5 127]; 70000 ''like'' uint16 gave 65535.'
+  status: confirmed
+  normative: true
+  provenance: cast.saturation
+  observations:
+  - file: observations/cast_observations.json
+    case_id: saturate
+  - file: observations/cast_observations.json
+    case_id: int-to-int
+  - file: observations/cast_observations.json
+    case_id: like
+- id: cast.nan-inf-rule
+  statement: NaN, Inf and -Inf to int8 gave 0, 127, -128.
+  status: confirmed
+  normative: true
+  provenance: cast.nan-inf
+  observations:
+  - file: observations/cast_observations.json
+    case_id: nan-inf
+- id: cast.other-classes-rule
+  statement: double to single rounds to single precision; char to double gives character codes ([97 98]);
+    logical to double gives 1/0; double to logical gives nonzero -> true; double to char gives characters
+    ('Hi').
+  status: confirmed
+  normative: true
+  provenance: cast.other-classes
+  observations:
+  - file: observations/cast_observations.json
+    case_id: to-single
+  - file: observations/cast_observations.json
+    case_id: char-to-double
+  - file: observations/cast_observations.json
+    case_id: logical-to-double
+  - file: observations/cast_observations.json
+    case_id: to-logical
+  - file: observations/cast_observations.json
+    case_id: to-char
+- id: cast.like-rule
+  statement: '''like'' p converts to the class of p; ''like'' a complex double kept a real double result
+    (2).'
+  status: confirmed
+  normative: true
+  provenance: cast.like
+  observations:
+  - file: observations/cast_observations.json
+    case_id: like
+  - file: observations/cast_observations.json
+    case_id: like-complex
+- id: cast.shape-rule
+  statement: The shape is kept, and casting to the same class leaves the value unchanged.
+  status: confirmed
+  normative: true
+  provenance: cast.shape
+  observations:
+  - file: observations/cast_observations.json
+    case_id: shape
+  - file: observations/cast_observations.json
+    case_id: same-class
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: newclass is not a supported class name (an unknown name, or 'struct').
+  identifier: MATLAB:cast:UnsupportedClass
+  status: confirmed
+  provenance: cast.error-bad-type
+  observations:
+  - file: observations/cast_observations.json
+    case_id: err-bad-type
+  - file: observations/cast_observations.json
+    case_id: err-struct-type
+- condition: A is a cell array.
+  identifier: MATLAB:invalidConversion
+  status: confirmed
+  provenance: cast.error-cell
+  observations:
+  - file: observations/cast_observations.json
+    case_id: err-cell
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/cast_observations.json
+  description: 16 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: cast.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: cast.q-like-complexity
+  question: Whether 'like' a complex value should produce a complex result is a human-review question
+    (constitution 8.2); a real result was observed (like-complex).

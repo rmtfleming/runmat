@@ -1,0 +1,132 @@
+# Interface specification for nthroot (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: nthroot
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the real n-th root of real input, elementwise, including real odd roots of negative values.
+invocation_forms:
+- signature: y = nthroot(x, n)
+  description: Real n-th root of x.
+  status: confirmed
+inputs:
+- name: x
+  position: 1
+  required: true
+  description: Real double or single array.
+  status: confirmed
+- name: n
+  position: 2
+  required: true
+  description: Real scalar or array of the same size as x.
+  status: confirmed
+outputs:
+- name: y
+  description: Real array of the class of x.
+  status: confirmed
+output_type_rules:
+- id: nthroot.output-class-rule
+  statement: The output is real with the class of x (double; single for single x).
+  status: confirmed
+  normative: true
+  provenance: nthroot.output-class
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: cube-neg
+  - file: observations/nthroot_observations.json
+    case_id: single
+output_shape_rules:
+- id: nthroot.negative-odd-rule
+  statement: 'Odd roots of negative values are real and negative: nthroot(-8, 3) = -2; [1 8 27 -64] with
+    n = 3 gave [1 2 3 -4].'
+  status: confirmed
+  normative: true
+  provenance: nthroot.negative-odd
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: cube-neg
+  - file: observations/nthroot_observations.json
+    case_id: vector
+- id: nthroot.even-root-rule
+  statement: 'An even root of a positive value is the positive real root: nthroot(16, 4) gave 2 (within
+    1e-12).'
+  status: confirmed
+  normative: true
+  provenance: nthroot.even-root
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: fourth
+- id: nthroot.elementwise-n-rule
+  statement: 'n may be an array matching x: [4 27 16] with [2 3 4] gave [2 3 2].'
+  status: confirmed
+  normative: true
+  provenance: nthroot.elementwise-n
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: vector-n
+- id: nthroot.specials-rule
+  statement: 0, Inf, -Inf and NaN with n = 3 gave 0, Inf, -Inf, NaN.
+  status: confirmed
+  normative: true
+  provenance: nthroot.specials
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: specials
+- id: nthroot.n-values-rule
+  statement: n = 1 returns x; n = -3 gave 8^(-1/3) = 0.5; a non-integer n (2.5) with positive x gave 8^(1/2.5).
+  status: confirmed
+  normative: true
+  provenance: nthroot.n-values
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: n-one
+  - file: observations/nthroot_observations.json
+    case_id: n-negative
+  - file: observations/nthroot_observations.json
+    case_id: noninteger-n
+- id: nthroot.exact-rule
+  statement: nthroot(1000, 3) == 10 was true.
+  status: confirmed
+  normative: true
+  provenance: nthroot.exact
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: exactness
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: x is negative and n is not an odd integer (n = 4, or n = 2.5).
+  identifier: MATLAB:nthroot:NegXNotOddIntegerN
+  status: confirmed
+  provenance: nthroot.error-even-negative
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: err-even-negative
+  - file: observations/nthroot_observations.json
+    case_id: err-noninteger-n-neg
+- condition: x is complex.
+  identifier: MATLAB:nthroot:ComplexInput
+  status: confirmed
+  provenance: nthroot.error-complex
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: err-complex
+- condition: x and n have incompatible sizes.
+  identifier: MATLAB:sizeDimensionsMustMatch
+  status: confirmed
+  provenance: nthroot.error-size
+  observations:
+  - file: observations/nthroot_observations.json
+    case_id: err-size
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/nthroot_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: nthroot.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

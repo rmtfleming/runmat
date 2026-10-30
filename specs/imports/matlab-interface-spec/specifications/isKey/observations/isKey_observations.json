@@ -1,0 +1,156 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isKey",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isKey/test_isKey_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "present",
+      "description": "present char key",
+      "call": "isKey(containers.Map({'b','a','c'}, {1, 2, 3}), 'a')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "absent",
+      "description": "absent char key",
+      "call": "isKey(containers.Map({'b','a','c'}, {1, 2, 3}), 'z')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "case",
+      "description": "key differing only in case",
+      "call": "isKey(containers.Map({'b','a','c'}, {1, 2, 3}), 'A')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell-query",
+      "description": "cell array of keys",
+      "call": "isKey(containers.Map({'b','a','c'}, {1, 2, 3}), {'a','z';'c','b'})",
+      "errored": false,
+      "result": {
+        "value": "[true false;true true]",
+        "class": "logical",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric",
+      "description": "numeric map, present and absent",
+      "call": "[isKey(containers.Map([3 1 2], {'x','y','z'}), 2) isKey(containers.Map([3 1 2], {'x','y','z'}), 5)]",
+      "errored": false,
+      "result": {
+        "value": "[true false]",
+        "class": "logical",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-cell",
+      "description": "numeric map with a cell query",
+      "call": "isKey(containers.Map([3 1 2], {'x','y','z'}), {1, 4})",
+      "errored": false,
+      "result": {
+        "value": "[true false]",
+        "class": "logical",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "type-mismatch",
+      "description": "char key on a numeric map",
+      "call": "isKey(containers.Map([3 1 2], {'x','y','z'}), 'a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-map",
+      "description": "query on an empty map",
+      "call": "isKey(containers.Map(), 'a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-key",
+      "description": "string scalar key",
+      "call": "isKey(containers.Map({'b','a','c'}, {1, 2, 3}), \"a\")",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    }
+  ]
+}

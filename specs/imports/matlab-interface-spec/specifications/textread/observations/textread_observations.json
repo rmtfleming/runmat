@@ -1,0 +1,199 @@
+{
+  "schema_version": "1.0",
+  "function_name": "textread",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/textread/test_textread_interface.m",
+  "date": "2026-10-29",
+  "notes": "Inputs are written to temporary files that are deleted afterwards; warning identifiers via lastwarn; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "numeric",
+      "description": "two numeric columns",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('1 2\\n3 4\\n')); fclose(fid); [o1, o2] = textread(fn, '%f %f'); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "[1;3]",
+          "class1": "'double'",
+          "size1": "[2 1]",
+          "out2": "[2;4]",
+          "class2": "'double'",
+          "size2": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mixed",
+      "description": "string and integer columns",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('x 1\\ny 2\\n')); fclose(fid); [o1, o2] = textread(fn, '%s %d'); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": [
+            "'x'",
+            "'y'"
+          ],
+          "class1": "'cell'",
+          "size1": "[2 1]",
+          "out2": "[1;2]",
+          "class2": "'double'",
+          "size2": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "headerlines",
+      "description": "skip a header line",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('h\\n5\\n6\\n')); fclose(fid); [o1] = textread(fn, '%f', 'headerlines', 1); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "[5;6]",
+          "class1": "'double'",
+          "size1": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "delimiter",
+      "description": "comma delimiter",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('1,2\\n3,4\\n')); fclose(fid); [o1, o2] = textread(fn, '%f %f', 'delimiter', ','); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "[1;3]",
+          "class1": "'double'",
+          "size1": "[2 1]",
+          "out2": "[2;4]",
+          "class2": "'double'",
+          "size2": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single-column",
+      "description": "one numeric column, one output",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('7\\n8\\n9\\n')); fclose(fid); [o1] = textread(fn, '%f'); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "[7;8;9]",
+          "class1": "'double'",
+          "size1": "[3 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "default-format",
+      "description": "no format argument, one output",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('1 2\\n3 4\\n')); fclose(fid); [o1] = textread(fn); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "[1 2;3 4]",
+          "class1": "'double'",
+          "size1": "[2 2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-file",
+      "description": "empty file",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('')); fclose(fid); [o1] = textread(fn, '%f'); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "zeros(0,1)",
+          "class1": "'double'",
+          "size1": "[0 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "skip-field",
+      "description": "%*s skips a field",
+      "call": "fn = [tempname '.txt']; fid = fopen(fn, 'w'); fprintf(fid, '%s', sprintf('x 1\\ny 2\\n')); fclose(fid); [o1] = textread(fn, '%*s %d'); report each output with class and size, and the lastwarn identifier; delete fn",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "out1": "[1;2]",
+          "class1": "'double'",
+          "size1": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-missing",
+      "description": "file that does not exist",
+      "call": "textread(fullfile(tempdir, 'no_such_file_xyz.txt'), '%f')",
+      "errored": true,
+      "error_identifier": "MATLAB:textread:FileNotFound"
+    }
+  ]
+}

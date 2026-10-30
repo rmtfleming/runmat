@@ -1,0 +1,131 @@
+# Interface specification for MException (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: MException
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Create an exception object with an identifier and a formatted message; it can be thrown, caught,
+  rethrown and given causes.
+invocation_forms:
+- signature: ME = MException(errID, msg)
+  description: Exception with identifier and message.
+  status: confirmed
+- signature: ME = MException(errID, fmt, A1, ...)
+  description: Message formatted from fmt and values.
+  status: confirmed
+- signature: throw(ME)
+  description: Throw the exception.
+  status: confirmed
+- signature: ME2 = addCause(ME, cause)
+  description: Return an exception with an added cause.
+  status: confirmed
+inputs:
+- name: errID
+  position: 1
+  required: true
+  description: Identifier of ':'-separated non-empty components (2 and 3 components accepted; a single
+    component errored).
+  status: confirmed
+- name: msg
+  position: 2
+  required: true
+  description: Message text or format.
+  status: confirmed
+outputs:
+- name: ME
+  description: MException object.
+  status: confirmed
+output_type_rules:
+- id: MException.output-class-rule
+  statement: The result has class MException.
+  status: confirmed
+  normative: true
+  provenance: MException.output-class
+  observations:
+  - file: observations/MException_observations.json
+    case_id: construct
+  - file: observations/MException_observations.json
+    case_id: throw-catch
+output_shape_rules:
+- id: MException.properties-rule
+  statement: identifier and message hold the given identifier and the formatted message ('value %d', 5
+    gave 'value 5'; '100%% sure' gave '100% sure'); a new object has a 0x1 stack and no causes.
+  status: confirmed
+  normative: true
+  provenance: MException.properties
+  observations:
+  - file: observations/MException_observations.json
+    case_id: construct
+  - file: observations/MException_observations.json
+    case_id: no-format
+  - file: observations/MException_observations.json
+    case_id: percent
+- id: MException.identifier-form-rule
+  statement: Identifiers with two or three ':'-separated components are accepted.
+  status: confirmed
+  normative: true
+  provenance: MException.identifier-form
+  observations:
+  - file: observations/MException_observations.json
+    case_id: construct
+  - file: observations/MException_observations.json
+    case_id: three-part-id
+- id: MException.throw-catch-rule
+  statement: throw(ME) raises it, and the caught object is an MException with the same identifier and
+    message.
+  status: confirmed
+  normative: true
+  provenance: MException.throw-catch
+  observations:
+  - file: observations/MException_observations.json
+    case_id: throw-catch
+- id: MException.rethrow-rule
+  statement: rethrow of a caught error preserves its identifier and message.
+  status: confirmed
+  normative: true
+  provenance: MException.rethrow
+  observations:
+  - file: observations/MException_observations.json
+    case_id: rethrow
+- id: MException.addcause-rule
+  statement: addCause returns an exception whose cause list holds the added exception (1 cause, identifier
+    'c:d'); the original object still had 0 causes.
+  status: confirmed
+  normative: true
+  provenance: MException.addcause
+  observations:
+  - file: observations/MException_observations.json
+    case_id: addcause
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The identifier has no ':' or has an empty component ('nocolon', 'a:').
+  identifier: MATLAB:MException:badIdentifier
+  status: confirmed
+  provenance: MException.error-bad-id
+  observations:
+  - file: observations/MException_observations.json
+    case_id: err-bad-id
+  - file: observations/MException_observations.json
+    case_id: err-empty-id-part
+- condition: Only the identifier is given (a generic too-few-arguments identifier, not specific to MException).
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: MException.error-no-message
+  observations:
+  - file: observations/MException_observations.json
+    case_id: err-no-message
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/MException_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: MException.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: MException.q-stack
+  question: The stack contents of a thrown exception were not recorded.

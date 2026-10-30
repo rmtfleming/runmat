@@ -1,0 +1,119 @@
+# Provenance for MException (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: MException
+claims:
+- claim_id: MException.signature-primary
+  statement: The invocation form `ME = MException(errID, msg)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: no-format
+- claim_id: MException.output-class
+  statement: The result has class MException.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: construct
+  - file: observations/MException_observations.json
+    case_id: throw-catch
+- claim_id: MException.properties
+  statement: identifier and message hold the given identifier and the formatted message ('value %d', 5
+    gave 'value 5'; '100%% sure' gave '100% sure'); a new object has a 0x1 stack and no causes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: construct
+  - file: observations/MException_observations.json
+    case_id: no-format
+  - file: observations/MException_observations.json
+    case_id: percent
+- claim_id: MException.identifier-form
+  statement: Identifiers with two or three ':'-separated components are accepted.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: construct
+  - file: observations/MException_observations.json
+    case_id: three-part-id
+- claim_id: MException.throw-catch
+  statement: throw(ME) raises it, and the caught object is an MException with the same identifier and
+    message.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: throw-catch
+- claim_id: MException.rethrow
+  statement: rethrow of a caught error preserves its identifier and message.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: rethrow
+- claim_id: MException.addcause
+  statement: addCause returns an exception whose cause list holds the added exception (1 cause, identifier
+    'c:d'); the original object still had 0 causes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: addcause
+- claim_id: MException.error-bad-id
+  statement: The identifier has no ':' or has an empty component ('nocolon', 'a:'). The call errors with
+    identifier MATLAB:MException:badIdentifier.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: err-bad-id
+  - file: observations/MException_observations.json
+    case_id: err-empty-id-part
+- claim_id: MException.error-no-message
+  statement: Only the identifier is given (a generic too-few-arguments identifier, not specific to MException).
+    The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/MException_observations.json
+    case_id: err-no-message

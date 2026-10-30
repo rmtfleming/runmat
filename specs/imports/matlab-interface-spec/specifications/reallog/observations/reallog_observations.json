@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.0",
+  "function_name": "reallog",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/reallog/test_reallog_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one",
+      "description": "reallog(1)",
+      "call": "reallog(1)",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "e",
+      "description": "reallog(exp(2))",
+      "call": "reallog(exp(2))",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vector",
+      "description": "vector input",
+      "call": "reallog([1 10 100])",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[0 2.3025850929940459 4.6051701859880918]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "reallog(0)",
+      "call": "reallog(0)",
+      "errored": false,
+      "result": {
+        "value": "-Inf",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "inf",
+      "description": "reallog(Inf)",
+      "call": "reallog(Inf)",
+      "errored": false,
+      "result": {
+        "value": "Inf",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nan",
+      "description": "reallog(NaN)",
+      "call": "reallog(NaN)",
+      "errored": false,
+      "result": {
+        "value": "NaN",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "matrix shape kept",
+      "call": "reallog([1 2; 3 4])",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "[0 0.69314718055994529;1.0986122886681098 1.3862943611198906]",
+        "class": "double",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single",
+      "description": "single input",
+      "call": "reallog(single(4))",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": "1.3862943649291992",
+        "class": "single",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty input",
+      "call": "reallog([])",
+      "errored": false,
+      "result": {
+        "value": "[]",
+        "class": "double",
+        "size": [
+          0,
+          0
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-negative",
+      "description": "negative input",
+      "call": "reallog(-1)",
+      "errored": true,
+      "error_identifier": "MATLAB:reallog:complexResult"
+    },
+    {
+      "case_id": "err-complex",
+      "description": "complex input",
+      "call": "reallog(1 + 1i)",
+      "errored": true,
+      "error_identifier": "MATLAB:validators:mustBeReal"
+    },
+    {
+      "case_id": "err-int",
+      "description": "integer-class input",
+      "call": "reallog(int8(4))",
+      "errored": true,
+      "error_identifier": "MATLAB:math:mustBeFloat"
+    }
+  ]
+}

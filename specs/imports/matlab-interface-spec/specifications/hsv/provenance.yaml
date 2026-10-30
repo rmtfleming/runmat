@@ -1,0 +1,102 @@
+# Provenance for hsv (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: hsv
+claims:
+- claim_id: hsv.signature-primary
+  statement: The invocation form `c = hsv(n)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: six
+- claim_id: hsv.output-class
+  statement: The output is an n-by-3 double matrix.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: six
+  - file: observations/hsv_observations.json
+    case_id: four
+  - file: observations/hsv_observations.json
+    case_id: class
+- claim_id: hsv.values
+  statement: hsv(6) gave [1 0 0; 1 1 0; 0 1 0; 0 1 1; 0 0 1; 1 0 1]; hsv(4) gave [1 0 0; 0.5 1 0; 0 1
+    1; 0.5 0 1]; hsv(1) gave [1 0 0].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: six
+  - file: observations/hsv_observations.json
+    case_id: four
+  - file: observations/hsv_observations.json
+    case_id: one
+- claim_id: hsv.range
+  statement: hsv(64) has values in [0, 1], first row [1 0 0] and last row [1 0 0.09375].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: range
+- claim_id: hsv.zero
+  statement: hsv(0) is a 0-by-3 empty matrix.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: zero
+- claim_id: hsv.default
+  statement: With no argument and no figure open, the result was 256-by-3.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: default-size
+- claim_id: hsv.error-negative
+  statement: n is negative. The call errors with identifier MATLAB:validators:mustBeNonnegative.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: err-negative
+- claim_id: hsv.error-fraction
+  statement: n is not an integer. The call errors with identifier MATLAB:validators:mustBeInteger.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/hsv_observations.json
+    case_id: err-fraction

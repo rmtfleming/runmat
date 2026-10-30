@@ -1,0 +1,96 @@
+# Provenance for isKey (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isKey
+claims:
+- claim_id: isKey.signature-primary
+  statement: The invocation form `tf = isKey(M, key)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: present
+- claim_id: isKey.output-class
+  statement: The output is logical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: present
+  - file: observations/isKey_observations.json
+    case_id: cell-query
+- claim_id: isKey.membership
+  statement: A present key gives true and an absent key false; matching is case-sensitive ('A' in a map
+    with 'a' gave false).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: present
+  - file: observations/isKey_observations.json
+    case_id: absent
+  - file: observations/isKey_observations.json
+    case_id: case
+- claim_id: isKey.cell-query
+  statement: A cell array of keys gives a logical array of the same size (2x2 cell gave [true false; true
+    true]).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: cell-query
+  - file: observations/isKey_observations.json
+    case_id: numeric-cell
+- claim_id: isKey.numeric
+  statement: Numeric keys work the same way.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: numeric
+  - file: observations/isKey_observations.json
+    case_id: numeric-cell
+- claim_id: isKey.lenient
+  statement: A char key on a numeric-keyed map, and the key 'a' on an empty map, gave false without error.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: type-mismatch
+  - file: observations/isKey_observations.json
+    case_id: empty-map
+- claim_id: isKey.string-key
+  statement: A string scalar key matches the equal char key.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isKey_observations.json
+    case_id: string-key

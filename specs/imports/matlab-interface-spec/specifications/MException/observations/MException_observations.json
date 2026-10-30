@@ -1,0 +1,180 @@
+{
+  "schema_version": "1.0",
+  "function_name": "MException",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/MException/test_MException_interface.m",
+  "date": "2026-10-29",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "construct",
+      "description": "MException('a:b','value %d',5): class and properties",
+      "call": "ME = MException('a:b', 'value %d', 5); report class, identifier, message, size(stack), numel(cause)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'a:b'",
+          "message": "'value 5'",
+          "stack_size": "[0 1]",
+          "n_cause": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-format",
+      "description": "message without format arguments",
+      "call": "ME = MException('x:y', 'plain'); report as for construct",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'x:y'",
+          "message": "'plain'",
+          "stack_size": "[0 1]",
+          "n_cause": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "percent",
+      "description": "message with an escaped percent",
+      "call": "ME = MException('x:y', '100%% sure'); report as for construct",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'x:y'",
+          "message": "'100% sure'",
+          "stack_size": "[0 1]",
+          "n_cause": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "three-part-id",
+      "description": "identifier with three components",
+      "call": "ME = MException('a:b:c', 'm'); report as for construct",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'a:b:c'",
+          "message": "'m'",
+          "stack_size": "[0 1]",
+          "n_cause": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "throw-catch",
+      "description": "throw then catch: caught identifier and message",
+      "call": "try; throw(MException('t:h', 'boom %s', 'x')); catch E; report E.identifier, E.message, class(E); end",
+      "errored": false,
+      "result": {
+        "value": {
+          "identifier": "'t:h'",
+          "message": "'boom x'",
+          "class": "'MException'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "addcause",
+      "description": "addCause: returned object's cause list",
+      "call": "ME = MException('a:b', 'top'); ME2 = addCause(ME, MException('c:d', 'inner')); report numel(ME2.cause), ME2.cause{1}.identifier, numel(ME.cause)",
+      "errored": false,
+      "result": {
+        "value": {
+          "n_cause_returned": "1",
+          "cause_id": "'c:d'",
+          "n_cause_original": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rethrow",
+      "description": "rethrow preserves identifier",
+      "call": "try; try; error('r:t', 'orig'); catch E; rethrow(E); end; catch E2; report E2.identifier, E2.message; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "identifier": "'r:t'",
+          "message": "'orig'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-id",
+      "description": "identifier without a colon",
+      "call": "MException('nocolon', 'm')",
+      "errored": true,
+      "error_identifier": "MATLAB:MException:badIdentifier"
+    },
+    {
+      "case_id": "err-empty-id-part",
+      "description": "identifier with an empty component",
+      "call": "MException('a:', 'm')",
+      "errored": true,
+      "error_identifier": "MATLAB:MException:badIdentifier"
+    },
+    {
+      "case_id": "err-no-message",
+      "description": "identifier only",
+      "call": "MException('a:b')",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

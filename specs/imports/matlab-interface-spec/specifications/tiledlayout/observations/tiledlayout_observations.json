@@ -1,0 +1,164 @@
+{
+  "schema_version": "1.0",
+  "function_name": "tiledlayout",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/tiledlayout/test_tiledlayout_interface.m",
+  "date": "2026-10-29",
+  "notes": "Each probe draws into a fresh invisible figure, reports public properties, then closes it; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "grid",
+      "description": "tiledlayout(2,3): class, GridSize, TileSpacing, Padding, TileArrangement",
+      "call": "f = figure('Visible','off'); t = tiledlayout(2,3); report properties",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.layout.TiledChartLayout'",
+          "GridSize": "[2 3]",
+          "TileSpacing": "'loose'",
+          "Padding": "'loose'",
+          "TileArrangement": "'fixed'",
+          "n_children": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "tiles",
+      "description": "two nexttile calls: number of axes children",
+      "call": "f = figure('Visible','off'); t = tiledlayout(2,2); nexttile; nexttile; report properties and numel(t.Children)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.layout.TiledChartLayout'",
+          "GridSize": "[2 2]",
+          "TileSpacing": "'loose'",
+          "Padding": "'loose'",
+          "TileArrangement": "'fixed'",
+          "n_children": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "flow",
+      "description": "tiledlayout('flow')",
+      "call": "f = figure('Visible','off'); t = tiledlayout('flow'); report properties",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.layout.TiledChartLayout'",
+          "GridSize": "[1 1]",
+          "TileSpacing": "'loose'",
+          "Padding": "'loose'",
+          "TileArrangement": "'flow'",
+          "n_children": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "flow-tiles",
+      "description": "flow layout after three tiles",
+      "call": "f = figure('Visible','off'); t = tiledlayout('flow'); nexttile x3; report properties",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.layout.TiledChartLayout'",
+          "GridSize": "[2 2]",
+          "TileSpacing": "'loose'",
+          "Padding": "'loose'",
+          "TileArrangement": "'flow'",
+          "n_children": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "spacing",
+      "description": "TileSpacing 'compact' and Padding 'tight'",
+      "call": "f = figure('Visible','off'); t = tiledlayout(1,2,'TileSpacing','compact','Padding','tight'); report properties",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.layout.TiledChartLayout'",
+          "GridSize": "[1 2]",
+          "TileSpacing": "'compact'",
+          "Padding": "'tight'",
+          "TileArrangement": "'fixed'",
+          "n_children": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-one-arg",
+      "description": "single numeric argument",
+      "call": "f = figure('Visible','off'); t = tiledlayout(3); report properties",
+      "errored": true,
+      "error_identifier": "MATLAB:narginchk:notEnoughInputs"
+    },
+    {
+      "case_id": "parent",
+      "description": "explicit figure parent",
+      "call": "f = figure('Visible','off'); t = tiledlayout(f, 1, 1); report Parent class",
+      "errored": false,
+      "result": {
+        "value": "'matlab.ui.Figure'",
+        "class": "char",
+        "size": [
+          1,
+          16
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-zero",
+      "description": "zero rows",
+      "call": "f = figure('Visible','off'); tiledlayout(0, 2)",
+      "errored": true,
+      "error_identifier": "MATLAB:tiledchartlayout:InvalidGridSize"
+    },
+    {
+      "case_id": "err-spacing",
+      "description": "invalid TileSpacing",
+      "call": "f = figure('Visible','off'); tiledlayout(1, 1, 'TileSpacing', 'nope')",
+      "errored": true,
+      "error_identifier": "MATLAB:datatypes:InvalidEnumValue"
+    }
+  ]
+}

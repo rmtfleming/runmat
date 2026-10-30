@@ -1,0 +1,105 @@
+# Provenance for alpha (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: alpha
+claims:
+- claim_id: alpha.signature-primary
+  statement: The invocation form `alpha(value)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: scalar
+- claim_id: alpha.scalar
+  statement: A numeric value sets FaceAlpha of a surface (0.5) or patch (0.4) in the current axes; alpha(obj,
+    0.3) sets it on the given object.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: scalar
+  - file: observations/alpha_observations.json
+    case_id: patch
+  - file: observations/alpha_observations.json
+    case_id: object
+- claim_id: alpha.keywords
+  statement: '''clear'' sets FaceAlpha 0, ''opaque'' sets 1, and ''flat'' and ''interp'' set FaceAlpha
+    to those keywords.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: clear
+  - file: observations/alpha_observations.json
+    case_id: opaque
+  - file: observations/alpha_observations.json
+    case_id: flat
+  - file: observations/alpha_observations.json
+    case_id: interp
+- claim_id: alpha.edge-untouched
+  statement: EdgeAlpha stayed 1 after alpha(0.5).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: edge-untouched
+- claim_id: alpha.line-only
+  statement: With only a line in the axes, alpha(0.5) completes without error.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: line-only
+- claim_id: alpha.no-output
+  statement: Requesting an output errors.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: output-arg
+- claim_id: alpha.error-bad-keyword
+  statement: An unrecognised keyword is given. The call errors with identifier MATLAB:alpha:UnknownAlphaValue.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: err-bad-keyword
+- claim_id: alpha.error-output-arg
+  statement: An output argument is requested. The call errors with identifier MATLAB:TooManyOutputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/alpha_observations.json
+    case_id: output-arg

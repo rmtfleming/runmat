@@ -1,0 +1,107 @@
+# Interface specification for addnode (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: addnode
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a graph or digraph with new nodes added, given as a count or as names.
+invocation_forms:
+- signature: H = addnode(G, nodeCount)
+  description: Add unnamed nodes.
+  status: confirmed
+- signature: H = addnode(G, nodeNames)
+  description: Add named nodes.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: graph or digraph.
+  status: confirmed
+- name: nodes
+  position: 2
+  required: true
+  description: Non-negative count, or names (char or cellstr).
+  status: confirmed
+outputs:
+- name: H
+  description: Graph of the same class with the nodes added.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: addnode.count-rule
+  statement: A count adds that many nodes at the end and leaves the edges unchanged (2 nodes added to
+    a 3-node path gave 5 nodes and the same 2 edges); 0 adds none.
+  status: confirmed
+  normative: true
+  provenance: addnode.count
+  observations:
+  - file: observations/addnode_observations.json
+    case_id: count
+  - file: observations/addnode_observations.json
+    case_id: zero
+  - file: observations/addnode_observations.json
+    case_id: digraph
+  - file: observations/addnode_observations.json
+    case_id: empty
+- id: addnode.names-rule
+  statement: Names add nodes with those names at the end (a char name or a cellstr).
+  status: confirmed
+  normative: true
+  provenance: addnode.names
+  observations:
+  - file: observations/addnode_observations.json
+    case_id: names
+  - file: observations/addnode_observations.json
+    case_id: name-char
+  - file: observations/addnode_observations.json
+    case_id: names-to-unnamed-empty
+- id: addnode.names-to-unnamed-rule
+  statement: Adding the name 'x' to a 2-node graph with unnamed nodes gave node names Node1, Node2, x.
+  status: confirmed
+  normative: true
+  provenance: addnode.names-to-unnamed
+  observations:
+  - file: observations/addnode_observations.json
+    case_id: names-to-unnamed
+- id: addnode.class-rule
+  statement: The result keeps the input class.
+  status: confirmed
+  normative: true
+  provenance: addnode.class
+  observations:
+  - file: observations/addnode_observations.json
+    case_id: count
+  - file: observations/addnode_observations.json
+    case_id: digraph
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A name is already used by a node.
+  identifier: MATLAB:graphfun:graph:NonUniqueNames
+  status: confirmed
+  provenance: addnode.error-dup-name
+  observations:
+  - file: observations/addnode_observations.json
+    case_id: err-dup-name
+- condition: The count is negative.
+  identifier: MATLAB:graphfun:addnode:InvalidNrNodes
+  status: confirmed
+  provenance: addnode.error-negative
+  observations:
+  - file: observations/addnode_observations.json
+    case_id: err-negative
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/addnode_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: addnode.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: addnode.q-graph-variables
+  question: Node inputs other than a count, a char name and a cellstr were not exercised.

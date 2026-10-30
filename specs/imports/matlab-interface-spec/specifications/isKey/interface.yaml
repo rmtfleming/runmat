@@ -1,0 +1,105 @@
+# Interface specification for isKey (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isKey
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return whether keys are present in a containers.Map.
+invocation_forms:
+- signature: tf = isKey(M, key)
+  description: True if `key` is a key of M; for a cell array of keys, an array of results.
+  status: confirmed
+inputs:
+- name: M
+  position: 1
+  required: true
+  description: containers.Map object.
+  status: confirmed
+- name: key
+  position: 2
+  required: true
+  description: A key (char, string scalar or number) or a cell array of keys.
+  status: confirmed
+outputs:
+- name: tf
+  description: Logical scalar, or a logical array the size of the cell array of keys.
+  status: confirmed
+output_type_rules:
+- id: isKey.output-class-rule
+  statement: The output is logical.
+  status: confirmed
+  normative: true
+  provenance: isKey.output-class
+  observations:
+  - file: observations/isKey_observations.json
+    case_id: present
+  - file: observations/isKey_observations.json
+    case_id: cell-query
+output_shape_rules:
+- id: isKey.membership-rule
+  statement: A present key gives true and an absent key false; matching is case-sensitive ('A' in a map
+    with 'a' gave false).
+  status: confirmed
+  normative: true
+  provenance: isKey.membership
+  observations:
+  - file: observations/isKey_observations.json
+    case_id: present
+  - file: observations/isKey_observations.json
+    case_id: absent
+  - file: observations/isKey_observations.json
+    case_id: case
+- id: isKey.cell-query-rule
+  statement: A cell array of keys gives a logical array of the same size (2x2 cell gave [true false; true
+    true]).
+  status: confirmed
+  normative: true
+  provenance: isKey.cell-query
+  observations:
+  - file: observations/isKey_observations.json
+    case_id: cell-query
+  - file: observations/isKey_observations.json
+    case_id: numeric-cell
+- id: isKey.numeric-rule
+  statement: Numeric keys work the same way.
+  status: confirmed
+  normative: true
+  provenance: isKey.numeric
+  observations:
+  - file: observations/isKey_observations.json
+    case_id: numeric
+  - file: observations/isKey_observations.json
+    case_id: numeric-cell
+- id: isKey.lenient-rule
+  statement: A char key on a numeric-keyed map, and the key 'a' on an empty map, gave false without error.
+  status: confirmed
+  normative: true
+  provenance: isKey.lenient
+  observations:
+  - file: observations/isKey_observations.json
+    case_id: type-mismatch
+  - file: observations/isKey_observations.json
+    case_id: empty-map
+- id: isKey.string-key-rule
+  statement: A string scalar key matches the equal char key.
+  status: confirmed
+  normative: true
+  provenance: isKey.string-key
+  observations:
+  - file: observations/isKey_observations.json
+    case_id: string-key
+numerical_edge_cases: []
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isKey_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isKey.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

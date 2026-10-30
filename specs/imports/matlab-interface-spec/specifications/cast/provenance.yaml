@@ -1,0 +1,128 @@
+# Provenance for cast (created 2026-10-29, batch N2, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: cast
+claims:
+- claim_id: cast.signature-primary
+  statement: The invocation form `B = cast(A, newclass)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: round
+- claim_id: cast.rounding
+  statement: 'Conversion to an integer class rounded to nearest with halves away from zero for the observed
+    inputs: [1.5 2.5 -1.5] to int32 gave [2 3 -2].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: round
+- claim_id: cast.saturation
+  statement: 'Out-of-range values saturate: [-1 300 255.6] to uint8 gave [0 255 255]; int16 [-200 5 200]
+    to int8 gave [-128 5 127]; 70000 ''like'' uint16 gave 65535.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: saturate
+  - file: observations/cast_observations.json
+    case_id: int-to-int
+  - file: observations/cast_observations.json
+    case_id: like
+- claim_id: cast.nan-inf
+  statement: NaN, Inf and -Inf to int8 gave 0, 127, -128.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: nan-inf
+- claim_id: cast.other-classes
+  statement: double to single rounds to single precision; char to double gives character codes ([97 98]);
+    logical to double gives 1/0; double to logical gives nonzero -> true; double to char gives characters
+    ('Hi').
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: to-single
+  - file: observations/cast_observations.json
+    case_id: char-to-double
+  - file: observations/cast_observations.json
+    case_id: logical-to-double
+  - file: observations/cast_observations.json
+    case_id: to-logical
+  - file: observations/cast_observations.json
+    case_id: to-char
+- claim_id: cast.like
+  statement: '''like'' p converts to the class of p; ''like'' a complex double kept a real double result
+    (2).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: like
+  - file: observations/cast_observations.json
+    case_id: like-complex
+- claim_id: cast.shape
+  statement: The shape is kept, and casting to the same class leaves the value unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: shape
+  - file: observations/cast_observations.json
+    case_id: same-class
+- claim_id: cast.error-bad-type
+  statement: newclass is not a supported class name (an unknown name, or 'struct'). The call errors with
+    identifier MATLAB:cast:UnsupportedClass.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: err-bad-type
+  - file: observations/cast_observations.json
+    case_id: err-struct-type
+- claim_id: cast.error-cell
+  statement: A is a cell array. The call errors with identifier MATLAB:invalidConversion.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-29'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/cast_observations.json
+    case_id: err-cell

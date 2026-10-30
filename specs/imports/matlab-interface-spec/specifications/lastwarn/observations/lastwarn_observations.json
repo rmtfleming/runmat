@@ -1,0 +1,184 @@
+{
+  "schema_version": "1.0",
+  "function_name": "lastwarn",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/lastwarn/test_lastwarn_interface.m",
+  "date": "2026-10-29",
+  "notes": "Warnings raised by the probes are displayed in the oracle session; values via describe_value; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "after-warning",
+      "description": "both outputs after warning('t:id','hello %d',3)",
+      "call": "warning('t:id', 'hello %d', 3); [msg, id] = lastwarn",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "'hello 3'",
+          "id": "'t:id'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single-output",
+      "description": "single output after a warning",
+      "call": "warning('t:id2', 'second'); msg = lastwarn",
+      "errored": false,
+      "result": {
+        "value": "'second'",
+        "class": "char",
+        "size": [
+          1,
+          6
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "set",
+      "description": "lastwarn('m','x:y') then read back",
+      "call": "lastwarn('m', 'x:y'); [msg, id] = lastwarn",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "'m'",
+          "id": "'x:y'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "set-return",
+      "description": "values returned by the setting call itself",
+      "call": "lastwarn('old', 'o:ld'); [m, i] = lastwarn('new', 'n:ew')",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "'old'",
+          "id": "'o:ld'",
+          "after_msg": "'new'",
+          "after_id": "'n:ew'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "set-msg-only",
+      "description": "lastwarn('only') then read back",
+      "call": "lastwarn('prev', 'p:rev'); lastwarn('only'); [msg, id] = lastwarn",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "'only'",
+          "id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "reset",
+      "description": "lastwarn('') then read back",
+      "call": "warning('t:id', 'x'); lastwarn(''); [msg, id] = lastwarn",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "''",
+          "id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "disabled",
+      "description": "a warning whose identifier is turned off",
+      "call": "st = warning('off', 'q:off'); lastwarn('', ''); warning('q:off', 'hidden'); [msg, id] = lastwarn; warning(st)",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "'hidden'",
+          "id": "'q:off'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-id",
+      "description": "warning without an identifier",
+      "call": "lastwarn('', 'z:z'); warning('plain text'); [msg, id] = lastwarn",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg": "'plain text'",
+          "id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "class",
+      "description": "class and size of outputs after reset",
+      "call": "lastwarn('', ''); [msg, id] = lastwarn; report class/size",
+      "errored": false,
+      "result": {
+        "value": {
+          "msg_class": "'char'",
+          "msg_size": "[0 0]",
+          "id_class": "'char'",
+          "id_size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

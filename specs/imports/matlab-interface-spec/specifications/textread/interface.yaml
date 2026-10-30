@@ -1,0 +1,140 @@
+# Interface specification for textread (created 2026-10-29, batch N2, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: textread
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Read formatted data from a text file into separate output variables, one per format field.
+invocation_forms:
+- signature: '[A, B, ...] = textread(filename, format)'
+  description: One output per non-skipped format field.
+  status: confirmed
+- signature: '[___] = textread(filename, format, Name, Value)'
+  description: With header-line or delimiter options.
+  status: confirmed
+- signature: A = textread(filename)
+  description: Without a format.
+  status: confirmed
+inputs:
+- name: filename
+  position: 1
+  required: true
+  description: Path to a text file.
+  status: confirmed
+- name: format
+  position: 2
+  required: false
+  description: Format with %f, %d, %s and %*s fields (observed).
+  status: confirmed
+name_value_arguments:
+- name: headerlines
+  description: Number of initial lines to skip.
+  status: confirmed
+- name: delimiter
+  description: Field delimiter (',' observed).
+  status: confirmed
+outputs:
+- name: A, B, ...
+  description: 'Column vectors: double for numeric fields, cell arrays for %s fields.'
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: textread.columns-rule
+  statement: 'Each format field fills one output as a column: ''1 2\n3 4\n'' with ''%f %f'' gave [1;3]
+    and [2;4].'
+  status: confirmed
+  normative: true
+  provenance: textread.columns
+  observations:
+  - file: observations/textread_observations.json
+    case_id: numeric
+  - file: observations/textread_observations.json
+    case_id: single-column
+- id: textread.types-rule
+  statement: '%f and %d fields give double columns; %s fields give cell column arrays of char.'
+  status: confirmed
+  normative: true
+  provenance: textread.types
+  observations:
+  - file: observations/textread_observations.json
+    case_id: numeric
+  - file: observations/textread_observations.json
+    case_id: mixed
+- id: textread.options-rule
+  statement: '''headerlines'', 1 skips the first line; ''delimiter'', '','' splits on commas.'
+  status: confirmed
+  normative: true
+  provenance: textread.options
+  observations:
+  - file: observations/textread_observations.json
+    case_id: headerlines
+  - file: observations/textread_observations.json
+    case_id: delimiter
+- id: textread.skip-rule
+  statement: '%*s reads and discards a field, so it produces no output.'
+  status: confirmed
+  normative: true
+  provenance: textread.skip
+  observations:
+  - file: observations/textread_observations.json
+    case_id: skip-field
+- id: textread.default-format-rule
+  statement: With no format and one output, the numbers were returned as a matrix with the file's row
+    and column layout ([1 2; 3 4]).
+  status: confirmed
+  normative: true
+  provenance: textread.default-format
+  observations:
+  - file: observations/textread_observations.json
+    case_id: default-format
+- id: textread.empty-rule
+  statement: An empty file with '%f' gives a 0x1 double.
+  status: confirmed
+  normative: true
+  provenance: textread.empty
+  observations:
+  - file: observations/textread_observations.json
+    case_id: empty-file
+- id: textread.no-warning-rule
+  statement: No warning was issued in the probed cases.
+  status: confirmed
+  normative: true
+  provenance: textread.no-warning
+  observations:
+  - file: observations/textread_observations.json
+    case_id: numeric
+  - file: observations/textread_observations.json
+    case_id: mixed
+  - file: observations/textread_observations.json
+    case_id: headerlines
+  - file: observations/textread_observations.json
+    case_id: delimiter
+  - file: observations/textread_observations.json
+    case_id: single-column
+  - file: observations/textread_observations.json
+    case_id: default-format
+  - file: observations/textread_observations.json
+    case_id: empty-file
+  - file: observations/textread_observations.json
+    case_id: skip-field
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The file does not exist.
+  identifier: MATLAB:textread:FileNotFound
+  status: confirmed
+  provenance: textread.error-missing
+  observations:
+  - file: observations/textread_observations.json
+    case_id: err-missing
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/textread_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-29.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: textread.q-more-formats
+  question: Other format specifiers and options were not exercised.
