@@ -3,3 +3,4 @@
 pub mod regexp;
 pub(crate) mod regexpi;
 pub(crate) mod regexprep;
+pub mod regexptranslate;

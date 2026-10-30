@@ -3,6 +3,7 @@
 pub mod char;
 pub mod compat;
 pub mod compose;
+pub mod dec2base;
 pub mod genvarname;
 pub mod int2str;
 pub mod num2str;
@@ -18,3 +19,4 @@ pub mod strings;
 pub mod strlength;
 pub mod strncmp;
 pub mod unicode2native;
+pub mod validatestring;

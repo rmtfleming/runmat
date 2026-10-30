@@ -219,6 +219,7 @@ async fn gather_values(values: Vec<Value>) -> BuiltinResult<Vec<Value>> {
 mod algorithms;
 mod class_registry;
 mod construction;
+mod editing;
 mod entrypoints;
 mod parsing;
 mod structure;

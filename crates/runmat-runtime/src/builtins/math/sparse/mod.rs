@@ -4,9 +4,13 @@
 //! exports `full` 0.2.0, `speye` 0.2.0, `spdiags` 0.2.0) and
 //! specs/017-nonzeros (approved Tier B export `nonzeros` 0.2.0).
 
+pub(crate) mod amd;
 pub(crate) mod colamd;
 pub(crate) mod dissect;
+pub(crate) mod etree;
 pub(crate) mod spalloc;
+pub(crate) mod symbfact;
+pub(crate) mod symbolic;
 
 use runmat_value::Value;
 

@@ -26,6 +26,7 @@ pub(crate) mod isa;
 pub(crate) mod ischar;
 pub(crate) mod ismethod;
 pub(crate) mod isobject;
+pub mod isprop;
 pub mod isstr;
 pub(crate) mod isstring;
 pub mod isvalid;

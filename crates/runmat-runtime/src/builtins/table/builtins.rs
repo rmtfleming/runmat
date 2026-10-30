@@ -10,6 +10,9 @@ mod predicates;
 mod selectors;
 mod timetable;
 mod variable_editing;
+// F44 (specs/044-table-stack-innerjoin)
+mod innerjoin;
+mod stack;
 
 #[allow(unused_imports)]
 pub(crate) use {

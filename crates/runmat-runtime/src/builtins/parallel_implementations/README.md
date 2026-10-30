@@ -73,7 +73,7 @@ this fork cannot produce. The clean-room modules are therefore declared by hand 
 parents:
 
 - `builtins/mod.rs`: `parallel_implementations`
-- `introspection/mod.rs`: `computer`, `isstr`, `license`, `methods`, `properties`, `ver`
+- `introspection/mod.rs`: `computer`, `isstr`, `license`, `methods`, `properties`, `ver`, `isprop` (spec 046)
 - `io/repl_fs/mod.rs`: `isdir`
 - `logical/tests/mod.rs`: `isstruct`
 - `math/elementwise/mod.rs`: `psi`
@@ -86,7 +86,11 @@ Clean-room builtins added after the merges that live under hand-written
 parents (no regeneration risk): `svds` (`math/linalg/factor/mod.rs`),
 `incidence`/`isisomorphic` (`graph/domain/mod.rs` → `structure.rs`),
 `spy`/`exportgraphics` (`plotting/ops/mod.rs`, via `#[path]`), and
-`addvars`/`removevars`/`movevars`/`outerjoin` (`table/builtins.rs`).
+`addvars`/`removevars`/`movevars`/`outerjoin`/`stack`/`innerjoin` (`table/builtins.rs`),
+`amd`/`etree`/`symbfact` (`math/sparse/mod.rs`), `balance`
+(`math/linalg/factor/mod.rs`), `rmnode`/`addedge`/`rmedge`/`laplacian`
+(`graph/domain/mod.rs` → `editing.rs`), `regexptranslate` (`strings/regex/mod.rs`)
+and `dec2base`/`validatestring` (`strings/core/mod.rs`).
 
 Re-add these lines whenever upstream regenerates those files. CI does not currently verify
 generated products, so the hand-added lines don't fail the build.
