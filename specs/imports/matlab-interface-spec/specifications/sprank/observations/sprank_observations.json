@@ -1,0 +1,209 @@
+{
+  "schema_version": "1.0",
+  "function_name": "sprank",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/sprank/test_sprank_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "identity",
+      "description": "sparse identity",
+      "call": "sprank(speye(3))",
+      "errored": false,
+      "result": {
+        "value": "3",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cancelling",
+      "description": "all-ones 2x2 (structural rank vs rank)",
+      "call": "A = sparse([1 1; 1 1]); [sprank(A) rank(full(A))]",
+      "errored": false,
+      "result": {
+        "value": "[2 1]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero-row",
+      "description": "a zero row",
+      "call": "sprank(sparse([1 0 0; 0 0 0; 0 0 1]))",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matching-limited",
+      "description": "two columns share one row, so the matching is limited",
+      "call": "sprank(sparse([1 1 0; 0 0 1; 0 0 1]))",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "wide",
+      "description": "2x3",
+      "call": "sprank(sparse([1 1 0; 0 1 1]))",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "tall",
+      "description": "4x2",
+      "call": "sprank(sparse([1 0; 1 0; 1 0; 0 1]))",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero-matrix",
+      "description": "all-zero sparse",
+      "call": "sprank(sparse(3, 3))",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "0x0 sparse",
+      "call": "sprank(sparse(0, 0))",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense",
+      "description": "full (non-sparse) input",
+      "call": "sprank([1 0; 0 1])",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "logical",
+      "description": "sparse logical",
+      "call": "sprank(sparse(logical(eye(2))))",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex",
+      "description": "sparse complex",
+      "call": "sprank(sparse(1i * eye(2)))",
+      "errored": false,
+      "result": {
+        "value": "2",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-char",
+      "description": "char input",
+      "call": "sprank('ab')",
+      "errored": true,
+      "error_identifier": "MATLAB:math:mustBeFloatOrLogical"
+    },
+    {
+      "case_id": "err-cell",
+      "description": "cell input",
+      "call": "sprank({1})",
+      "errored": true,
+      "error_identifier": "MATLAB:math:mustBeFloatOrLogical"
+    },
+    {
+      "case_id": "err-no-arg",
+      "description": "no arguments",
+      "call": "sprank()",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

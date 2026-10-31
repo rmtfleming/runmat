@@ -1,0 +1,268 @@
+{
+  "schema_version": "1.0",
+  "function_name": "reordernodes",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/reordernodes/test_reordernodes_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "met-graph-before",
+      "description": "reference: node table and end nodes of the test digraph",
+      "call": "G = digraph([0 1 0; 0 0 1; 1 0 0], table({'m1';'m2';'m1'}, [1;2;3], 'VariableNames', {'Met','Atom'})); report G.Nodes, G.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'m1'",
+                  "'m2'",
+                  "'m1'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": "[1;2;3]"
+              }
+            ]
+          },
+          "endnodes": "[1 2;2 3;3 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "met-graph",
+      "description": "digraph with node variables Met and Atom, order [3 1 2] (COBRA form)",
+      "call": "H = reordernodes(G, [3 1 2]) for G as in met-graph-before; report H.Nodes, H.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'m1'",
+                  "'m1'",
+                  "'m2'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": "[3;1;2]"
+              }
+            ]
+          },
+          "endnodes": "[1 2;2 3;3 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "idx-out",
+      "description": "second output for the same call",
+      "call": "[H, idx] = reordernodes(G, [3 1 2]) for G as in met-graph-before; report idx",
+      "errored": false,
+      "result": {
+        "value": "[3;1;2]",
+        "class": "double",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "weighted",
+      "description": "weighted digraph, order [2 3 1]",
+      "call": "[H, idx] = reordernodes(digraph([1 2], [2 3], [7 9]), [2 3 1]); report H.Edges.EndNodes, H.Edges.Weight, idx",
+      "errored": false,
+      "result": {
+        "value": {
+          "endnodes": "[1 2;3 1]",
+          "weight": "[9;7]",
+          "idx": "[2;1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "undirected",
+      "description": "undirected graph, order [3 2 1]",
+      "call": "H = reordernodes(graph([1 2], [2 3]), [3 2 1]); report H.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "nodes": {
+            "variable_names": [],
+            "variables": []
+          },
+          "endnodes": "[1 2;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names",
+      "description": "named nodes, order given as names",
+      "call": "H = reordernodes(digraph({'a','b'}, {'b','c'}), {'c','a','b'}); report H.Nodes, H.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "nodes": {
+            "variable_names": [
+              "Name"
+            ],
+            "variables": [
+              {
+                "name": "Name",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'c'",
+                  "'a'",
+                  "'b'"
+                ]
+              }
+            ]
+          },
+          "endnodes": [
+            "'a'",
+            "'b'",
+            "'b'",
+            "'c'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "identity",
+      "description": "identity order",
+      "call": "H = reordernodes(digraph([1 2], [2 3]), [1 2 3]); report H.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "nodes": {
+            "variable_names": [],
+            "variables": []
+          },
+          "endnodes": "[1 2;2 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "class",
+      "description": "class of the output",
+      "call": "class(reordernodes(digraph([1 2], [2 3]), [3 2 1]))",
+      "errored": false,
+      "result": {
+        "value": "'digraph'",
+        "class": "char",
+        "size": [
+          1,
+          7
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-repeat",
+      "description": "order with a repeated node",
+      "call": "reordernodes(digraph([1 2], [2 3]), [1 1 2])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:reordernodes:InvalidOrder"
+    },
+    {
+      "case_id": "err-short",
+      "description": "order shorter than the node count",
+      "call": "reordernodes(digraph([1 2], [2 3]), [2 1])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:reordernodes:InvalidOrder"
+    },
+    {
+      "case_id": "err-range",
+      "description": "order containing an index beyond the node count",
+      "call": "reordernodes(digraph([1 2], [2 3]), [1 2 4])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:digraph:InvalidNodeID"
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+{
+  "schema_version": "1.0",
+  "function_name": "sprandn",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/sprandn/test_sprandn_interface.m",
+  "date": "2026-10-30",
+  "notes": "Random values are not recorded; each probe seeds rng(7) twice and reports structure, nonzero count and repeatability. Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "cobra-5x6",
+      "description": "sprandn(5, 6, 0.6) (COBRA form)",
+      "call": "rng(7); A = sprandn(5, 6, 0.6); report class, size, issparse, isreal, nnz, finiteness, sign mix, repeatability",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[5 6]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "14",
+          "all_finite": "true",
+          "has_negative": "true",
+          "has_positive": "true",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-30x30",
+      "description": "sprandn(30, 30, 0.3) (COBRA form)",
+      "call": "rng(7); A = sprandn(30, 30, 0.3); report as cobra-5x6",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[30 30]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "229",
+          "all_finite": "true",
+          "has_negative": "true",
+          "has_positive": "true",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "density-zero",
+      "description": "density 0",
+      "call": "sprandn(4, 5, 0); report as cobra-5x6",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[4 5]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "0",
+          "all_finite": "true",
+          "has_negative": "false",
+          "has_positive": "false",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "density-one",
+      "description": "density 1",
+      "call": "sprandn(4, 5, 1); report as cobra-5x6",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[4 5]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "11",
+          "all_finite": "true",
+          "has_negative": "true",
+          "has_positive": "true",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-dims",
+      "description": "zero rows",
+      "call": "sprandn(0, 3, 0.5); report as cobra-5x6",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[0 3]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "0",
+          "all_finite": "true",
+          "has_negative": "false",
+          "has_positive": "false",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pattern",
+      "description": "pattern form sprandn(S)",
+      "call": "S = sparse([1 3], [2 1], [5 6], 3, 3); R = sprandn(S); report class, size, isequal(spones(R), spones(S))",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[3 3]",
+          "issparse": "true",
+          "same_pattern": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rc",
+      "description": "four arguments with reciprocal condition 0.1",
+      "call": "rng(7); R = sprandn(4, 4, 0.5, 0.1); report class, size, issparse, cond(full(R))",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[4 4]",
+          "issparse": "true",
+          "cond": "10"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "density-above-one",
+      "description": "density 1.5",
+      "call": "sprandn(3, 3, 1.5); report as cobra-5x6",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[3 3]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "7",
+          "all_finite": "true",
+          "has_negative": "true",
+          "has_positive": "true",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "density-negative",
+      "description": "density -0.1",
+      "call": "sprandn(3, 3, -0.1); report as cobra-5x6",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'double'",
+          "size": "[3 3]",
+          "issparse": "true",
+          "isreal": "true",
+          "nnz": "0",
+          "all_finite": "true",
+          "has_negative": "false",
+          "has_positive": "false",
+          "repeatable": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-noninteger",
+      "description": "non-integer row count",
+      "call": "sprandn(2.5, 3, 0.5)",
+      "errored": true,
+      "error_identifier": "MATLAB:RandStream:randi:invalidLimits"
+    },
+    {
+      "case_id": "err-two-args",
+      "description": "m and n only",
+      "call": "sprandn(3, 3)",
+      "errored": true,
+      "error_identifier": "MATLAB:sprandn:TwoInputs"
+    }
+  ]
+}

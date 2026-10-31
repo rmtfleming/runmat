@@ -1,0 +1,147 @@
+# Provenance for rectangle (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: rectangle
+claims:
+- claim_id: rectangle.signature-primary
+  statement: The invocation form `h = rectangle()` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: default
+- claim_id: rectangle.defaults
+  statement: The default object is a matlab.graphics.primitive.Rectangle with Position [0 0 1 1], Curvature
+    [0 0], FaceColor 'none', LineWidth 0.5 and LineStyle '-'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: default
+- claim_id: rectangle.cobra-form
+  statement: The COBRA call rectangle('Position', [0, 0, 40, 0.1], 'EdgeColor', 'black', 'LineWidth',
+    2, 'LineStyle', '-.') gives Position [0 0 40 0.1], EdgeColor [0 0 0], LineWidth 2 and LineStyle '-.',
+    and in fresh axes the limits became x [0 40], y [0 0.1].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: cobra-form
+  - file: observations/rectangle_observations.json
+    case_id: cobra-limits
+- claim_id: rectangle.curvature
+  statement: 'Curvature is stored as given: scalar 1 stays 1, [0.5 0.2] stays [0.5 0.2].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: curvature-scalar
+  - file: observations/rectangle_observations.json
+    case_id: curvature-pair
+- claim_id: rectangle.colors
+  statement: FaceColor 'r' is stored as [1 0 0].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: face-color
+- claim_id: rectangle.parent
+  statement: Without an output, one Rectangle is added to the current axes; with an axes first argument
+    it is drawn into that axes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: no-output
+  - file: observations/rectangle_observations.json
+    case_id: ax-arg
+- claim_id: rectangle.default-edge-color
+  statement: 'Observed: the default EdgeColor on R2026a was [0.1294 0.1294 0.1294].'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: default
+- claim_id: rectangle.default-edge-color-dependence
+  statement: 'Inference (not observed): the default EdgeColor may depend on the graphics theme and release.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: default
+- claim_id: rectangle.error-negative-width
+  statement: Position has a negative width. The call errors with identifier MATLAB:hg:set_chck:DimensionsOutsideRange.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: err-negative-width
+- claim_id: rectangle.error-position-length
+  statement: Position does not have 4 elements. The call errors with identifier MATLAB:hg:dt_conv:Matrix_to_matlabRect:Expected4ElementVector.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: err-position-length
+- claim_id: rectangle.error-curvature-range
+  statement: A Curvature value is above 1. The call errors with identifier MATLAB:hg:shaped_arrays:CurvatureRange.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: err-curvature-range
+- claim_id: rectangle.error-bad-property
+  statement: A name is not a property. The call errors with identifier MATLAB:hg:InvalidProperty.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/rectangle_observations.json
+    case_id: err-bad-property

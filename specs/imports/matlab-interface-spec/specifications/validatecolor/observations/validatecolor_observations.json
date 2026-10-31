@@ -1,0 +1,285 @@
+{
+  "schema_version": "1.0",
+  "function_name": "validatecolor",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/validatecolor/test_validatecolor_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "short-r",
+      "description": "short name 'r' (COBRA default)",
+      "call": "validatecolor('r')",
+      "errored": false,
+      "result": {
+        "value": "[1 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-any",
+      "description": "any(validatecolor('r')) as COBRA uses it",
+      "call": "any(validatecolor('r'))",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "long-red",
+      "description": "long name 'red'",
+      "call": "validatecolor('red')",
+      "errored": false,
+      "result": {
+        "value": "[1 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-blue",
+      "description": "string \"blue\"",
+      "call": "validatecolor(\"blue\")",
+      "errored": false,
+      "result": {
+        "value": "[0 0 1]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mixed-case",
+      "description": "mixed case 'Green'",
+      "call": "validatecolor('Green')",
+      "errored": false,
+      "result": {
+        "value": "[0 1 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "short-k",
+      "description": "short name 'k'",
+      "call": "validatecolor('k')",
+      "errored": false,
+      "result": {
+        "value": "[0 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "triplet-double",
+      "description": "double triplet",
+      "call": "validatecolor([0.2 0.4 0.6])",
+      "errored": false,
+      "result": {
+        "value": "[0.20000000000000001 0.40000000000000002 0.59999999999999998]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "triplet-single",
+      "description": "single triplet",
+      "call": "validatecolor(single([0.5 0.25 1]))",
+      "errored": false,
+      "result": {
+        "value": "[0.5 0.25 1]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "triplet-uint8",
+      "description": "uint8 triplet",
+      "call": "validatecolor(uint8([255 128 0]))",
+      "errored": false,
+      "result": {
+        "value": "[1 0.50196078431372548 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "hex-6",
+      "description": "six-digit hexadecimal",
+      "call": "validatecolor('#FF8000')",
+      "errored": false,
+      "result": {
+        "value": "[1 0.50196078431372548 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "hex-3",
+      "description": "three-digit hexadecimal",
+      "call": "validatecolor('#f80')",
+      "errored": false,
+      "result": {
+        "value": "[1 0.53333333333333333 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multiple-names",
+      "description": "two names with 'multiple'",
+      "call": "validatecolor({'r','b'}, 'multiple')",
+      "errored": false,
+      "result": {
+        "value": "[1 0 0;0 0 1]",
+        "class": "double",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multiple-matrix",
+      "description": "2x3 matrix with 'multiple'",
+      "call": "validatecolor([1 0 0; 0 1 0], 'multiple')",
+      "errored": false,
+      "result": {
+        "value": "[1 0 0;0 1 0]",
+        "class": "double",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-option",
+      "description": "'r' with 'one'",
+      "call": "validatecolor('r', 'one')",
+      "errored": false,
+      "result": {
+        "value": "[1 0 0]",
+        "class": "double",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-matrix-without-multiple",
+      "description": "2x3 matrix without 'multiple'",
+      "call": "validatecolor([1 0 0; 0 1 0])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphics:validatecolor:MultipleColors"
+    },
+    {
+      "case_id": "err-unknown-name",
+      "description": "unknown name",
+      "call": "validatecolor('notacolour')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphics:validatecolor:InvalidColorString"
+    },
+    {
+      "case_id": "err-out-of-range",
+      "description": "double triplet with a component above 1",
+      "call": "validatecolor([2 0 0])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphics:validatecolor:OutOfRange"
+    },
+    {
+      "case_id": "err-two-components",
+      "description": "two-element vector",
+      "call": "validatecolor([1 0])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphics:validatecolor:InvalidTripletShape"
+    },
+    {
+      "case_id": "err-none",
+      "description": "'none'",
+      "call": "validatecolor('none')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphics:validatecolor:InvalidColorString"
+    },
+    {
+      "case_id": "err-scalar",
+      "description": "numeric scalar",
+      "call": "validatecolor(5)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphics:validatecolor:InvalidTripletShape"
+    },
+    {
+      "case_id": "err-bad-option",
+      "description": "unknown second argument",
+      "call": "validatecolor('r', 'several')",
+      "errored": true,
+      "error_identifier": "MATLAB:unrecognizedStringChoice"
+    }
+  ]
+}

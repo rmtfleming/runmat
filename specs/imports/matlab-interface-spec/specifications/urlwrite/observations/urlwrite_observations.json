@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.0",
+  "function_name": "urlwrite",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/urlwrite/test_urlwrite_interface.m",
+  "date": "2026-10-30",
+  "notes": "Only local file:// URLs to temporary files were used; no network URL was contacted. Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "file-url",
+      "description": "readable file:// URL, one output (COBRA form)",
+      "call": "f = urlwrite(['file://' src], dst); report class(f), strcmp(f, dst), fileread(dst), lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "class_f": "'char'",
+          "f_is_dst": "true",
+          "f_is_empty": "false",
+          "status": "[]",
+          "class_status": "'double'",
+          "dst_exists": "true",
+          "contents": "'abc 123'",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "file-url-status",
+      "description": "readable file:// URL, two outputs",
+      "call": "[f, status] = urlwrite(['file://' src], dst); report as file-url plus status",
+      "errored": false,
+      "result": {
+        "value": {
+          "class_f": "'char'",
+          "f_is_dst": "true",
+          "f_is_empty": "false",
+          "status": "1",
+          "class_status": "'double'",
+          "dst_exists": "true",
+          "contents": "'abc 123'",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "missing-two-out",
+      "description": "file:// URL to a missing file, two outputs",
+      "call": "[f, status] = urlwrite(['file://' missing], dst); report class and value of f and status, and whether dst exists",
+      "errored": false,
+      "result": {
+        "value": {
+          "class_f": "'char'",
+          "f_is_dst": "false",
+          "f_is_empty": "true",
+          "status": "0",
+          "class_status": "'double'",
+          "dst_exists": "false",
+          "contents": "''",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-missing-one-out",
+      "description": "file:// URL to a missing file, one output",
+      "call": "f = urlwrite(['file://' missing], dst)",
+      "errored": true,
+      "error_identifier": "MATLAB:urlwrite:FileNotFound"
+    },
+    {
+      "case_id": "err-bad-dir",
+      "description": "destination in a folder that does not exist, one output",
+      "call": "f = urlwrite(['file://' src], fullfile(tempname, 'x.txt'))",
+      "errored": true,
+      "error_identifier": "MATLAB:urlwrite:InvalidOutputLocation"
+    },
+    {
+      "case_id": "err-bad-dir-two-out",
+      "description": "destination in a folder that does not exist, two outputs",
+      "call": "[f, status] = urlwrite(['file://' src], fullfile(tempname, 'x.txt'))",
+      "errored": true,
+      "error_identifier": "MATLAB:urlwrite:InvalidOutputLocation"
+    },
+    {
+      "case_id": "err-protocol",
+      "description": "unknown protocol, one output",
+      "call": "urlwrite('nosuchprotocol://x', dst)",
+      "errored": true,
+      "error_identifier": "MATLAB:urlwrite:InvalidUrl"
+    },
+    {
+      "case_id": "protocol-two-out",
+      "description": "unknown protocol, two outputs",
+      "call": "[f, status] = urlwrite('nosuchprotocol://x', dst)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class_f": "'char'",
+          "f_is_empty": "true",
+          "status": "0",
+          "dst_exists": "false"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-one-arg",
+      "description": "URL only",
+      "call": "urlwrite('file:///tmp')",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

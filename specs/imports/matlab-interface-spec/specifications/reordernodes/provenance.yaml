@@ -1,0 +1,117 @@
+# Provenance for reordernodes (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: reordernodes
+claims:
+- claim_id: reordernodes.signature-primary
+  statement: The invocation form `H = reordernodes(G, order)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph
+- claim_id: reordernodes.nodes
+  statement: 'Node k of H is node order(k) of G: with node variables Met and Atom and order [3 1 2], H.Nodes
+    became Met {''m1'',''m1'',''m2''}, Atom [3; 1; 2], keeping the variable names and classes (COBRA form).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph-before
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph
+- claim_id: reordernodes.edges
+  statement: 'Edges follow their end nodes, renumbered, and H.Edges is listed in ascending order of end
+    nodes: for the cycle 1->2->3->1 and order [3 1 2] the end nodes stayed [1 2; 2 3; 3 1] and idx was
+    [3; 1; 2].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph
+  - file: observations/reordernodes_observations.json
+    case_id: idx-out
+- claim_id: reordernodes.weights
+  statement: 'Weights move with their edges: digraph([1 2], [2 3], [7 9]) with order [2 3 1] gave end
+    nodes [1 2; 3 1], Weight [9; 7] and idx [2; 1].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: weighted
+- claim_id: reordernodes.undirected
+  statement: An undirected graph([1 2], [2 3]) with order [3 2 1] gave end nodes [1 2; 2 3].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: undirected
+- claim_id: reordernodes.names
+  statement: order given as node names {'c','a','b'} reorders the Name variable to {'c';'a';'b'}; end
+    nodes were reported by name.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: names
+- claim_id: reordernodes.identity
+  statement: The identity order leaves the edges unchanged, and the output class is that of G (digraph).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: identity
+  - file: observations/reordernodes_observations.json
+    case_id: class
+- claim_id: reordernodes.error-repeat
+  statement: order repeats a node or omits nodes. The call errors with identifier MATLAB:graphfun:reordernodes:InvalidOrder.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: err-repeat
+  - file: observations/reordernodes_observations.json
+    case_id: err-short
+- claim_id: reordernodes.error-range
+  statement: order contains an index beyond the node count. The call errors with identifier MATLAB:graphfun:digraph:InvalidNodeID.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/reordernodes_observations.json
+    case_id: err-range

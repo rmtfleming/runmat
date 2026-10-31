@@ -1,0 +1,154 @@
+# Interface specification for fscanf (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: fscanf
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Read formatted data from an open text file: %c and %s give a char row, numeric conversions give
+  a double column (or the requested size), and a second output counts the successful conversions.'
+invocation_forms:
+- signature: A = fscanf(fid, format)
+  description: Read the whole file with format (COBRA forms '%c' and '%s').
+  status: confirmed
+- signature: A = fscanf(fid, format, sz)
+  description: Read at most the given size (scalar n or [m Inf]).
+  status: confirmed
+- signature: '[A, count] = fscanf(fid, format, ...)'
+  description: Also return the number of successful conversions.
+  status: confirmed
+inputs:
+- name: fid
+  position: 1
+  required: true
+  description: File identifier from fopen.
+  status: confirmed
+- name: format
+  position: 2
+  required: true
+  description: Format text with conversions such as %c, %s, %d, %f, %x and literals.
+  status: confirmed
+- name: sz
+  position: 3
+  required: false
+  description: Scalar count or [m Inf].
+  status: confirmed
+outputs:
+- name: A
+  description: char row for %c/%s formats; double otherwise.
+  status: confirmed
+- name: count
+  description: Number of successful conversions (double).
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: fscanf.c-rule
+  statement: '''%c'' returns every character, including spaces and newlines, as a 1-by-n char row; count
+    is n (7 for ''ab c'' newline ''de'', 3 for ''xy'' newline).'
+  status: confirmed
+  normative: true
+  provenance: fscanf.c
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: c-all
+  - file: observations/fscanf_observations.json
+    case_id: c-trailing-newline
+- id: fscanf.s-rule
+  statement: '''%s'' skips whitespace and concatenates the words into one char row (''abcde''); count
+    is the number of words (3 for the c-all text, which includes the separate word ''c'').'
+  status: confirmed
+  normative: true
+  provenance: fscanf.s
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: s-skip
+- id: fscanf.numeric-rule
+  statement: '%d, %f and %x return a double column vector ([1;2;3]; [1.5;-2;300]; ''1f a'' gave [31;10]);
+    %f read across a line break.'
+  status: confirmed
+  normative: true
+  provenance: fscanf.numeric
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: d-ints
+  - file: observations/fscanf_observations.json
+    case_id: f-reals
+  - file: observations/fscanf_observations.json
+    case_id: hex
+- id: fscanf.size-rule
+  statement: A size [2 Inf] fills a 2-row matrix column by column ([1 3 5; 2 4 6]); a scalar size n reads
+    at most n values.
+  status: confirmed
+  normative: true
+  provenance: fscanf.size
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: size-matrix
+  - file: observations/fscanf_observations.json
+    case_id: size-scalar
+- id: fscanf.literal-stop-rule
+  statement: Literal text in the format is matched ('%d,' on '1,2,3' gave [1;2;3]); reading stops at the
+    first failed conversion ('4 5 x 6' gave [4;5], count 2; 'abc' gave a 0x0 double, count 0).
+  status: confirmed
+  normative: true
+  provenance: fscanf.literal-stop
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: literal
+  - file: observations/fscanf_observations.json
+    case_id: partial
+  - file: observations/fscanf_observations.json
+    case_id: mismatch
+- id: fscanf.empty-rule
+  statement: An empty file gives 0x0 char for '%c' and 0x0 double for '%d', with count 0.
+  status: confirmed
+  normative: true
+  provenance: fscanf.empty
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: empty-c
+  - file: observations/fscanf_observations.json
+    case_id: empty-d
+numerical_edge_cases:
+- id: fscanf.mixed-rule
+  statement: Mixed numeric and %s conversions return a double column holding the character codes of the
+    text ('%d%s' on '7 ab' gave [7; 97; 98], count 2).
+  status: confirmed
+  normative: true
+  provenance: fscanf.mixed
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: mixed-d-s
+warnings: []
+errors:
+- condition: The identifier is not an open file (-1).
+  identifier: MATLAB:FileIO:InvalidFid
+  status: confirmed
+  provenance: fscanf.error-bad-fid
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: err-bad-fid
+- condition: No format is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: fscanf.error-no-format
+  observations:
+  - file: observations/fscanf_observations.json
+    case_id: err-no-format
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/fscanf_observations.json
+  description: 16 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: fscanf.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: fscanf.q-mixed
+  question: Whether the character-code result for mixed numeric and %s conversions must be reproduced
+    is a human-review question (constitution 8.2).
+- id: fscanf.q-encoding
+  question: Only ASCII text was exercised; non-ASCII content and the encoding argument of fopen were not
+    observed.

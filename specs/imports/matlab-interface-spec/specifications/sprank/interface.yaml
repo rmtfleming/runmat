@@ -1,0 +1,118 @@
+# Interface specification for sprank (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: sprank
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the structural rank of a matrix, which depends only on its nonzero pattern; all observed
+  values equal the largest number of nonzeros with no two in the same row or column.
+invocation_forms:
+- signature: r = sprank(A)
+  description: Structural rank (COBRA form, A sparse).
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: 'Matrix: sparse or full double, sparse logical and sparse complex were accepted; char and
+    cell were rejected; integer and single were not exercised.'
+  status: confirmed
+outputs:
+- name: r
+  description: Double scalar.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: sprank.structural-rule
+  statement: 'Only the nonzero pattern counts: the all-ones 2x2 matrix has sprank 2 while its rank is
+    1.'
+  status: confirmed
+  normative: true
+  provenance: sprank.structural
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: cancelling
+- id: sprank.matching-rule
+  statement: sprank(speye(3)) = 3; a zero row reduced it to 2; [1 1 0; 0 0 1; 0 0 1] gave 2; the 2x3 [1
+    1 0; 0 1 1] and the 4x2 [1 0; 1 0; 1 0; 0 1] each gave 2.
+  status: confirmed
+  normative: true
+  provenance: sprank.matching
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: identity
+  - file: observations/sprank_observations.json
+    case_id: zero-row
+  - file: observations/sprank_observations.json
+    case_id: matching-limited
+  - file: observations/sprank_observations.json
+    case_id: wide
+  - file: observations/sprank_observations.json
+    case_id: tall
+- id: sprank.zero-empty-rule
+  statement: An all-zero sparse matrix and a 0x0 sparse matrix gave 0.
+  status: confirmed
+  normative: true
+  provenance: sprank.zero-empty
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: zero-matrix
+  - file: observations/sprank_observations.json
+    case_id: empty
+- id: sprank.inputs-rule
+  statement: Full, sparse logical and sparse complex inputs are accepted and give the structural rank
+    (2 for each 2x2 diagonal case).
+  status: confirmed
+  normative: true
+  provenance: sprank.inputs
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: dense
+  - file: observations/sprank_observations.json
+    case_id: logical
+  - file: observations/sprank_observations.json
+    case_id: complex
+- id: sprank.class-rule
+  statement: The result is a double scalar.
+  status: confirmed
+  normative: true
+  provenance: sprank.class
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: identity
+  - file: observations/sprank_observations.json
+    case_id: dense
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A is char or a cell array.
+  identifier: MATLAB:math:mustBeFloatOrLogical
+  status: confirmed
+  provenance: sprank.error-char
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: err-char
+  - file: observations/sprank_observations.json
+    case_id: err-cell
+- condition: No input is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: sprank.error-no-arg
+  observations:
+  - file: observations/sprank_observations.json
+    case_id: err-no-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/sprank_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: sprank.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: sprank.q-error-ids
+  question: The char/cell identifier is a generic validator identifier (MATLAB:math:mustBeFloatOrLogical);
+    whether an implementation must reproduce it is a human-review question (constitution 8.2).

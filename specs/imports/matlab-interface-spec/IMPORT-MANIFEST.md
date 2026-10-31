@@ -1,5 +1,24 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 14 — N5: 11 new COBRA-backlog specs — 2026-10-31
+
+- Eleven newly approved specifications (spec 0.2.0, `status: approved`):
+  `lsqminnorm`, `sprandn`, `sprank`, `outedges`, `reordernodes`, `rat`,
+  `fscanf`, `urlwrite`, `fplot`, `rectangle`, `validatecolor`. Imported for
+  implementation (maintainer: "then import N5 and implement it").
+- Approval record: source `docs/review/2026-10-30-n5-new-specs-human-loop.md`.
+  Open for review, so non-normative: the `lsqminnorm` tol rule (inferred
+  from one case); `urlwrite` http(s) (only `file://` observed); `sprandn`
+  values (structure only); `fplot`/`rectangle` default colours (theme);
+  `rat` complex input; `fscanf` mixed numeric and `%s`; error identifiers
+  that name other functions. Observed on GLNXA64/R2026a only. No earlier
+  import was revised.
+- Revision: committed source **`1c91aa1c9bda12a34792d49dff22727d9fcbcc20`**
+  (on `origin/main`), read with `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (44 new lines, none changed).
+
+---
+
 ## Batch 13 — N4: 14 new COBRA-backlog specs — 2026-10-30
 
 - Fourteen newly approved specifications (spec 0.2.0, `status: approved`):

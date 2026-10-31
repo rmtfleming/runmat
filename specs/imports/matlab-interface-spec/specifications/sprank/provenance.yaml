@@ -1,0 +1,114 @@
+# Provenance for sprank (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: sprank
+claims:
+- claim_id: sprank.signature-primary
+  statement: The invocation form `r = sprank(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: identity
+- claim_id: sprank.structural
+  statement: 'Only the nonzero pattern counts: the all-ones 2x2 matrix has sprank 2 while its rank is
+    1.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: cancelling
+- claim_id: sprank.matching
+  statement: sprank(speye(3)) = 3; a zero row reduced it to 2; [1 1 0; 0 0 1; 0 0 1] gave 2; the 2x3 [1
+    1 0; 0 1 1] and the 4x2 [1 0; 1 0; 1 0; 0 1] each gave 2.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: identity
+  - file: observations/sprank_observations.json
+    case_id: zero-row
+  - file: observations/sprank_observations.json
+    case_id: matching-limited
+  - file: observations/sprank_observations.json
+    case_id: wide
+  - file: observations/sprank_observations.json
+    case_id: tall
+- claim_id: sprank.zero-empty
+  statement: An all-zero sparse matrix and a 0x0 sparse matrix gave 0.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: zero-matrix
+  - file: observations/sprank_observations.json
+    case_id: empty
+- claim_id: sprank.inputs
+  statement: Full, sparse logical and sparse complex inputs are accepted and give the structural rank
+    (2 for each 2x2 diagonal case).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: dense
+  - file: observations/sprank_observations.json
+    case_id: logical
+  - file: observations/sprank_observations.json
+    case_id: complex
+- claim_id: sprank.class
+  statement: The result is a double scalar.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: identity
+  - file: observations/sprank_observations.json
+    case_id: dense
+- claim_id: sprank.error-char
+  statement: A is char or a cell array. The call errors with identifier MATLAB:math:mustBeFloatOrLogical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: err-char
+  - file: observations/sprank_observations.json
+    case_id: err-cell
+- claim_id: sprank.error-no-arg
+  statement: No input is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprank_observations.json
+    case_id: err-no-arg

@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "function_name": "outedges",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/outedges/test_outedges_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "edge-table",
+      "description": "edge table of the test digraph, for reference",
+      "call": "G = digraph([1 1 2 3], [3 2 3 1]); G.Edges.EndNodes",
+      "errored": false,
+      "result": {
+        "value": "[1 2;1 3;2 3;3 1]",
+        "class": "double",
+        "size": [
+          4,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-out",
+      "description": "[eid, nid] for node 1 (COBRA form)",
+      "call": "[eid, nid] = outedges(digraph([1 1 2 3], [3 2 3 1]), 1)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[2;3]",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[2 1]",
+          "size_nid": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-out",
+      "description": "single output",
+      "call": "eid = outedges(digraph([1 1 2 3], [3 2 3 1]), 3)",
+      "errored": false,
+      "result": {
+        "value": "4",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-out",
+      "description": "a node with no out-edges",
+      "call": "[eid, nid] = outedges(digraph([1 2], [2 3]), 3)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "zeros(0,1)",
+          "nid": "zeros(0,1)",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[0 1]",
+          "size_nid": "[0 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "isolated",
+      "description": "a node with no edges at all",
+      "call": "[eid, nid] = outedges(digraph([1 2], [2 1], [], 4), 4)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "zeros(0,1)",
+          "nid": "zeros(0,1)",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[0 1]",
+          "size_nid": "[0 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names-char",
+      "description": "named nodes, node given as char",
+      "call": "[eid, nid] = outedges(digraph({'a','a','b'}, {'b','c','c'}), 'a')",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": [
+            "'b'",
+            "'c'"
+          ],
+          "class_eid": "'double'",
+          "class_nid": "'cell'",
+          "size_eid": "[2 1]",
+          "size_nid": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names-string",
+      "description": "named nodes, node given as string",
+      "call": "[eid, nid] = outedges(digraph({'a','a','b'}, {'b','c','c'}), \"a\")",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[\"b\";\"c\"]",
+          "class_eid": "'double'",
+          "class_nid": "'string'",
+          "size_eid": "[2 1]",
+          "size_nid": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names-index",
+      "description": "named nodes, node given as an index",
+      "call": "[eid, nid] = outedges(digraph({'a','a','b'}, {'b','c','c'}), 1)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[2;3]",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[2 1]",
+          "size_nid": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multigraph",
+      "description": "two parallel edges 1->2",
+      "call": "[eid, nid] = outedges(digraph([1 1 1], [2 2 3]), 1)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2;3]",
+          "nid": "[2;2;3]",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[3 1]",
+          "size_nid": "[3 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "self-loop",
+      "description": "a self-loop on node 1",
+      "call": "[eid, nid] = outedges(digraph([1 1], [1 2]), 1)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[1;2]",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[2 1]",
+          "size_nid": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "undirected",
+      "description": "an undirected graph",
+      "call": "[eid, nid] = outedges(graph([1 2], [2 3]), 2)",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[1;3]",
+          "class_eid": "'double'",
+          "class_nid": "'double'",
+          "size_eid": "[2 1]",
+          "size_nid": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-range",
+      "description": "node index beyond the node count",
+      "call": "outedges(digraph([1 1 2 3], [3 2 3 1]), 5)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:digraph:InvalidNodeID"
+    },
+    {
+      "case_id": "err-vector",
+      "description": "two node indices",
+      "call": "outedges(digraph([1 1 2 3], [3 2 3 1]), [1 2])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graphbuiltin:InvalidNodeScalar"
+    },
+    {
+      "case_id": "err-unknown-name",
+      "description": "a name that is not a node",
+      "call": "outedges(digraph({'a'}, {'b'}), 'z')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:digraph:UnknownNodeName"
+    }
+  ]
+}

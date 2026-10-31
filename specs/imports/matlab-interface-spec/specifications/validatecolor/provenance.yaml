@@ -1,0 +1,156 @@
+# Provenance for validatecolor (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: validatecolor
+claims:
+- claim_id: validatecolor.signature-primary
+  statement: The invocation form `RGB = validatecolor(c)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: short-r
+- claim_id: validatecolor.cobra-form
+  statement: validatecolor('r') returned [1 0 0], so the COBRA validator any(validatecolor('r')) is true.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: short-r
+  - file: observations/validatecolor_observations.json
+    case_id: cobra-any
+- claim_id: validatecolor.names
+  statement: 'Names: ''r'' and ''red'' gave [1 0 0], "blue" (string) [0 0 1], ''Green'' (mixed case) [0
+    1 0], ''k'' [0 0 0].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: short-r
+  - file: observations/validatecolor_observations.json
+    case_id: long-red
+  - file: observations/validatecolor_observations.json
+    case_id: string-blue
+  - file: observations/validatecolor_observations.json
+    case_id: mixed-case
+  - file: observations/validatecolor_observations.json
+    case_id: short-k
+- claim_id: validatecolor.triplets
+  statement: double and single triplets in [0, 1] are returned as double unchanged; a uint8 triplet is
+    divided by 255 ([255 128 0] gave [1 0.50196 0]).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: triplet-double
+  - file: observations/validatecolor_observations.json
+    case_id: triplet-single
+  - file: observations/validatecolor_observations.json
+    case_id: triplet-uint8
+- claim_id: validatecolor.hex
+  statement: '''#FF8000'' gave [1 128/255 0]; the three-digit ''#f80'' gave [1 0.53333 0], where 0.53333
+    = 0x88/255.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: hex-6
+  - file: observations/validatecolor_observations.json
+    case_id: hex-3
+- claim_id: validatecolor.multiple
+  statement: With 'multiple', a cell of names or an m-by-3 matrix gives one row per colour ({'r','b'}
+    gave [1 0 0; 0 0 1]); 'one' with 'r' gave [1 0 0].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: multiple-names
+  - file: observations/validatecolor_observations.json
+    case_id: multiple-matrix
+  - file: observations/validatecolor_observations.json
+    case_id: one-option
+- claim_id: validatecolor.error-matrix-without-multiple
+  statement: An m-by-3 matrix with m > 1 is given without 'multiple'. The call errors with identifier
+    MATLAB:graphics:validatecolor:MultipleColors.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: err-matrix-without-multiple
+- claim_id: validatecolor.error-unknown-name
+  statement: The name is not a colour name ('notacolour', 'none'). The call errors with identifier MATLAB:graphics:validatecolor:InvalidColorString.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: err-unknown-name
+  - file: observations/validatecolor_observations.json
+    case_id: err-none
+- claim_id: validatecolor.error-out-of-range
+  statement: A double triplet component is above 1. The call errors with identifier MATLAB:graphics:validatecolor:OutOfRange.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: err-out-of-range
+- claim_id: validatecolor.error-two-components
+  statement: A numeric input is not a triplet (two elements, or a scalar). The call errors with identifier
+    MATLAB:graphics:validatecolor:InvalidTripletShape.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: err-two-components
+  - file: observations/validatecolor_observations.json
+    case_id: err-scalar
+- claim_id: validatecolor.error-bad-option
+  statement: The second argument is neither 'one' nor 'multiple'. The call errors with identifier MATLAB:unrecognizedStringChoice.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/validatecolor_observations.json
+    case_id: err-bad-option

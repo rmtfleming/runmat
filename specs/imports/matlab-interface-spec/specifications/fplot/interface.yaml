@@ -1,0 +1,178 @@
+# Interface specification for fplot (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: fplot
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Plot a function of x over an interval (default [-5 5]) as a FunctionLine object, applying line
+  properties given as a LineSpec or name-value pairs.
+invocation_forms:
+- signature: fplot(f, Name, Value, ...)
+  description: Plot with line properties, no output (COBRA form).
+  status: confirmed
+- signature: h = fplot(f)
+  description: Return the line object.
+  status: confirmed
+- signature: h = fplot(f, [xmin xmax])
+  description: Plot over an interval.
+  status: confirmed
+- signature: h = fplot(f, LineSpec)
+  description: Line style and colour as a LineSpec.
+  status: confirmed
+- signature: h = fplot(ax, f, ...)
+  description: Draw into the given axes.
+  status: confirmed
+inputs:
+- name: ax
+  position: 1
+  required: false
+  description: Axes to draw into.
+  status: confirmed
+- name: f
+  position: 1
+  required: true
+  description: Function handle of one variable (a numeric constant and a char expression were also accepted).
+  status: confirmed
+- name: interval
+  position: 2
+  required: false
+  description: Increasing two-element [xmin xmax].
+  status: confirmed
+name_value_arguments:
+- name: LineWidth
+  description: Line width (1.5 observed).
+  status: confirmed
+- name: Color
+  description: Line colour ('r' observed, stored as [1 0 0]).
+  status: confirmed
+outputs:
+- name: h
+  description: matlab.graphics.function.FunctionLine object in the current (or given) axes.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: fplot.object-rule
+  statement: The returned object is a matlab.graphics.function.FunctionLine whose parent is the current
+    axes, plotted at more than two points.
+  status: confirmed
+  normative: true
+  provenance: fplot.object
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: default
+- id: fplot.default-interval-rule
+  statement: Without an interval, XData spans [-5, 5] and the x-axis limits are [-5 5].
+  status: confirmed
+  normative: true
+  provenance: fplot.default-interval
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: default
+  - file: observations/fplot_observations.json
+    case_id: xlim-default
+- id: fplot.interval-rule
+  statement: With [0 2], XData spans [0, 2], and YData equals f(XData) exactly for @(x) x.^2.
+  status: confirmed
+  normative: true
+  provenance: fplot.interval
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: interval
+  - file: observations/fplot_observations.json
+    case_id: values
+- id: fplot.cobra-form-rule
+  statement: For the COBRA call fplot(@(x) x, 'LineWidth', 1.5, 'Color', 'r'), the returned FunctionLine
+    has LineWidth 1.5 and Color [1 0 0] and its parent is the current axes; without an output, the axes
+    contain one FunctionLine with those values.
+  status: confirmed
+  normative: true
+  provenance: fplot.cobra-form
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: cobra-nv
+  - file: observations/fplot_observations.json
+    case_id: cobra-no-output
+- id: fplot.linespec-rule
+  statement: LineSpec 'r--' gave Color [1 0 0] and LineStyle '--'; the default LineWidth is 0.5 and LineStyle
+    '-'.
+  status: confirmed
+  normative: true
+  provenance: fplot.linespec
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: linespec
+  - file: observations/fplot_observations.json
+    case_id: default
+- id: fplot.ax-rule
+  statement: With an axes first argument, the line is drawn into that axes.
+  status: confirmed
+  normative: true
+  provenance: fplot.ax
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: ax-arg
+numerical_edge_cases:
+- id: fplot.numeric-rule
+  statement: A numeric first argument (5) did not error; it was plotted over [-5 5] like a function.
+  status: confirmed
+  normative: false
+  provenance: fplot.numeric
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: numeric-constant
+- id: fplot.default-color-rule
+  statement: 'Observed: the default Color on R2026a was [0.066 0.443 0.745].'
+  status: confirmed
+  normative: false
+  provenance: fplot.default-color
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: default
+- id: fplot.default-color-dependence-rule
+  statement: 'Inference (not observed): the default Color may depend on the graphics theme and release.'
+  status: unresolved
+  normative: false
+  provenance: fplot.default-color-dependence
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: default
+warnings:
+- condition: f is a char expression ('sin(x)'); the plot is still drawn.
+  identifier: MATLAB:fplot:StringFunctionsDeprecated
+  status: confirmed
+  provenance: fplot.warning-char-fn
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: char-fn
+errors:
+- condition: The interval is decreasing ([2 1]).
+  identifier: MATLAB:fplot:RangeVector
+  status: confirmed
+  provenance: fplot.error-decreasing
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: err-decreasing
+- condition: A name-value name is not a property.
+  identifier: MATLAB:fplot:InvalidParameter
+  status: confirmed
+  provenance: fplot.error-bad-property
+  observations:
+  - file: observations/fplot_observations.json
+    case_id: err-bad-property
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/fplot_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: fplot.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: fplot.q-theme
+  question: The graphics theme active during the run was not recorded; default colours and the default
+    LineWidth may depend on it and on the release (constitution 8.2).
+- id: fplot.q-points
+  question: The number and placement of evaluation points were not recorded and are not specified.

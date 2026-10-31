@@ -1,0 +1,177 @@
+# Interface specification for lsqminnorm (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: lsqminnorm
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a least-squares solution x of A*x = b with the smallest norm; for the observed systems
+  it agreed with pinv(A)*b.
+invocation_forms:
+- signature: x = lsqminnorm(A, b)
+  description: Minimum-norm least-squares solution (COBRA form, with A = S').
+  status: confirmed
+- signature: x = lsqminnorm(A, b, tol)
+  description: With a tolerance argument.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Floating-point matrix, full or sparse, real or complex.
+  status: confirmed
+- name: b
+  position: 2
+  required: true
+  description: Right-hand side with the same number of rows as A; several columns allowed.
+  status: confirmed
+- name: tol
+  position: 3
+  required: false
+  description: Scalar tolerance (0.5 and 1e-3 exercised).
+  status: confirmed
+outputs:
+- name: x
+  description: Full matrix of size columns(A) by columns(b), of the floating class of the inputs.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: lsqminnorm.vs-pinv-rule
+  statement: Without tol, or with tol = 1e-3, x agreed with pinv(full(A))*b to within 2e-15 (double) for
+    square nonsingular, overdetermined, underdetermined, rank-deficient, all-zero, complex, several right-hand-side
+    and sparse inputs; no warning was recorded for the rank-deficient cases.
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.vs-pinv
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: square-full-rank
+  - file: observations/lsqminnorm_observations.json
+    case_id: overdetermined
+  - file: observations/lsqminnorm_observations.json
+    case_id: underdetermined
+  - file: observations/lsqminnorm_observations.json
+    case_id: rank-deficient
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-transposed
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-wide
+  - file: observations/lsqminnorm_observations.json
+    case_id: multi-rhs
+  - file: observations/lsqminnorm_observations.json
+    case_id: zero-matrix
+  - file: observations/lsqminnorm_observations.json
+    case_id: complex
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-small
+- id: lsqminnorm.full-output-rule
+  statement: For sparse A the result was a full (non-sparse) double.
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.full-output
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-transposed
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-wide
+- id: lsqminnorm.cobra-form-rule
+  statement: The COBRA form with a sparse, rank-deficient A passed transposed (`lsqminnorm(S', b)`) returned
+    the minimum-norm least-squares solution of the inconsistent system (equal to pinv(A)*b).
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.cobra-form
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-transposed
+- id: lsqminnorm.zero-rule
+  statement: An all-zero A gave x = 0 of size columns(A) by 1.
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.zero
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: zero-matrix
+- id: lsqminnorm.single-rule
+  statement: single inputs gave a single result (agreement with pinv to about 3e-7).
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.single
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: single
+- id: lsqminnorm.empty-rule
+  statement: A 0x3 A with a 0x1 b gave a 3x1 zero vector.
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.empty
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: empty
+- id: lsqminnorm.tol-rule
+  statement: With tol = 0.5 for the 2x2 matrix [2 1; 1 0.2], the result differed from pinv(A)*b ([0.5027;
+    0.2212] instead of [1.3333; -1.6667]); with tol = 1e-3 it agreed with pinv(A)*b.
+  status: confirmed
+  normative: true
+  provenance: lsqminnorm.tol
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-arg
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-small
+numerical_edge_cases:
+- id: lsqminnorm.tol-rule-rule
+  statement: 'Inference (computed from the observed values, not observed directly): the tol = 0.5 result
+    is not the SVD truncation at rank 1 ([0.4932; 0.2197]); it equals, to the printed digits, the minimum-norm
+    solution after truncating a column-pivoted QR factorization of A at rank 1 (|R(1,1)| = 2.236 > tol
+    > |R(2,2)| = 0.268), i.e. [3; 1.32]/5.968.'
+  status: unresolved
+  normative: false
+  provenance: lsqminnorm.tol-rule
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-arg
+warnings: []
+errors:
+- condition: b has a different number of rows from A.
+  identifier: MATLAB:decomposition:mldivide
+  status: confirmed
+  provenance: lsqminnorm.error-rows
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-rows
+- condition: A is char or an integer class.
+  identifier: MATLAB:lsqminnorm:InvalidA
+  status: confirmed
+  provenance: lsqminnorm.error-char
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-char
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-int
+- condition: Only A is given.
+  identifier: MATLAB:narginchk:notEnoughInputs
+  status: confirmed
+  provenance: lsqminnorm.error-one-arg
+  observations:
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-one-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/lsqminnorm_observations.json
+  description: 17 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: lsqminnorm.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: lsqminnorm.q-tol-rule
+  question: How tol selects the retained components, and which factorization is truncated, was inferred
+    from one case only; the exact rule is unresolved.
+- id: lsqminnorm.q-error-ids
+  question: The row-mismatch identifier names another function (decomposition/mldivide); whether an implementation
+    must reproduce it is a human-review question (constitution 8.2).
+- id: lsqminnorm.q-exactness
+  question: Results agree with pinv(A)*b to rounding only; implementations should be compared to a tolerance,
+    not digit for digit.

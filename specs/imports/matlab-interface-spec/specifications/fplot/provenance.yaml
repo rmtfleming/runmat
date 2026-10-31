@@ -1,0 +1,161 @@
+# Provenance for fplot (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: fplot
+claims:
+- claim_id: fplot.signature-primary
+  statement: The invocation form `h = fplot(f)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: default
+- claim_id: fplot.object
+  statement: The returned object is a matlab.graphics.function.FunctionLine whose parent is the current
+    axes, plotted at more than two points.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: default
+- claim_id: fplot.default-interval
+  statement: Without an interval, XData spans [-5, 5] and the x-axis limits are [-5 5].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: default
+  - file: observations/fplot_observations.json
+    case_id: xlim-default
+- claim_id: fplot.interval
+  statement: With [0 2], XData spans [0, 2], and YData equals f(XData) exactly for @(x) x.^2.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: interval
+  - file: observations/fplot_observations.json
+    case_id: values
+- claim_id: fplot.cobra-form
+  statement: For the COBRA call fplot(@(x) x, 'LineWidth', 1.5, 'Color', 'r'), the returned FunctionLine
+    has LineWidth 1.5 and Color [1 0 0] and its parent is the current axes; without an output, the axes
+    contain one FunctionLine with those values.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: cobra-nv
+  - file: observations/fplot_observations.json
+    case_id: cobra-no-output
+- claim_id: fplot.linespec
+  statement: LineSpec 'r--' gave Color [1 0 0] and LineStyle '--'; the default LineWidth is 0.5 and LineStyle
+    '-'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: linespec
+  - file: observations/fplot_observations.json
+    case_id: default
+- claim_id: fplot.ax
+  statement: With an axes first argument, the line is drawn into that axes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: ax-arg
+- claim_id: fplot.numeric
+  statement: A numeric first argument (5) did not error; it was plotted over [-5 5] like a function.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: numeric-constant
+- claim_id: fplot.default-color
+  statement: 'Observed: the default Color on R2026a was [0.066 0.443 0.745].'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: default
+- claim_id: fplot.default-color-dependence
+  statement: 'Inference (not observed): the default Color may depend on the graphics theme and release.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: default
+- claim_id: fplot.error-decreasing
+  statement: The interval is decreasing ([2 1]). The call errors with identifier MATLAB:fplot:RangeVector.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: err-decreasing
+- claim_id: fplot.error-bad-property
+  statement: A name-value name is not a property. The call errors with identifier MATLAB:fplot:InvalidParameter.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: err-bad-property
+- claim_id: fplot.warning-char-fn
+  statement: f is a char expression ('sin(x)'); the plot is still drawn. The call completes and issues
+    a warning with identifier MATLAB:fplot:StringFunctionsDeprecated.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/fplot_observations.json
+    case_id: char-fn

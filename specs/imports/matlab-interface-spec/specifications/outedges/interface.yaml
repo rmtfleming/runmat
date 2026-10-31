@@ -1,0 +1,131 @@
+# Interface specification for outedges (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: outedges
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the indices of the edges leaving a node and, as a second output, the nodes those edges
+  reach.
+invocation_forms:
+- signature: '[eid, nid] = outedges(G, node)'
+  description: Edge indices and successor nodes (COBRA form).
+  status: confirmed
+- signature: eid = outedges(G, node)
+  description: Edge indices only.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: digraph (graph also accepted).
+  status: confirmed
+- name: node
+  position: 2
+  required: true
+  description: 'One node: an index, or a name as char or string scalar.'
+  status: confirmed
+outputs:
+- name: eid
+  description: Column vector (double) of row indices into G.Edges.
+  status: confirmed
+- name: nid
+  description: 'Column vector of the other end nodes: double indices, or names (cell for a char query,
+    string for a string query).'
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: outedges.order-rule
+  statement: 'For G = digraph([1 1 2 3], [3 2 3 1]), whose edge table is [1 2; 1 3; 2 3; 3 1], node 1
+    gave eid = [1; 2] and nid = [2; 3], and node 3 gave eid = 4: eid lists edge-table rows in ascending
+    order and nid the matching target nodes.'
+  status: confirmed
+  normative: true
+  provenance: outedges.order
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: edge-table
+  - file: observations/outedges_observations.json
+    case_id: two-out
+  - file: observations/outedges_observations.json
+    case_id: one-out
+- id: outedges.empty-rule
+  statement: A node with no out-edges, including an isolated node, gave 0x1 double eid and nid.
+  status: confirmed
+  normative: true
+  provenance: outedges.empty
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: no-out
+  - file: observations/outedges_observations.json
+    case_id: isolated
+- id: outedges.names-rule
+  statement: With named nodes, eid is double; nid was a cell array of char for a char query, a string
+    array for a string query, and double indices for an index query.
+  status: confirmed
+  normative: true
+  provenance: outedges.names
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: names-char
+  - file: observations/outedges_observations.json
+    case_id: names-string
+  - file: observations/outedges_observations.json
+    case_id: names-index
+- id: outedges.multi-rule
+  statement: Parallel edges each appear (nid [2; 2; 3]) and a self-loop is listed with the node itself
+    as nid.
+  status: confirmed
+  normative: true
+  provenance: outedges.multi
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: multigraph
+  - file: observations/outedges_observations.json
+    case_id: self-loop
+- id: outedges.undirected-rule
+  statement: For an undirected graph([1 2], [2 3]), node 2 gave eid = [1; 2] and nid = [1; 3] (both incident
+    edges).
+  status: confirmed
+  normative: true
+  provenance: outedges.undirected
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: undirected
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The node index exceeds the number of nodes.
+  identifier: MATLAB:graphfun:digraph:InvalidNodeID
+  status: confirmed
+  provenance: outedges.error-range
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: err-range
+- condition: More than one node is given.
+  identifier: MATLAB:graphfun:graphbuiltin:InvalidNodeScalar
+  status: confirmed
+  provenance: outedges.error-vector
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: err-vector
+- condition: The name is not a node name.
+  identifier: MATLAB:graphfun:digraph:UnknownNodeName
+  status: confirmed
+  provenance: outedges.error-unknown-name
+  observations:
+  - file: observations/outedges_observations.json
+    case_id: err-unknown-name
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/outedges_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: outedges.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: outedges.q-undirected-ids
+  question: Only digraph error identifiers were observed; identifiers for graph inputs were not exercised.

@@ -1,0 +1,125 @@
+# Interface specification for reordernodes (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: reordernodes
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a graph of the same class whose nodes appear in a given order, with the node table and
+  edges carried along, and optionally the edge permutation.
+invocation_forms:
+- signature: H = reordernodes(G, order)
+  description: Reorder the nodes (COBRA form, order from isomorphism).
+  status: confirmed
+- signature: '[H, idx] = reordernodes(G, order)'
+  description: Also return the edge permutation.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: digraph or graph.
+  status: confirmed
+- name: order
+  position: 2
+  required: true
+  description: Permutation of the node indices, or the node names as a cell array.
+  status: confirmed
+outputs:
+- name: H
+  description: Graph of the same class as G.
+  status: confirmed
+- name: idx
+  description: 'Column vector: row k of H.Edges is row idx(k) of G.Edges.'
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: reordernodes.nodes-rule
+  statement: 'Node k of H is node order(k) of G: with node variables Met and Atom and order [3 1 2], H.Nodes
+    became Met {''m1'',''m1'',''m2''}, Atom [3; 1; 2], keeping the variable names and classes (COBRA form).'
+  status: confirmed
+  normative: true
+  provenance: reordernodes.nodes
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph-before
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph
+- id: reordernodes.edges-rule
+  statement: 'Edges follow their end nodes, renumbered, and H.Edges is listed in ascending order of end
+    nodes: for the cycle 1->2->3->1 and order [3 1 2] the end nodes stayed [1 2; 2 3; 3 1] and idx was
+    [3; 1; 2].'
+  status: confirmed
+  normative: true
+  provenance: reordernodes.edges
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: met-graph
+  - file: observations/reordernodes_observations.json
+    case_id: idx-out
+- id: reordernodes.weights-rule
+  statement: 'Weights move with their edges: digraph([1 2], [2 3], [7 9]) with order [2 3 1] gave end
+    nodes [1 2; 3 1], Weight [9; 7] and idx [2; 1].'
+  status: confirmed
+  normative: true
+  provenance: reordernodes.weights
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: weighted
+- id: reordernodes.undirected-rule
+  statement: An undirected graph([1 2], [2 3]) with order [3 2 1] gave end nodes [1 2; 2 3].
+  status: confirmed
+  normative: true
+  provenance: reordernodes.undirected
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: undirected
+- id: reordernodes.names-rule
+  statement: order given as node names {'c','a','b'} reorders the Name variable to {'c';'a';'b'}; end
+    nodes were reported by name.
+  status: confirmed
+  normative: true
+  provenance: reordernodes.names
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: names
+- id: reordernodes.identity-rule
+  statement: The identity order leaves the edges unchanged, and the output class is that of G (digraph).
+  status: confirmed
+  normative: true
+  provenance: reordernodes.identity
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: identity
+  - file: observations/reordernodes_observations.json
+    case_id: class
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: order repeats a node or omits nodes.
+  identifier: MATLAB:graphfun:reordernodes:InvalidOrder
+  status: confirmed
+  provenance: reordernodes.error-repeat
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: err-repeat
+  - file: observations/reordernodes_observations.json
+    case_id: err-short
+- condition: order contains an index beyond the node count.
+  identifier: MATLAB:graphfun:digraph:InvalidNodeID
+  status: confirmed
+  provenance: reordernodes.error-range
+  observations:
+  - file: observations/reordernodes_observations.json
+    case_id: err-range
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/reordernodes_observations.json
+  description: 11 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: reordernodes.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

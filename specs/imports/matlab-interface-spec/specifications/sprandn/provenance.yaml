@@ -1,0 +1,130 @@
+# Provenance for sprandn (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: sprandn
+claims:
+- claim_id: sprandn.signature-primary
+  statement: The invocation form `R = sprandn(m, n, density)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: cobra-5x6
+- claim_id: sprandn.structure
+  statement: The result is a real, sparse double of size m-by-n with finite nonzeros of both signs; with
+    the same rng seed the result is identical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: cobra-5x6
+  - file: observations/sprandn_observations.json
+    case_id: cobra-30x30
+  - file: observations/sprandn_observations.json
+    case_id: density-one
+- claim_id: sprandn.nnz-bound
+  statement: The nonzero count did not exceed density*m*n in the observed cases (14 for 5x6 at 0.6; 229
+    for 30x30 at 0.3; 11 for 4x5 at density 1).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: cobra-5x6
+  - file: observations/sprandn_observations.json
+    case_id: cobra-30x30
+  - file: observations/sprandn_observations.json
+    case_id: density-one
+- claim_id: sprandn.zero-density
+  statement: Density 0 gave an all-zero sparse matrix, and a zero-row size gave an empty sparse 0x3.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: density-zero
+  - file: observations/sprandn_observations.json
+    case_id: empty-dims
+- claim_id: sprandn.pattern
+  statement: sprandn(S) returned a sparse matrix of the size of S with exactly its nonzero pattern.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: pattern
+- claim_id: sprandn.rc
+  statement: sprandn(4, 4, 0.5, 0.1) returned a 4x4 sparse double whose 2-norm condition number was 10.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: rc
+- claim_id: sprandn.density-out-of-range
+  statement: 'Out-of-range densities did not error: 1.5 gave a 3x3 sparse matrix with 7 nonzeros, and
+    -0.1 an all-zero 3x3 sparse matrix.'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: density-above-one
+  - file: observations/sprandn_observations.json
+    case_id: density-negative
+- claim_id: sprandn.values
+  statement: 'Inference (not observed): the nonzero values and their positions depend on the random generator.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: cobra-5x6
+- claim_id: sprandn.error-noninteger
+  statement: m is not an integer. The call errors with identifier MATLAB:RandStream:randi:invalidLimits.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: err-noninteger
+- claim_id: sprandn.error-two-args
+  statement: Only m and n are given. The call errors with identifier MATLAB:sprandn:TwoInputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/sprandn_observations.json
+    case_id: err-two-args

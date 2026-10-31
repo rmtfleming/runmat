@@ -1,0 +1,320 @@
+{
+  "schema_version": "1.0",
+  "function_name": "fscanf",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/fscanf/test_fscanf_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe writes the given contents to a temporary file, reads it back with fopen/fscanf, then closes and deletes it. Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "c-all",
+      "description": "%c on text with a space and a newline (COBRA form)",
+      "call": "A = fscanf(fid, '%c') on ['ab c' newline 'de']; report A, class, size, count",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "['ab c' char(10) 'de']",
+          "class": "'char'",
+          "size": "[1 7]",
+          "count": "7"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "s-skip",
+      "description": "%s on the same text (COBRA form)",
+      "call": "A = fscanf(fid, '%s') on ['ab c' newline 'de']",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "'abcde'",
+          "class": "'char'",
+          "size": "[1 5]",
+          "count": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "c-trailing-newline",
+      "description": "%c on text ending in a newline",
+      "call": "fscanf(fid, '%c') on ['xy' newline]",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "['xy' char(10) '']",
+          "class": "'char'",
+          "size": "[1 3]",
+          "count": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "d-ints",
+      "description": "%d on space-separated integers",
+      "call": "fscanf(fid, '%d') on '1 2 3'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[1;2;3]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "count": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "f-reals",
+      "description": "%f on reals across lines",
+      "call": "fscanf(fid, '%f') on ['1.5 -2' newline '3e2']",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[1.5;-2;300]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "count": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "size-matrix",
+      "description": "%f with size [2 Inf]",
+      "call": "fscanf(fid, '%f', [2 Inf]) on '1 2 3 4 5 6'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[1 3 5;2 4 6]",
+          "class": "'double'",
+          "size": "[2 3]",
+          "count": "6"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "size-scalar",
+      "description": "%d with size 2",
+      "call": "fscanf(fid, '%d', 2) on '1 2 3'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[1;2]",
+          "class": "'double'",
+          "size": "[2 1]",
+          "count": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "literal",
+      "description": "%d, with a comma literal",
+      "call": "fscanf(fid, '%d,') on '1,2,3'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[1;2;3]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "count": "3"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mismatch",
+      "description": "%d on letters",
+      "call": "fscanf(fid, '%d') on 'abc'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[]",
+          "class": "'double'",
+          "size": "[0 0]",
+          "count": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "partial",
+      "description": "%d stopping at the first letter",
+      "call": "fscanf(fid, '%d') on '4 5 x 6'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[4;5]",
+          "class": "'double'",
+          "size": "[2 1]",
+          "count": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "hex",
+      "description": "%x",
+      "call": "fscanf(fid, '%x') on '1f a'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[31;10]",
+          "class": "'double'",
+          "size": "[2 1]",
+          "count": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mixed-d-s",
+      "description": "%d%s on numbers and words: char codes mixed into the numeric result",
+      "call": "fscanf(fid, '%d%s') on '7 ab'",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[7;97;98]",
+          "class": "'double'",
+          "size": "[3 1]",
+          "count": "2"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-c",
+      "description": "%c on an empty file",
+      "call": "fscanf(fid, '%c') on ''",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "''",
+          "class": "'char'",
+          "size": "[0 0]",
+          "count": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-d",
+      "description": "%d on an empty file",
+      "call": "fscanf(fid, '%d') on ''",
+      "errored": false,
+      "result": {
+        "value": {
+          "A": "[]",
+          "class": "'double'",
+          "size": "[0 0]",
+          "count": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-fid",
+      "description": "an identifier that is not open",
+      "call": "fscanf(-1, '%d')",
+      "errored": true,
+      "error_identifier": "MATLAB:FileIO:InvalidFid"
+    },
+    {
+      "case_id": "err-no-format",
+      "description": "no format argument",
+      "call": "fscanf(fid) on '1 2'",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

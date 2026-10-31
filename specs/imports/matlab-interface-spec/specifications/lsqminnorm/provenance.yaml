@@ -1,0 +1,168 @@
+# Provenance for lsqminnorm (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: lsqminnorm
+claims:
+- claim_id: lsqminnorm.signature-primary
+  statement: The invocation form `x = lsqminnorm(A, b)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: underdetermined
+- claim_id: lsqminnorm.vs-pinv
+  statement: Without tol, or with tol = 1e-3, x agreed with pinv(full(A))*b to within 2e-15 (double) for
+    square nonsingular, overdetermined, underdetermined, rank-deficient, all-zero, complex, several right-hand-side
+    and sparse inputs; no warning was recorded for the rank-deficient cases.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: square-full-rank
+  - file: observations/lsqminnorm_observations.json
+    case_id: overdetermined
+  - file: observations/lsqminnorm_observations.json
+    case_id: underdetermined
+  - file: observations/lsqminnorm_observations.json
+    case_id: rank-deficient
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-transposed
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-wide
+  - file: observations/lsqminnorm_observations.json
+    case_id: multi-rhs
+  - file: observations/lsqminnorm_observations.json
+    case_id: zero-matrix
+  - file: observations/lsqminnorm_observations.json
+    case_id: complex
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-small
+- claim_id: lsqminnorm.full-output
+  statement: For sparse A the result was a full (non-sparse) double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-transposed
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-wide
+- claim_id: lsqminnorm.cobra-form
+  statement: The COBRA form with a sparse, rank-deficient A passed transposed (`lsqminnorm(S', b)`) returned
+    the minimum-norm least-squares solution of the inconsistent system (equal to pinv(A)*b).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: sparse-transposed
+- claim_id: lsqminnorm.zero
+  statement: An all-zero A gave x = 0 of size columns(A) by 1.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: zero-matrix
+- claim_id: lsqminnorm.single
+  statement: single inputs gave a single result (agreement with pinv to about 3e-7).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: single
+- claim_id: lsqminnorm.empty
+  statement: A 0x3 A with a 0x1 b gave a 3x1 zero vector.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: empty
+- claim_id: lsqminnorm.tol
+  statement: With tol = 0.5 for the 2x2 matrix [2 1; 1 0.2], the result differed from pinv(A)*b ([0.5027;
+    0.2212] instead of [1.3333; -1.6667]); with tol = 1e-3 it agreed with pinv(A)*b.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-arg
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-small
+- claim_id: lsqminnorm.tol-rule
+  statement: 'Inference (computed from the observed values, not observed directly): the tol = 0.5 result
+    is not the SVD truncation at rank 1 ([0.4932; 0.2197]); it equals, to the printed digits, the minimum-norm
+    solution after truncating a column-pivoted QR factorization of A at rank 1 (|R(1,1)| = 2.236 > tol
+    > |R(2,2)| = 0.268), i.e. [3; 1.32]/5.968.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: tol-arg
+- claim_id: lsqminnorm.error-rows
+  statement: b has a different number of rows from A. The call errors with identifier MATLAB:decomposition:mldivide.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-rows
+- claim_id: lsqminnorm.error-char
+  statement: A is char or an integer class. The call errors with identifier MATLAB:lsqminnorm:InvalidA.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-char
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-int
+- claim_id: lsqminnorm.error-one-arg
+  statement: Only A is given. The call errors with identifier MATLAB:narginchk:notEnoughInputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqminnorm_observations.json
+    case_id: err-one-arg

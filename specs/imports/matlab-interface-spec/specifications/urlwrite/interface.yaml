@@ -1,0 +1,108 @@
+# Interface specification for urlwrite (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: urlwrite
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Save the content at a URL to a file and return the destination path; with two outputs, a missing
+  file:// source or an unknown protocol gives status 0 instead of an error. Observed with local file://
+  URLs only.
+invocation_forms:
+- signature: f = urlwrite(url, filename)
+  description: Save to filename and return its path (COBRA form).
+  status: confirmed
+- signature: '[f, status] = urlwrite(url, filename)'
+  description: Also return a status.
+  status: confirmed
+inputs:
+- name: url
+  position: 1
+  required: true
+  description: URL as char; observed with file:// and an unknown protocol only.
+  status: confirmed
+- name: filename
+  position: 2
+  required: true
+  description: Destination file path.
+  status: confirmed
+outputs:
+- name: f
+  description: char path of the written file; empty char on failure with two outputs.
+  status: confirmed
+- name: status
+  description: double 1 on success, 0 on failure.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: urlwrite.success-rule
+  statement: For a readable file:// URL the destination file was written with the same contents and f
+    was the char destination path given; with two outputs status was double 1. No warning was recorded.
+  status: confirmed
+  normative: true
+  provenance: urlwrite.success
+  observations:
+  - file: observations/urlwrite_observations.json
+    case_id: file-url
+  - file: observations/urlwrite_observations.json
+    case_id: file-url-status
+- id: urlwrite.status-failure-rule
+  statement: 'With two outputs, a missing source file or an unknown protocol did not error: f was empty
+    char, status was 0 and no destination file was created.'
+  status: confirmed
+  normative: true
+  provenance: urlwrite.status-failure
+  observations:
+  - file: observations/urlwrite_observations.json
+    case_id: missing-two-out
+  - file: observations/urlwrite_observations.json
+    case_id: protocol-two-out
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: With one output, the file:// source does not exist.
+  identifier: MATLAB:urlwrite:FileNotFound
+  status: confirmed
+  provenance: urlwrite.error-missing-one-out
+  observations:
+  - file: observations/urlwrite_observations.json
+    case_id: err-missing-one-out
+- condition: The destination folder does not exist (one or two outputs).
+  identifier: MATLAB:urlwrite:InvalidOutputLocation
+  status: confirmed
+  provenance: urlwrite.error-bad-dir
+  observations:
+  - file: observations/urlwrite_observations.json
+    case_id: err-bad-dir
+  - file: observations/urlwrite_observations.json
+    case_id: err-bad-dir-two-out
+- condition: With one output, the URL protocol is unknown.
+  identifier: MATLAB:urlwrite:InvalidUrl
+  status: confirmed
+  provenance: urlwrite.error-protocol
+  observations:
+  - file: observations/urlwrite_observations.json
+    case_id: err-protocol
+- condition: Only the URL is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: urlwrite.error-one-arg
+  observations:
+  - file: observations/urlwrite_observations.json
+    case_id: err-one-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/urlwrite_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: urlwrite.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: urlwrite.q-network
+  question: No network URL was contacted (http/https were not exercised), so download behaviour, as in
+    COBRA's https call, is unobserved.
+- id: urlwrite.q-options
+  question: Arguments beyond url and filename were not exercised.

@@ -1,0 +1,91 @@
+# Provenance for urlwrite (created 2026-10-30, batch N5, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: urlwrite
+claims:
+- claim_id: urlwrite.signature-primary
+  statement: The invocation form `f = urlwrite(url, filename)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: file-url
+- claim_id: urlwrite.success
+  statement: For a readable file:// URL the destination file was written with the same contents and f
+    was the char destination path given; with two outputs status was double 1. No warning was recorded.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: file-url
+  - file: observations/urlwrite_observations.json
+    case_id: file-url-status
+- claim_id: urlwrite.status-failure
+  statement: 'With two outputs, a missing source file or an unknown protocol did not error: f was empty
+    char, status was 0 and no destination file was created.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: missing-two-out
+  - file: observations/urlwrite_observations.json
+    case_id: protocol-two-out
+- claim_id: urlwrite.error-missing-one-out
+  statement: With one output, the file:// source does not exist. The call errors with identifier MATLAB:urlwrite:FileNotFound.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: err-missing-one-out
+- claim_id: urlwrite.error-bad-dir
+  statement: The destination folder does not exist (one or two outputs). The call errors with identifier
+    MATLAB:urlwrite:InvalidOutputLocation.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: err-bad-dir
+  - file: observations/urlwrite_observations.json
+    case_id: err-bad-dir-two-out
+- claim_id: urlwrite.error-protocol
+  statement: With one output, the URL protocol is unknown. The call errors with identifier MATLAB:urlwrite:InvalidUrl.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: err-protocol
+- claim_id: urlwrite.error-one-arg
+  statement: Only the URL is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/urlwrite_observations.json
+    case_id: err-one-arg

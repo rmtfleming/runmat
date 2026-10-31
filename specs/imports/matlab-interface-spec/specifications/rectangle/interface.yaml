@@ -1,0 +1,164 @@
+# Interface specification for rectangle (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: rectangle
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Draw a rectangle in the current axes and return the Rectangle object; Position, Curvature and
+  colour properties are stored as given.
+invocation_forms:
+- signature: rectangle(Name, Value, ...)
+  description: Set properties such as Position, EdgeColor, LineWidth and LineStyle (COBRA form).
+  status: confirmed
+- signature: h = rectangle()
+  description: Default rectangle.
+  status: confirmed
+- signature: h = rectangle(ax, Name, Value, ...)
+  description: Draw into the given axes.
+  status: confirmed
+inputs:
+- name: ax
+  position: 1
+  required: false
+  description: Axes to draw into.
+  status: confirmed
+name_value_arguments:
+- name: Position
+  description: '[x y w h]; default [0 0 1 1]; a negative width and a 3-element value were rejected.'
+  status: confirmed
+- name: Curvature
+  description: Scalar or [cx cy]; default [0 0]; a value above 1 was rejected.
+  status: confirmed
+- name: FaceColor
+  description: Fill colour; default 'none'.
+  status: confirmed
+- name: EdgeColor
+  description: Edge colour.
+  status: confirmed
+- name: LineWidth
+  description: Default 0.5.
+  status: confirmed
+- name: LineStyle
+  description: Default '-'.
+  status: confirmed
+outputs:
+- name: h
+  description: matlab.graphics.primitive.Rectangle object.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: rectangle.defaults-rule
+  statement: The default object is a matlab.graphics.primitive.Rectangle with Position [0 0 1 1], Curvature
+    [0 0], FaceColor 'none', LineWidth 0.5 and LineStyle '-'.
+  status: confirmed
+  normative: true
+  provenance: rectangle.defaults
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: default
+- id: rectangle.cobra-form-rule
+  statement: The COBRA call rectangle('Position', [0, 0, 40, 0.1], 'EdgeColor', 'black', 'LineWidth',
+    2, 'LineStyle', '-.') gives Position [0 0 40 0.1], EdgeColor [0 0 0], LineWidth 2 and LineStyle '-.',
+    and in fresh axes the limits became x [0 40], y [0 0.1].
+  status: confirmed
+  normative: true
+  provenance: rectangle.cobra-form
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: cobra-form
+  - file: observations/rectangle_observations.json
+    case_id: cobra-limits
+- id: rectangle.curvature-rule
+  statement: 'Curvature is stored as given: scalar 1 stays 1, [0.5 0.2] stays [0.5 0.2].'
+  status: confirmed
+  normative: true
+  provenance: rectangle.curvature
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: curvature-scalar
+  - file: observations/rectangle_observations.json
+    case_id: curvature-pair
+- id: rectangle.colors-rule
+  statement: FaceColor 'r' is stored as [1 0 0].
+  status: confirmed
+  normative: true
+  provenance: rectangle.colors
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: face-color
+- id: rectangle.parent-rule
+  statement: Without an output, one Rectangle is added to the current axes; with an axes first argument
+    it is drawn into that axes.
+  status: confirmed
+  normative: true
+  provenance: rectangle.parent
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: no-output
+  - file: observations/rectangle_observations.json
+    case_id: ax-arg
+numerical_edge_cases:
+- id: rectangle.default-edge-color-rule
+  statement: 'Observed: the default EdgeColor on R2026a was [0.1294 0.1294 0.1294].'
+  status: confirmed
+  normative: false
+  provenance: rectangle.default-edge-color
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: default
+- id: rectangle.default-edge-color-dependence-rule
+  statement: 'Inference (not observed): the default EdgeColor may depend on the graphics theme and release.'
+  status: unresolved
+  normative: false
+  provenance: rectangle.default-edge-color-dependence
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: default
+warnings: []
+errors:
+- condition: Position has a negative width.
+  identifier: MATLAB:hg:set_chck:DimensionsOutsideRange
+  status: confirmed
+  provenance: rectangle.error-negative-width
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: err-negative-width
+- condition: Position does not have 4 elements.
+  identifier: MATLAB:hg:dt_conv:Matrix_to_matlabRect:Expected4ElementVector
+  status: confirmed
+  provenance: rectangle.error-position-length
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: err-position-length
+- condition: A Curvature value is above 1.
+  identifier: MATLAB:hg:shaped_arrays:CurvatureRange
+  status: confirmed
+  provenance: rectangle.error-curvature-range
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: err-curvature-range
+- condition: A name is not a property.
+  identifier: MATLAB:hg:InvalidProperty
+  status: confirmed
+  provenance: rectangle.error-bad-property
+  observations:
+  - file: observations/rectangle_observations.json
+    case_id: err-bad-property
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/rectangle_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: rectangle.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: rectangle.q-theme
+  question: The graphics theme active during the run was not recorded; default colours and the default
+    LineWidth may depend on it and on the release (constitution 8.2).
+- id: rectangle.q-error-ids
+  question: The error identifiers come from the generic graphics property layer (MATLAB:hg:...); whether
+    an implementation must reproduce them is a human-review question (constitution 8.2).

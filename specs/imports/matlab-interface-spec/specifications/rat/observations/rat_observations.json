@@ -1,0 +1,382 @@
+{
+  "schema_version": "1.0",
+  "function_name": "rat",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/rat/test_rat_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "quarter",
+      "description": "0.75 (COBRA form, second output used)",
+      "call": "[N, D] = rat(0.75)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "3",
+          "D": "4",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "third",
+      "description": "1/3",
+      "call": "[N, D] = rat(1/3)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "1",
+          "D": "3",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "negative",
+      "description": "-0.5",
+      "call": "[N, D] = rat(-0.5)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "-1",
+          "D": "2",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "integer",
+      "description": "5",
+      "call": "[N, D] = rat(5)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "5",
+          "D": "1",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "0",
+      "call": "[N, D] = rat(0)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "0",
+          "D": "1",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pi-default",
+      "description": "pi with the default tolerance; also |N/D - pi|",
+      "call": "[N, D] = rat(pi)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "355",
+          "D": "113",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "2.667641894049666e-07"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "pi-tol",
+      "description": "pi with tolerance 1e-2",
+      "call": "[N, D] = rat(pi, 1e-2)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "22",
+          "D": "7",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0.0012644892673496777"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matrix",
+      "description": "2x2 array, elementwise",
+      "call": "[N, D] = rat([0.5 0.25; 1.5 2])",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "[1 1;3 2]",
+          "D": "[2 4;2 1]",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "[0 0;0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "coeff-like",
+      "description": "a stoichiometric-style coefficient 0.6667 (four decimals)",
+      "call": "[N, D] = rat(0.6667)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "6667",
+          "D": "10000",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "inf",
+      "description": "Inf and -Inf",
+      "call": "[N, D] = rat([Inf -Inf])",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "[1 -1]",
+          "D": "[0 0]",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "[NaN NaN]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nan",
+      "description": "NaN",
+      "call": "[N, D] = rat(NaN)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "0",
+          "D": "0",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "NaN"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single",
+      "description": "single input",
+      "call": "[N, D] = rat(single(0.75))",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "3",
+          "D": "4",
+          "class_N": "'single'",
+          "class_D": "'single'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "empty input",
+      "call": "[N, D] = rat([])",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "[]",
+          "D": "[]",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "[]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "text-form",
+      "description": "one output",
+      "call": "s = rat(0.75)",
+      "errored": false,
+      "result": {
+        "value": "'1 + 1/(-4)'",
+        "class": "char",
+        "size": [
+          1,
+          10
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "text-form-vector",
+      "description": "one output for a 1x2 vector",
+      "call": "s = rat([0.5 1.5])",
+      "errored": false,
+      "result": {
+        "value": "['1 + 1/(-2)';'2 + 1/(-2)']",
+        "class": "char",
+        "size": [
+          2,
+          10
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex-text-form",
+      "description": "complex input, one output",
+      "call": "s = rat(1 + 2i)",
+      "errored": false,
+      "result": {
+        "value": "['1       ';' +i* ...';'2       ']",
+        "class": "char",
+        "size": [
+          3,
+          8
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex-two-out",
+      "description": "complex input, two outputs",
+      "call": "[N, D] = rat(1 + 2i)",
+      "errored": false,
+      "result": {
+        "value": {
+          "N": "1+2i",
+          "D": "1",
+          "class_N": "'double'",
+          "class_D": "'double'",
+          "abs_error": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-char",
+      "description": "char input",
+      "call": "rat('a')",
+      "errored": true,
+      "error_identifier": "MATLAB:norm:inputType"
+    },
+    {
+      "case_id": "err-int",
+      "description": "int8 input",
+      "call": "rat(int8(3))",
+      "errored": true,
+      "error_identifier": "MATLAB:norm:inputType"
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+# Interface specification for validatecolor (created 2026-10-30, batch N5, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: validatecolor
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Validate a colour given as a name, an RGB triplet or a hexadecimal code, and return it as a double
+  RGB row with values in [0, 1].
+invocation_forms:
+- signature: RGB = validatecolor(c)
+  description: One colour, returned as 1x3 double (COBRA form inside any(...)).
+  status: confirmed
+- signature: RGB = validatecolor(c, 'multiple')
+  description: Several colours, one row each.
+  status: confirmed
+- signature: RGB = validatecolor(c, 'one')
+  description: Explicit single-colour option.
+  status: confirmed
+inputs:
+- name: c
+  position: 1
+  required: true
+  description: Colour name (char or string), RGB triplet (double, single or uint8), hexadecimal code,
+    or for 'multiple' a cell array of names or an m-by-3 matrix.
+  status: confirmed
+- name: option
+  position: 2
+  required: false
+  description: '''one'' or ''multiple''.'
+  status: confirmed
+outputs:
+- name: RGB
+  description: double, 1x3 or m-by-3, values in [0, 1].
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: validatecolor.cobra-form-rule
+  statement: validatecolor('r') returned [1 0 0], so the COBRA validator any(validatecolor('r')) is true.
+  status: confirmed
+  normative: true
+  provenance: validatecolor.cobra-form
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: short-r
+  - file: observations/validatecolor_observations.json
+    case_id: cobra-any
+- id: validatecolor.names-rule
+  statement: 'Names: ''r'' and ''red'' gave [1 0 0], "blue" (string) [0 0 1], ''Green'' (mixed case) [0
+    1 0], ''k'' [0 0 0].'
+  status: confirmed
+  normative: true
+  provenance: validatecolor.names
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: short-r
+  - file: observations/validatecolor_observations.json
+    case_id: long-red
+  - file: observations/validatecolor_observations.json
+    case_id: string-blue
+  - file: observations/validatecolor_observations.json
+    case_id: mixed-case
+  - file: observations/validatecolor_observations.json
+    case_id: short-k
+- id: validatecolor.triplets-rule
+  statement: double and single triplets in [0, 1] are returned as double unchanged; a uint8 triplet is
+    divided by 255 ([255 128 0] gave [1 0.50196 0]).
+  status: confirmed
+  normative: true
+  provenance: validatecolor.triplets
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: triplet-double
+  - file: observations/validatecolor_observations.json
+    case_id: triplet-single
+  - file: observations/validatecolor_observations.json
+    case_id: triplet-uint8
+- id: validatecolor.hex-rule
+  statement: '''#FF8000'' gave [1 128/255 0]; the three-digit ''#f80'' gave [1 0.53333 0], where 0.53333
+    = 0x88/255.'
+  status: confirmed
+  normative: true
+  provenance: validatecolor.hex
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: hex-6
+  - file: observations/validatecolor_observations.json
+    case_id: hex-3
+- id: validatecolor.multiple-rule
+  statement: With 'multiple', a cell of names or an m-by-3 matrix gives one row per colour ({'r','b'}
+    gave [1 0 0; 0 0 1]); 'one' with 'r' gave [1 0 0].
+  status: confirmed
+  normative: true
+  provenance: validatecolor.multiple
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: multiple-names
+  - file: observations/validatecolor_observations.json
+    case_id: multiple-matrix
+  - file: observations/validatecolor_observations.json
+    case_id: one-option
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: An m-by-3 matrix with m > 1 is given without 'multiple'.
+  identifier: MATLAB:graphics:validatecolor:MultipleColors
+  status: confirmed
+  provenance: validatecolor.error-matrix-without-multiple
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: err-matrix-without-multiple
+- condition: The name is not a colour name ('notacolour', 'none').
+  identifier: MATLAB:graphics:validatecolor:InvalidColorString
+  status: confirmed
+  provenance: validatecolor.error-unknown-name
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: err-unknown-name
+  - file: observations/validatecolor_observations.json
+    case_id: err-none
+- condition: A double triplet component is above 1.
+  identifier: MATLAB:graphics:validatecolor:OutOfRange
+  status: confirmed
+  provenance: validatecolor.error-out-of-range
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: err-out-of-range
+- condition: A numeric input is not a triplet (two elements, or a scalar).
+  identifier: MATLAB:graphics:validatecolor:InvalidTripletShape
+  status: confirmed
+  provenance: validatecolor.error-two-components
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: err-two-components
+  - file: observations/validatecolor_observations.json
+    case_id: err-scalar
+- condition: The second argument is neither 'one' nor 'multiple'.
+  identifier: MATLAB:unrecognizedStringChoice
+  status: confirmed
+  provenance: validatecolor.error-bad-option
+  observations:
+  - file: observations/validatecolor_observations.json
+    case_id: err-bad-option
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/validatecolor_observations.json
+  description: 21 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: validatecolor.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: validatecolor.q-error-ids
+  question: The bad-option identifier is generic (MATLAB:unrecognizedStringChoice); whether an implementation
+    must reproduce it is a human-review question (constitution 8.2).
+- id: validatecolor.q-names
+  question: Only the names r, red, blue, Green and k were exercised; the full set of accepted names was
+    not enumerated.

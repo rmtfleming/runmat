@@ -1,0 +1,251 @@
+{
+  "schema_version": "1.0",
+  "function_name": "fplot",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/fplot/test_fplot_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe draws into a fresh invisible figure and closes it on exit; the number of evaluation points is not recorded. Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "default",
+      "description": "fplot(@(x) x) with an output",
+      "call": "h = fplot(@(x) x); report class, min and max of XData, whether more than two points, LineWidth, Color, LineStyle, h.Parent == gca, lastwarn identifier",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "x_min": "-5",
+          "x_max": "5",
+          "more_than_two_points": "true",
+          "LineWidth": "0.5",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "LineStyle": "'-'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-nv",
+      "description": "name-value line properties (COBRA form)",
+      "call": "h = fplot(@(x) x, 'LineWidth', 1.5, 'Color', 'r'); report as default",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "x_min": "-5",
+          "x_max": "5",
+          "more_than_two_points": "true",
+          "LineWidth": "1.5",
+          "Color": "[1 0 0]",
+          "LineStyle": "'-'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-no-output",
+      "description": "COBRA form without an output: what the axes contain",
+      "call": "fplot(@(x) x, 'LineWidth', 1.5, 'Color', 'r'); c = get(gca, 'Children'); report numel, class, LineWidth, Color",
+      "errored": false,
+      "result": {
+        "value": {
+          "numel": "1",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "LineWidth": "1.5",
+          "Color": "[1 0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "interval",
+      "description": "interval [0 2]",
+      "call": "h = fplot(@(x) x, [0 2]); report as default",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "x_min": "0",
+          "x_max": "2",
+          "more_than_two_points": "true",
+          "LineWidth": "0.5",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "LineStyle": "'-'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "values",
+      "description": "YData against XData for @(x) x.^2 on [0 2]",
+      "call": "h = fplot(@(x) x.^2, [0 2]); report max(abs(h.YData - h.XData.^2))",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "linespec",
+      "description": "LineSpec 'r--'",
+      "call": "h = fplot(@(x) x, 'r--'); report as default",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "x_min": "-5",
+          "x_max": "5",
+          "more_than_two_points": "true",
+          "LineWidth": "0.5",
+          "Color": "[1 0 0]",
+          "LineStyle": "'--'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "xlim-default",
+      "description": "x-axis limits after a call without an interval",
+      "call": "fplot(@(x) x); report xlim",
+      "errored": false,
+      "result": {
+        "value": "[-5 5]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "ax-arg",
+      "description": "axes as the first argument",
+      "call": "ax = axes(fig); h = fplot(ax, @(x) x); report h.Parent == ax",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char-fn",
+      "description": "function given as char 'sin(x)'",
+      "call": "h = fplot('sin(x)'); report as default",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "'MATLAB:fplot:StringFunctionsDeprecated'",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "x_min": "-5",
+          "x_max": "5",
+          "more_than_two_points": "true",
+          "LineWidth": "0.5",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "LineStyle": "'-'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-constant",
+      "description": "numeric first argument 5",
+      "call": "h = fplot(5); report as default",
+      "errored": false,
+      "result": {
+        "value": {
+          "warning_id": "''",
+          "class": "'matlab.graphics.function.FunctionLine'",
+          "x_min": "-5",
+          "x_max": "5",
+          "more_than_two_points": "true",
+          "LineWidth": "0.5",
+          "Color": "[0.066000000000000003 0.443 0.745]",
+          "LineStyle": "'-'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-decreasing",
+      "description": "decreasing interval [2 1]",
+      "call": "fplot(@(x) x, [2 1])",
+      "errored": true,
+      "error_identifier": "MATLAB:fplot:RangeVector"
+    },
+    {
+      "case_id": "err-bad-property",
+      "description": "unknown property name",
+      "call": "fplot(@(x) x, 'NotAProperty', 1)",
+      "errored": true,
+      "error_identifier": "MATLAB:fplot:InvalidParameter"
+    }
+  ]
+}
