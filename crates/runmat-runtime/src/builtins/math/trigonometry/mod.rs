@@ -17,6 +17,7 @@ mod degree_helpers;
 pub(crate) mod inverse_helpers;
 pub(crate) mod pi_helpers;
 pub(crate) mod pol2cart;
+pub(crate) mod sec;
 pub(crate) mod sin;
 pub(crate) mod sind;
 pub(crate) mod sinh;

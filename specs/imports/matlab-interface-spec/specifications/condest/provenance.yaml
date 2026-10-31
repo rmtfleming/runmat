@@ -1,0 +1,118 @@
+# Provenance for condest (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: condest
+claims:
+- claim_id: condest.signature-primary
+  statement: The invocation form `c = condest(A)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: identity
+- claim_id: condest.values
+  statement: speye(4) gave 1; sparse diag([1 10 100]) gave 100; full [2 0; 0 8] gave 4; sparse(5) gave
+    1.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: identity
+  - file: observations/condest_observations.json
+    case_id: diag
+  - file: observations/condest_observations.json
+    case_id: dense
+  - file: observations/condest_observations.json
+    case_id: scalar
+- claim_id: condest.vs-cond
+  statement: For a 4x4 tridiagonal matrix condest equalled cond(full(A), 1) (2.7272727272727271); for
+    a 3x3 unsymmetric matrix they agreed to within 1e-15 (3.4000000000000004 vs 3.3999999999999995).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: vs-cond
+  - file: observations/condest_observations.json
+    case_id: vs-cond-unsym
+- claim_id: condest.singular
+  statement: A singular or all-zero sparse matrix gives Inf.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: singular
+  - file: observations/condest_observations.json
+    case_id: zero
+- claim_id: condest.empty
+  statement: A 0x0 input gives 0.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: empty
+- claim_id: condest.two-out
+  statement: For sparse diag([1 10 100]), [c, v] gave c = 100 and a 3x1 v with norm(v,1) = 1 and norm(A*v,1)
+    = 1.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: two-out
+- claim_id: condest.estimate
+  statement: 'Inference (not observed): condest is an estimate, so only the order of magnitude, not exact
+    agreement with cond(A, 1), should be required beyond the observed cases.'
+  source_category: independently-derived-inference
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: unresolved
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: vs-cond-unsym
+- claim_id: condest.error-nonsquare
+  statement: A is not square. The call errors with identifier MATLAB:condest:NonSquareMatrix.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: err-nonsquare
+- claim_id: condest.error-char
+  statement: A is a square char matrix. The call errors with identifier MATLAB:lu:inputType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/condest_observations.json
+    case_id: err-char

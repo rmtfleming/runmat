@@ -566,9 +566,8 @@ pub(crate) async fn deal_builtin(rest: Vec<Value>) -> crate::BuiltinResult<Value
 
 pub(crate) async fn rethrow_builtin(e: Value) -> crate::BuiltinResult<Value> {
     match e {
-        Value::MException(me) => Err(build_runtime_error(me.message)
-            .with_identifier(me.identifier)
-            .build()),
+        // spec 060: rethrow keeps the exception's causes.
+        Value::MException(me) => Err(crate::runtime_error::error_from_exception(&me)),
         Value::String(s) => Err(build_runtime_error(s).build()),
         other => Err(build_runtime_error(format!("RunMat:error: {other:?}")).build()),
     }

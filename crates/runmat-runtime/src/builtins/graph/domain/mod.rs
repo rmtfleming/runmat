@@ -222,7 +222,9 @@ mod class_registry;
 mod construction;
 mod editing;
 mod entrypoints;
+mod isomorphism;
 mod parsing;
+mod paths;
 mod structure;
 
 #[cfg(test)]

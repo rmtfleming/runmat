@@ -1,0 +1,51 @@
+# Provenance for isunix (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isunix
+claims:
+- claim_id: isunix.signature-primary
+  statement: The invocation form `tf = isunix` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isunix_observations.json
+    case_id: value
+- claim_id: isunix.value
+  statement: On the GLNXA64 oracle isunix returned logical true, while ispc and ismac returned false.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isunix_observations.json
+    case_id: value
+  - file: observations/isunix_observations.json
+    case_id: consistency
+- claim_id: isunix.cobra-test
+  statement: The COBRA test `isunix && ~ismac` was true on the GLNXA64 oracle.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isunix_observations.json
+    case_id: cobra-linux-test
+- claim_id: isunix.error-arg
+  statement: An input argument is given. The call errors with identifier MATLAB:maxrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isunix_observations.json
+    case_id: err-arg

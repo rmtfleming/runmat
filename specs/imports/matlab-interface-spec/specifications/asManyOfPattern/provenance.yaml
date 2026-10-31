@@ -1,0 +1,132 @@
+# Provenance for asManyOfPattern (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: asManyOfPattern
+claims:
+- claim_id: asManyOfPattern.signature-primary
+  statement: The invocation form `pat = asManyOfPattern(p, min)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: cobra-extract
+- claim_id: asManyOfPattern.class
+  statement: The result is of class pattern.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: class
+- claim_id: asManyOfPattern.cobra-pattern
+  statement: extract("ab_1 cd-e", asManyOfPattern(alphanumericsPattern | "_", 1)) gave ["ab_1"; "cd";
+    "e"]; on "--" it gave a 0x1 string; matches(["ab_1" "ab 1" ""], ...) gave [true false false]; contains(["--"
+    "-a-"], ...) gave [false true].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: cobra-extract
+  - file: observations/asManyOfPattern_observations.json
+    case_id: min1-no-empty
+  - file: observations/asManyOfPattern_observations.json
+    case_id: matches
+  - file: observations/asManyOfPattern_observations.json
+    case_id: contains
+- claim_id: asManyOfPattern.greedy
+  statement: 'Repetitions are taken as long as possible: extract("ab cd", asManyOfPattern(lettersPattern(1)))
+    gave ["ab"; "cd"].'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: default-min
+- claim_id: asManyOfPattern.min-max
+  statement: With min 2 and max 3 on digits, "1 22 333 4444" gave ["22"; "333"; "444"] (a single digit
+    not matched; 4444 matched as 444).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: min-max
+- claim_id: asManyOfPattern.text-pattern
+  statement: 'Text is accepted as the pattern: with min 2, "a aa aaa" gave ["aa"; "aaa"] for both string
+    "a" and char ''a''.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: string-input-min
+  - file: observations/asManyOfPattern_observations.json
+    case_id: char-input
+- claim_id: asManyOfPattern.empty-matches
+  statement: 'Observed, not required until q-empty-match is resolved: with the default minimum, extract("aaab",
+    asManyOfPattern("a")) gave ["aaa"; ""] and extract("ab cd", asManyOfPattern("b")) gave [""; "b"; "";
+    ""; ""].'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: string-input
+  - file: observations/asManyOfPattern_observations.json
+    case_id: default-min-string-letters
+- claim_id: asManyOfPattern.error-min-gt-max
+  statement: min is greater than max. The call errors with identifier MATLAB:pattern:InvalidLimitRange.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: err-min-gt-max
+- claim_id: asManyOfPattern.error-negative
+  statement: min is negative. The call errors with identifier MATLAB:pattern:MustBeNonnegativeInteger.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: err-negative
+- claim_id: asManyOfPattern.error-numeric
+  statement: p is numeric. The call errors with identifier MATLAB:pattern:MustBeTextOrPattern.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: err-numeric

@@ -1,0 +1,132 @@
+# Interface specification for convertvars (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: convertvars
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a table with selected variables converted to a named type or by a function; other variables
+  are unchanged.
+invocation_forms:
+- signature: T2 = convertvars(T, vars, type)
+  description: Convert the selected variables to `type` (COBRA form with a string array of names and 'string').
+  status: confirmed
+- signature: T2 = convertvars(T, vars, func)
+  description: Convert the selected variables by applying a function.
+  status: confirmed
+inputs:
+- name: T
+  position: 1
+  required: true
+  description: table.
+  status: confirmed
+- name: vars
+  position: 2
+  required: true
+  description: Variable name (char), string array of names, numeric index, or logical mask.
+  status: confirmed
+- name: type
+  position: 3
+  required: true
+  description: Type name ('string', 'categorical', 'int8', 'double' observed) or a function handle.
+  status: confirmed
+outputs:
+- name: T2
+  description: table of the same size and variable names.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: convertvars.selection-rule
+  statement: Variables can be selected by name, string array of names, numeric index and logical mask;
+    unselected variables are unchanged.
+  status: confirmed
+  normative: true
+  provenance: convertvars.selection
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: string
+  - file: observations/convertvars_observations.json
+    case_id: string-array-names
+  - file: observations/convertvars_observations.json
+    case_id: index
+  - file: observations/convertvars_observations.json
+    case_id: mask
+- id: convertvars.cobra-form-rule
+  statement: convertvars(T, ["Reaction ID" "Taxon"], 'string') converted both cellstr variables (names
+    containing a space) to string columns.
+  status: confirmed
+  normative: true
+  provenance: convertvars.cobra-form
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: preserve-names
+- id: convertvars.types-rule
+  statement: cellstr to 'string' gives string; cellstr to 'categorical' gives categorical (categories
+    a, b); double to 'string' gives "1", "2"; double to 'int8' gives int8; double to 'double' left the
+    table unchanged.
+  status: confirmed
+  normative: true
+  provenance: convertvars.types
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: string
+  - file: observations/convertvars_observations.json
+    case_id: categorical
+  - file: observations/convertvars_observations.json
+    case_id: numeric-to-string
+  - file: observations/convertvars_observations.json
+    case_id: to-int8
+  - file: observations/convertvars_observations.json
+    case_id: same-type
+- id: convertvars.function-rule
+  statement: A function handle (@upper) is applied to the variable (cellstr {'a';'b'} became {'A';'B'},
+    still cell).
+  status: confirmed
+  normative: true
+  provenance: convertvars.function
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: function
+numerical_edge_cases:
+- id: convertvars.non-table-rule
+  statement: 'Observed: a struct input errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  status: confirmed
+  normative: false
+  provenance: convertvars.non-table
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: err-not-table
+warnings: []
+errors:
+- condition: A selected variable is not in T.
+  identifier: MATLAB:table:UnrecognizedVarName
+  status: confirmed
+  provenance: convertvars.error-unknown
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: err-unknown
+- condition: The type name is not recognised.
+  identifier: MATLAB:table:convertvars:InvalidTextType
+  status: confirmed
+  provenance: convertvars.error-bad-type
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: err-bad-type
+- condition: The conversion fails (cellstr to 'double').
+  identifier: MATLAB:table:convertvars:VariableTypesConversionFailed
+  status: confirmed
+  provenance: convertvars.error-cell-to-double
+  observations:
+  - file: observations/convertvars_observations.json
+    case_id: err-cell-to-double
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/convertvars_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: convertvars.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

@@ -11,6 +11,7 @@ mod component_builtins;
 mod construction;
 mod constructor_builtin;
 mod conversion;
+pub(crate) mod date_builtin;
 mod dateshift_builtin;
 mod dateshift_model;
 mod descriptors;

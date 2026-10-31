@@ -1,0 +1,140 @@
+{
+  "schema_version": "1.0",
+  "function_name": "allchild",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/allchild/test_allchild_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe draws into a fresh invisible figure and closes it on exit; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "root-has-figure",
+      "description": "allchild(0) contains a newly created figure (COBRA form)",
+      "call": "f = figure('Visible', 'off'); h = allchild(0); report any(h == f), class(h) and whether h is a column",
+      "errored": false,
+      "result": {
+        "value": {
+          "contains_figure": "true",
+          "class": "'matlab.ui.Figure'",
+          "is_column": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "axes-vs-children",
+      "description": "allchild(ax) versus ax.Children after plot and title",
+      "call": "ax with one line and a title; report numel(allchild(ax)), numel(ax.Children) and sorted unique Types of allchild(ax)",
+      "errored": false,
+      "result": {
+        "value": {
+          "allchild": "1",
+          "children": "1",
+          "types": [
+            "'line'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "leaf",
+      "description": "allchild of a line",
+      "call": "h = allchild(line); report class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.GraphicsPlaceholder'",
+          "size": "[0 0]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "array",
+      "description": "allchild([fig1 fig2])",
+      "call": "report class and size of the result and of each element",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'cell'",
+          "size": "[2 1]",
+          "element_classes": [
+            "'matlab.graphics.primitive.world.Group'",
+            "'matlab.graphics.primitive.world.Group'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "figure",
+      "description": "allchild(fig) for a figure with one axes: count, count of fig.Children, sorted unique Types",
+      "call": "report numel(allchild(fig)), numel(fig.Children), unique Types",
+      "errored": false,
+      "result": {
+        "value": {
+          "allchild": "2",
+          "children": "1",
+          "types": [
+            "'annotationpane'",
+            "'axes'"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-deleted",
+      "description": "allchild of a deleted figure",
+      "call": "f = figure; delete(f); allchild(f)",
+      "errored": true,
+      "error_identifier": "MATLAB:allchild:InvalidHandles"
+    },
+    {
+      "case_id": "err-not-handle",
+      "description": "number that is not a handle",
+      "call": "allchild(123456)",
+      "errored": true,
+      "error_identifier": "MATLAB:allchild:InvalidHandles"
+    },
+    {
+      "case_id": "err-char",
+      "description": "char input",
+      "call": "allchild('a')",
+      "errored": true,
+      "error_identifier": "MATLAB:allchild:InvalidHandles"
+    }
+  ]
+}

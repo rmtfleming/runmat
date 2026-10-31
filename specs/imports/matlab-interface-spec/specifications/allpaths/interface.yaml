@@ -1,0 +1,150 @@
+# Interface specification for allpaths (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: allpaths
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the paths between two nodes of a graph or digraph as a cell column of node sequences (no
+  node repeated in any observed path).
+invocation_forms:
+- signature: P = allpaths(G, s, t)
+  description: All paths from s to t (COBRA form).
+  status: confirmed
+- signature: '[P, E] = allpaths(G, s, t)'
+  description: Also the edge indices of each path.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: graph or digraph.
+  status: confirmed
+- name: s
+  position: 2
+  required: true
+  description: Source node index or name.
+  status: confirmed
+- name: t
+  position: 3
+  required: true
+  description: Target node index or name.
+  status: confirmed
+outputs:
+- name: P
+  description: n-by-1 cell; each element is a row of node indices, or a cellstr row of names for named
+    nodes.
+  status: confirmed
+- name: E
+  description: n-by-1 cell of edge-index rows.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: allpaths.paths-rule
+  statement: On the 4-cycle 1-2-3-4-1, allpaths(G, 1, 3) gave {[1 2 3]; [1 4 3]}; on a path 1-2-3 it gave
+    {[1 2 3]}.
+  status: confirmed
+  normative: true
+  provenance: allpaths.paths
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: cycle
+  - file: observations/allpaths_observations.json
+    case_id: path
+- id: allpaths.digraph-rule
+  statement: 'Digraphs follow edge direction: with edges 1->2, 2->3, 1->3 the result was {[1 2 3]; [1
+    3]}; from 3 to 1 on 1->2->3 it was a 0x1 cell.'
+  status: confirmed
+  normative: true
+  provenance: allpaths.digraph
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: digraph
+  - file: observations/allpaths_observations.json
+    case_id: digraph-reverse
+- id: allpaths.same-node-rule
+  statement: When s equals t (node 2 of the 4-cycle, the one case tried) the result was {2}, a single
+    one-node path.
+  status: confirmed
+  normative: true
+  provenance: allpaths.same-node
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: same-node
+- id: allpaths.unreachable-rule
+  statement: When t was in another component (the one case tried) the result was a 0x1 cell.
+  status: confirmed
+  normative: true
+  provenance: allpaths.unreachable
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: unreachable
+- id: allpaths.names-rule
+  statement: With named nodes each path is a cellstr row of names ({'a','b','c'}; {'a','c'}).
+  status: confirmed
+  normative: true
+  provenance: allpaths.names
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: names
+- id: allpaths.edgepaths-rule
+  statement: On the 4-cycle 1-2-3-4-1, the second output was {[1 3]; [2 4]} (edge indices; the edge table
+    itself was not recorded).
+  status: confirmed
+  normative: true
+  provenance: allpaths.edgepaths
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: edgepaths
+numerical_edge_cases:
+- id: allpaths.non-graph-rule
+  statement: 'Observed: a numeric first argument errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  status: confirmed
+  normative: false
+  provenance: allpaths.non-graph
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: err-not-graph
+- id: allpaths.order-rule
+  statement: 'Observed path order: on the observed graphs, paths through lower-numbered next nodes came
+    first; whether this order is required is not established.'
+  status: confirmed
+  normative: false
+  provenance: allpaths.order
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: cycle
+  - file: observations/allpaths_observations.json
+    case_id: digraph
+  - file: observations/allpaths_observations.json
+    case_id: names
+warnings: []
+errors:
+- condition: A node index is out of range.
+  identifier: MATLAB:graphfun:graph:InvalidNodeID
+  status: confirmed
+  provenance: allpaths.error-node-range
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: err-node-range
+- condition: A node name is unknown.
+  identifier: MATLAB:graphfun:graph:UnknownNodeName
+  status: confirmed
+  provenance: allpaths.error-unknown-name
+  observations:
+  - file: observations/allpaths_observations.json
+    case_id: err-unknown-name
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/allpaths_observations.json
+  description: 11 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: allpaths.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: allpaths.q-more
+  question: Calls with more than three arguments, multigraphs and self-loops were not exercised.

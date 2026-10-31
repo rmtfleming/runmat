@@ -1,0 +1,152 @@
+# Interface specification for surfl (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: surfl
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Draw a 3-D surface of Z and return the Surface object; its CData differs from Z (how it is computed
+  was not established).
+invocation_forms:
+- signature: h = surfl(Z)
+  description: Grid coordinates 1..n and 1..m (COBRA test form).
+  status: confirmed
+- signature: h = surfl(X, Y, Z)
+  description: Given coordinates, vectors (COBRA form) or matrices.
+  status: confirmed
+inputs:
+- name: X
+  position: 1
+  required: false
+  description: Vector of length size(Z,2) or matrix the size of Z.
+  status: confirmed
+- name: Y
+  position: 2
+  required: false
+  description: Vector of length size(Z,1) or matrix the size of Z.
+  status: confirmed
+- name: Z
+  position: 3
+  required: true
+  description: Numeric matrix with at least 3 rows (2 rows errored; 3x3 and 4x3 accepted).
+  status: confirmed
+outputs:
+- name: h
+  description: matlab.graphics.chart.primitive.Surface object (1x1).
+  status: confirmed
+output_type_rules:
+- id: surfl.output-class-rule
+  statement: The output is a 1x1 matlab.graphics.chart.primitive.Surface.
+  status: confirmed
+  normative: true
+  provenance: surfl.output-class
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: z-only
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-3x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-4x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-matrices-3x3
+output_shape_rules:
+- id: surfl.data-rule
+  statement: ZData is Z; XData and YData are full grids the size of Z (from 1..n, 1..m for surfl(Z), or
+    expanded from vectors x, y); CData has the size of Z.
+  status: confirmed
+  normative: true
+  provenance: surfl.data
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: z-only
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-3x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-4x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-matrices-3x3
+- id: surfl.cdata-rule
+  statement: 'CData is not Z: for peaks(10) its values ranged from 0.3548 to 0.7787 (0.35483870967741943
+    to 0.77867593670498969).'
+  status: confirmed
+  normative: true
+  provenance: surfl.cdata
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: cdata-range
+- id: surfl.view-rule
+  statement: After surfl the axes view was [-37.5 30].
+  status: confirmed
+  normative: true
+  provenance: surfl.view
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: view
+- id: surfl.face-rule
+  statement: FaceColor is 'flat'.
+  status: confirmed
+  normative: true
+  provenance: surfl.face
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: face
+numerical_edge_cases:
+- id: surfl.edgecolor-rule
+  statement: 'Observed with default graphics settings: EdgeColor was [0.12941176470588237 0.12941176470588237
+    0.12941176470588237]; not required.'
+  status: confirmed
+  normative: false
+  provenance: surfl.edgecolor
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: face
+warnings: []
+errors:
+- condition: Z has only 2 rows (with or without X and Y).
+  identifier: MATLAB:surfl:InvalidInput
+  status: confirmed
+  provenance: surfl.error-z-2x3
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: err-z-2x3
+  - file: observations/surfl_observations.json
+    case_id: err-xyz-vectors-2row
+  - file: observations/surfl_observations.json
+    case_id: err-xyz-matrices-2row
+- condition: x length does not match the columns of a 3x3 Z.
+  identifier: MATLAB:xyzchk:lengthXDoesNotMatchNumColumnsZ
+  status: confirmed
+  provenance: surfl.error-size
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: err-size
+- condition: A single char argument is given (surfl('abc')).
+  identifier: MATLAB:narginchk:notEnoughInputs
+  status: confirmed
+  provenance: surfl.error-char
+  observations:
+  - file: observations/surfl_observations.json
+    case_id: err-char
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/surfl_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: surfl.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: surfl.q-min-size
+  question: 'The exact minimum size of Z was not established: 2 rows errored and 3 rows worked; Z with
+    fewer than 3 columns was not tried.'
+- id: surfl.q-cdata
+  question: How CData is computed from the inputs was not established; only its size, and its range for
+    one input, were recorded.
+- id: surfl.q-char-error
+  question: The char-input error names argument counting (narginchk:notEnoughInputs); whether the cause
+    is the char class or the single argument was not separated.
+- id: surfl.q-error-ids
+  question: Some error identifiers name other functions (xyzchk, narginchk); whether an implementation
+    must reproduce them is a human-review question (constitution 8.2).

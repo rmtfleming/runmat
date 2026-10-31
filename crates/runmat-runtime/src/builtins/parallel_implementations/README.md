@@ -81,6 +81,8 @@ parents:
 - `diagnostics/mod.rs`: `#[path = "getReport.rs"] get_report`, `exceptions_warnings` (spec 049: `MException`, `addCause`, `throw`, `lastwarn`)
 - `strings/search/mod.rs`: `strmatch`, `findstr` (spec 037)
 - `common/mod.rs`: `validateattributes` (spec 038)
+- `math/trigonometry/mod.rs`: `sec` (spec 055)
+- `datetime/mod.rs`: `date_builtin` (spec 053: `date`)
 
 Clean-room builtins added after the merges that live under hand-written
 parents (no regeneration risk): `svds` (`math/linalg/factor/mod.rs`),
@@ -95,7 +97,15 @@ and `dec2base`/`validatestring` (`strings/core/mod.rs`); batch N2: `nthroot`
 `hsv` (in `plotting/ops/colormap_arrays.rs`), `alpha`/`tiledlayout`
 (`plotting/ops/mod.rs`, via `#[path]`), `addnode` (`graph/domain/mod.rs`),
 `categories` (`table/builtins.rs`), `textread` (`io/filetext/mod.rs`) and the
-`containers.Map` conformance tests (`containers/map/mod.rs`).
+`containers.Map` conformance tests (`containers/map/mod.rs`); batches N3+N4:
+`isunix`/`ismac`/`isMATLABReleaseOlderThan` (`io/repl_fs/environment/mod.rs`),
+`chdir` (`io/repl_fs/cd/mod.rs`), `isfloat`/`isnat` (`logical/tests/mod.rs`),
+`struct2cell` (`structs/core/mod.rs`), `strvcat`/`asManyOfPattern`
+(`strings/core/mod.rs`), `orth` (`math/linalg/factor/mod.rs`), `condest`
+(`math/linalg/solve/mod.rs`), `strread` (`io/filetext/mod.rs`),
+`renamevars`/`rows2vars`/`varfun`/`convertvars` (`table/builtins.rs`),
+`findall`/`ishghandle`/`allchild`/`pcolor`/`surfl` (`plotting/ops/mod.rs`, via
+`#[path]`) and `isomorphism`/`allpaths`/`inedges` (`graph/domain/mod.rs`).
 
 Re-add these lines whenever upstream regenerates those files. CI does not currently verify
 generated products, so the hand-added lines don't fail the build.

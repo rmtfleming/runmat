@@ -1,0 +1,585 @@
+{
+  "schema_version": "1.0",
+  "function_name": "convertvars",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/convertvars/test_convertvars_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "string",
+      "description": "cellstr variable to 'string' by name",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'p', 'string')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"a\";\"b\"]"
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-array-names",
+      "description": "names given as a string array (COBRA form)",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), [\"p\" \"q\"], 'string')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"a\";\"b\"]"
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"x\";\"y\"]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "preserve-names",
+      "description": "names containing a space, given as a string array (COBRA form)",
+      "call": "convertvars(table({'a';'b'}, {'c';'d'}, 'VariableNames', {'Reaction ID','Taxon'}), [\"Reaction ID\" \"Taxon\"], 'string')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "Reaction ID",
+            "Taxon"
+          ],
+          "variables": [
+            {
+              "name": "Reaction ID",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"a\";\"b\"]"
+            },
+            {
+              "name": "Taxon",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"c\";\"d\"]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "index",
+      "description": "selection by numeric index",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 3, 'string')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'a'",
+                "'b'"
+              ]
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"x\";\"y\"]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mask",
+      "description": "selection by logical mask",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), [true false false], 'string')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"a\";\"b\"]"
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "categorical",
+      "description": "cellstr to 'categorical'",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'p', 'categorical')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "categorical",
+              "size": [
+                2,
+                1
+              ],
+              "value": {
+                "categorical_values": [
+                  "a",
+                  "b"
+                ],
+                "categories": [
+                  "a",
+                  "b"
+                ]
+              }
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-to-string",
+      "description": "double to 'string'",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'n', 'string')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'a'",
+                "'b'"
+              ]
+            },
+            {
+              "name": "n",
+              "class": "string",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[\"1\";\"2\"]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "to-int8",
+      "description": "double to 'int8'",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'n', 'int8')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'a'",
+                "'b'"
+              ]
+            },
+            {
+              "name": "n",
+              "class": "int8",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "function",
+      "description": "conversion by a function handle",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'p', @upper)",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'A'",
+                "'B'"
+              ]
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-type",
+      "description": "conversion to the current type",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'n', 'double')",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "p",
+            "n",
+            "q"
+          ],
+          "variables": [
+            {
+              "name": "p",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'a'",
+                "'b'"
+              ]
+            },
+            {
+              "name": "n",
+              "class": "double",
+              "size": [
+                2,
+                1
+              ],
+              "value": "[1;2]"
+            },
+            {
+              "name": "q",
+              "class": "cell",
+              "size": [
+                2,
+                1
+              ],
+              "value": [
+                "'x'",
+                "'y'"
+              ]
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          2,
+          3
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-unknown",
+      "description": "unknown variable",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'nope', 'string')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:UnrecognizedVarName"
+    },
+    {
+      "case_id": "err-bad-type",
+      "description": "unknown type name",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'p', 'nope')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:convertvars:InvalidTextType"
+    },
+    {
+      "case_id": "err-cell-to-double",
+      "description": "cellstr to 'double'",
+      "call": "convertvars(table({'a';'b'}, [1;2], {'x';'y'}, 'VariableNames', {'p','n','q'}), 'p', 'double')",
+      "errored": true,
+      "error_identifier": "MATLAB:table:convertvars:VariableTypesConversionFailed"
+    },
+    {
+      "case_id": "err-not-table",
+      "description": "struct input",
+      "call": "convertvars(struct('a', 1), 'a', 'string')",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

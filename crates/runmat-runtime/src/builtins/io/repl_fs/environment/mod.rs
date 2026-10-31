@@ -5,6 +5,8 @@ pub(crate) mod isenv;
 mod mutation;
 mod names;
 mod output;
+pub(crate) mod platform;
+pub(crate) mod release;
 pub(crate) mod setenv;
 pub(crate) mod unsetenv;
 mod values;

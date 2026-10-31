@@ -1,5 +1,6 @@
 //! Current-working-folder query and mutation.
 
+mod chdir;
 mod execute;
 mod input;
 pub(crate) mod specification;

@@ -1,0 +1,190 @@
+{
+  "schema_version": "1.0",
+  "function_name": "surfl",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/surfl/test_surfl_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe draws into a fresh invisible figure and closes it on exit; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "z-only",
+      "description": "surfl(Z) for a 3x3 Z (COBRA test form)",
+      "call": "h = surfl(magic(3)); report class, size, XData, YData, ZData, size(CData)",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.chart.primitive.Surface'",
+          "size": "[1 1]",
+          "XData": "[1 2 3;1 2 3;1 2 3]",
+          "YData": "[1 1 1;2 2 2;3 3 3]",
+          "ZData": "[8 1 6;3 5 7;4 9 2]",
+          "CData_size": "[3 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-xyz-vectors-2row",
+      "description": "surfl(x, y, Z) with vectors and a 2x3 Z",
+      "call": "surfl([1 2 3], [10 20], [1 2 3; 4 5 6])",
+      "errored": true,
+      "error_identifier": "MATLAB:surfl:InvalidInput"
+    },
+    {
+      "case_id": "err-xyz-matrices-2row",
+      "description": "surfl(X, Y, Z) with 2x3 meshgrid matrices",
+      "call": "[X, Y] = meshgrid(1:3, [10 20]); surfl(X, Y, [1 2 3; 4 5 6])",
+      "errored": true,
+      "error_identifier": "MATLAB:surfl:InvalidInput"
+    },
+    {
+      "case_id": "xyz-vectors-3x3",
+      "description": "surfl(x, y, Z) with vectors and a 3x3 Z (COBRA form)",
+      "call": "h = surfl([1 2 3], [10 20 30], magic(3)); report as for z-only",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.chart.primitive.Surface'",
+          "size": "[1 1]",
+          "XData": "[1 2 3;1 2 3;1 2 3]",
+          "YData": "[10 10 10;20 20 20;30 30 30]",
+          "ZData": "[8 1 6;3 5 7;4 9 2]",
+          "CData_size": "[3 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "xyz-vectors-4x3",
+      "description": "surfl(x, y, Z) with vectors and a 4x3 Z",
+      "call": "h = surfl([1 2 3], [10 20 30 40], reshape(1:12, 4, 3)); report as for z-only",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.chart.primitive.Surface'",
+          "size": "[1 1]",
+          "XData": "[1 2 3;1 2 3;1 2 3;1 2 3]",
+          "YData": "[10 10 10;20 20 20;30 30 30;40 40 40]",
+          "ZData": "[1 5 9;2 6 10;3 7 11;4 8 12]",
+          "CData_size": "[4 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "xyz-matrices-3x3",
+      "description": "surfl(X, Y, Z) with 3x3 meshgrid matrices",
+      "call": "[X, Y] = meshgrid(1:3, [10 20 30]); h = surfl(X, Y, magic(3)); report as for z-only",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.chart.primitive.Surface'",
+          "size": "[1 1]",
+          "XData": "[1 2 3;1 2 3;1 2 3]",
+          "YData": "[10 10 10;20 20 20;30 30 30]",
+          "ZData": "[8 1 6;3 5 7;4 9 2]",
+          "CData_size": "[3 3]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-z-2x3",
+      "description": "surfl(Z) with a 2x3 Z",
+      "call": "surfl([1 2 3; 4 5 6])",
+      "errored": true,
+      "error_identifier": "MATLAB:surfl:InvalidInput"
+    },
+    {
+      "case_id": "cdata-range",
+      "description": "minimum and maximum of CData for surfl(peaks(10))",
+      "call": "h = surfl(peaks(10)); report min and max of CData",
+      "errored": false,
+      "result": {
+        "value": "[0.35483870967741943 0.77867593670498969]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "view",
+      "description": "axes view after surfl",
+      "call": "surfl(magic(3)); report view of the axes",
+      "errored": false,
+      "result": {
+        "value": "[-37.5 30]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "face",
+      "description": "FaceColor and EdgeColor of the returned object",
+      "call": "h = surfl(magic(3)); report FaceColor, EdgeColor",
+      "errored": false,
+      "result": {
+        "value": {
+          "FaceColor": "'flat'",
+          "EdgeColor": "[0.12941176470588237 0.12941176470588237 0.12941176470588237]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-size",
+      "description": "x length not matching the columns of a 3x3 Z",
+      "call": "surfl([1 2], [10 20 30], magic(3))",
+      "errored": true,
+      "error_identifier": "MATLAB:xyzchk:lengthXDoesNotMatchNumColumnsZ"
+    },
+    {
+      "case_id": "err-char",
+      "description": "a single char argument",
+      "call": "surfl('abc')",
+      "errored": true,
+      "error_identifier": "MATLAB:narginchk:notEnoughInputs"
+    }
+  ]
+}

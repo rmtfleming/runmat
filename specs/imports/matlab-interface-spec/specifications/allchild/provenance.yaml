@@ -1,0 +1,91 @@
+# Provenance for allchild (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: allchild
+claims:
+- claim_id: allchild.signature-primary
+  statement: The invocation form `h = allchild(obj)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: root-has-figure
+- claim_id: allchild.root
+  statement: allchild(0) returned a column whose elements include a newly created invisible figure (class
+    matlab.ui.Figure observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: root-has-figure
+- claim_id: allchild.figure
+  statement: For a figure with one axes, allchild returned 2 objects, of Type 'annotationpane' and 'axes',
+    where fig.Children held 1.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: figure
+- claim_id: allchild.axes
+  statement: For axes with one line and a title, allchild returned 1 object, of Type 'line', the same
+    count as the Children property.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: axes-vs-children
+- claim_id: allchild.leaf
+  statement: For a line, the result is a 0x0 GraphicsPlaceholder array.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: leaf
+- claim_id: allchild.array
+  statement: For [fig1 fig2] the result is a 2x1 cell (both elements of class matlab.graphics.primitive.world.Group
+    in the observed run).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: array
+- claim_id: allchild.error-deleted
+  statement: The input is a deleted handle, a number that is not a handle, or char. The call errors with
+    identifier MATLAB:allchild:InvalidHandles.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/allchild_observations.json
+    case_id: err-deleted
+  - file: observations/allchild_observations.json
+    case_id: err-not-handle
+  - file: observations/allchild_observations.json
+    case_id: err-char

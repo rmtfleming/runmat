@@ -13,5 +13,6 @@ pub mod frewind;
 pub mod fwrite;
 pub(crate) mod helpers;
 pub mod lines;
+pub mod strread;
 pub mod textread;
 pub(crate) mod registry;

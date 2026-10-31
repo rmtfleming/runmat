@@ -312,12 +312,18 @@ async fn load_scalar_member_with_context(
                         .map_err(|e| format!("MException.stack: {e}"))?;
                     Value::Cell(cell)
                 }
-                // spec 049: RunMat exceptions carry no causes (D-049-1), so
-                // `ME.cause` is an empty 0x1 cell [MException.properties].
-                "cause" => Value::Cell(
-                    runmat_value::CellArray::new(Vec::new(), 0, 1)
-                        .map_err(|e| format!("MException.cause: {e}"))?,
-                ),
+                // spec 060: `ME.cause` is an n-by-1 cell of the causes in the
+                // order they were added (0x1 without causes)
+                // [addCause.append, MException.properties].
+                "cause" => {
+                    let values: Vec<Value> =
+                        mexn.causes.iter().cloned().map(Value::MException).collect();
+                    let rows = values.len();
+                    Value::Cell(
+                        runmat_value::CellArray::new(values, rows, 1)
+                            .map_err(|e| format!("MException.cause: {e}"))?,
+                    )
+                }
                 // spec 049: `ME.throw` throws the exception [throw.caught, case dot].
                 "throw" => {
                     return Err(

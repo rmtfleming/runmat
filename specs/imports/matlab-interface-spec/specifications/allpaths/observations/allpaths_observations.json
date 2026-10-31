@@ -1,0 +1,190 @@
+{
+  "schema_version": "1.0",
+  "function_name": "allpaths",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/allpaths/test_allpaths_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "path",
+      "description": "single path on a path graph",
+      "call": "allpaths(graph([1 2], [2 3]), 1, 3)",
+      "errored": false,
+      "result": {
+        "value": [
+          "[1 2 3]"
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cycle",
+      "description": "two routes around a 4-cycle (COBRA form allpaths(G, s, t))",
+      "call": "allpaths(graph([1 2 3 1], [2 3 4 4]), 1, 3)",
+      "errored": false,
+      "result": {
+        "value": [
+          "[1 2 3]",
+          "[1 4 3]"
+        ],
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph",
+      "description": "directed graph allows only one direction",
+      "call": "allpaths(digraph([1 2 1], [2 3 3]), 1, 3)",
+      "errored": false,
+      "result": {
+        "value": [
+          "[1 2 3]",
+          "[1 3]"
+        ],
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "digraph-reverse",
+      "description": "directed graph, target before source",
+      "call": "allpaths(digraph([1 2], [2 3]), 3, 1)",
+      "errored": false,
+      "result": {
+        "value": [],
+        "class": "cell",
+        "size": [
+          0,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same-node",
+      "description": "source equals target",
+      "call": "allpaths(graph([1 2 3 1], [2 3 4 4]), 2, 2)",
+      "errored": false,
+      "result": {
+        "value": [
+          "2"
+        ],
+        "class": "cell",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unreachable",
+      "description": "target in another component",
+      "call": "allpaths(graph([1 3], [2 4]), 1, 4)",
+      "errored": false,
+      "result": {
+        "value": [],
+        "class": "cell",
+        "size": [
+          0,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names",
+      "description": "named nodes",
+      "call": "allpaths(graph({'a','b','a'}, {'b','c','c'}), 'a', 'c')",
+      "errored": false,
+      "result": {
+        "value": [
+          [
+            "'a'",
+            "'b'",
+            "'c'"
+          ],
+          [
+            "'a'",
+            "'c'"
+          ]
+        ],
+        "class": "cell",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edgepaths",
+      "description": "[paths, edgepaths] on the 4-cycle",
+      "call": "[p, e] = allpaths(graph([1 2 3 1], [2 3 4 4]), 1, 3); report p and e",
+      "errored": false,
+      "result": {
+        "value": {
+          "paths": [
+            "[1 2 3]",
+            "[1 4 3]"
+          ],
+          "edgepaths": [
+            "[1 3]",
+            "[2 4]"
+          ]
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-node-range",
+      "description": "node index out of range",
+      "call": "allpaths(graph([1 2], [2 3]), 1, 9)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graph:InvalidNodeID"
+    },
+    {
+      "case_id": "err-unknown-name",
+      "description": "unknown node name",
+      "call": "allpaths(graph({'a'}, {'b'}), 'a', 'z')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graph:UnknownNodeName"
+    },
+    {
+      "case_id": "err-not-graph",
+      "description": "numeric first argument",
+      "call": "allpaths([0 1; 1 0], 1, 2)",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

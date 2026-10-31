@@ -1,0 +1,209 @@
+{
+  "schema_version": "1.0",
+  "function_name": "asManyOfPattern",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/asManyOfPattern/test_asManyOfPattern_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "class",
+      "description": "class of the COBRA pattern",
+      "call": "class(asManyOfPattern(alphanumericsPattern | \"_\", 1))",
+      "errored": false,
+      "result": {
+        "value": "'pattern'",
+        "class": "char",
+        "size": [
+          1,
+          7
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-extract",
+      "description": "extract with the COBRA pattern",
+      "call": "extract(\"ab_1 cd-e\", asManyOfPattern(alphanumericsPattern | \"_\", 1))",
+      "errored": false,
+      "result": {
+        "value": "[\"ab_1\";\"cd\";\"e\"]",
+        "class": "string",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "min1-no-empty",
+      "description": "minimum 1 on text with no matching character",
+      "call": "extract(\"--\", asManyOfPattern(alphanumericsPattern | \"_\", 1))",
+      "errored": false,
+      "result": {
+        "value": "strings(0,1)",
+        "class": "string",
+        "size": [
+          0,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "default-min",
+      "description": "no minimum given: extract on text with a gap",
+      "call": "extract(\"ab cd\", asManyOfPattern(lettersPattern(1)))",
+      "errored": false,
+      "result": {
+        "value": "[\"ab\";\"cd\"]",
+        "class": "string",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "min-max",
+      "description": "minimum 2, maximum 3 digits",
+      "call": "extract(\"1 22 333 4444\", asManyOfPattern(digitsPattern(1), 2, 3))",
+      "errored": false,
+      "result": {
+        "value": "[\"22\";\"333\";\"444\"]",
+        "class": "string",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "matches",
+      "description": "matches requires the whole text",
+      "call": "matches([\"ab_1\" \"ab 1\" \"\"], asManyOfPattern(alphanumericsPattern | \"_\", 1))",
+      "errored": false,
+      "result": {
+        "value": "[true false false]",
+        "class": "logical",
+        "size": [
+          1,
+          3
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "contains",
+      "description": "contains with the COBRA pattern",
+      "call": "contains([\"--\" \"-a-\"], asManyOfPattern(alphanumericsPattern | \"_\", 1))",
+      "errored": false,
+      "result": {
+        "value": "[false true]",
+        "class": "logical",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-input",
+      "description": "string text as the pattern",
+      "call": "extract(\"aaab\", asManyOfPattern(\"a\"))",
+      "errored": false,
+      "result": {
+        "value": "[\"aaa\";\"\"]",
+        "class": "string",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-input-min",
+      "description": "string text as the pattern with minimum 2",
+      "call": "extract(\"a aa aaa\", asManyOfPattern(\"a\", 2))",
+      "errored": false,
+      "result": {
+        "value": "[\"aa\";\"aaa\"]",
+        "class": "string",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char-input",
+      "description": "char text as the pattern",
+      "call": "extract(\"a aa aaa\", asManyOfPattern('a', 2))",
+      "errored": false,
+      "result": {
+        "value": "[\"aa\";\"aaa\"]",
+        "class": "string",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "default-min-string-letters",
+      "description": "default minimum with the literal string pattern \"b\" on \"ab cd\" (a different pattern from default-min)",
+      "call": "extract(\"ab cd\", asManyOfPattern(\"b\"))",
+      "errored": false,
+      "result": {
+        "value": "[\"\";\"b\";\"\";\"\";\"\"]",
+        "class": "string",
+        "size": [
+          5,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-min-gt-max",
+      "description": "minimum greater than maximum",
+      "call": "asManyOfPattern(\"a\", 3, 2)",
+      "errored": true,
+      "error_identifier": "MATLAB:pattern:InvalidLimitRange"
+    },
+    {
+      "case_id": "err-negative",
+      "description": "negative minimum",
+      "call": "asManyOfPattern(\"a\", -1)",
+      "errored": true,
+      "error_identifier": "MATLAB:pattern:MustBeNonnegativeInteger"
+    },
+    {
+      "case_id": "err-numeric",
+      "description": "numeric pattern",
+      "call": "asManyOfPattern(5)",
+      "errored": true,
+      "error_identifier": "MATLAB:pattern:MustBeTextOrPattern"
+    }
+  ]
+}

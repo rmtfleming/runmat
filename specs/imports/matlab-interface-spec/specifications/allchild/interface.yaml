@@ -1,0 +1,102 @@
+# Interface specification for allchild (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: allchild
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the children of graphics objects; for the observed figure it returned more objects than
+  its Children property lists; for an array of handles, a cell array.
+invocation_forms:
+- signature: h = allchild(obj)
+  description: Children of one object (COBRA form allchild(0) for the root).
+  status: confirmed
+- signature: c = allchild([obj1 obj2])
+  description: Cell array with one entry per object.
+  status: confirmed
+inputs:
+- name: obj
+  position: 1
+  required: true
+  description: Graphics handle or array of handles; 0 for the root.
+  status: confirmed
+outputs:
+- name: h
+  description: Column of graphics objects; a cell column for an array input.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: allchild.root-rule
+  statement: allchild(0) returned a column whose elements include a newly created invisible figure (class
+    matlab.ui.Figure observed).
+  status: confirmed
+  normative: true
+  provenance: allchild.root
+  observations:
+  - file: observations/allchild_observations.json
+    case_id: root-has-figure
+- id: allchild.figure-rule
+  statement: For a figure with one axes, allchild returned 2 objects, of Type 'annotationpane' and 'axes',
+    where fig.Children held 1.
+  status: confirmed
+  normative: true
+  provenance: allchild.figure
+  observations:
+  - file: observations/allchild_observations.json
+    case_id: figure
+- id: allchild.axes-rule
+  statement: For axes with one line and a title, allchild returned 1 object, of Type 'line', the same
+    count as the Children property.
+  status: confirmed
+  normative: true
+  provenance: allchild.axes
+  observations:
+  - file: observations/allchild_observations.json
+    case_id: axes-vs-children
+- id: allchild.leaf-rule
+  statement: For a line, the result is a 0x0 GraphicsPlaceholder array.
+  status: confirmed
+  normative: true
+  provenance: allchild.leaf
+  observations:
+  - file: observations/allchild_observations.json
+    case_id: leaf
+- id: allchild.array-rule
+  statement: For [fig1 fig2] the result is a 2x1 cell (both elements of class matlab.graphics.primitive.world.Group
+    in the observed run).
+  status: confirmed
+  normative: true
+  provenance: allchild.array
+  observations:
+  - file: observations/allchild_observations.json
+    case_id: array
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The input is a deleted handle, a number that is not a handle, or char.
+  identifier: MATLAB:allchild:InvalidHandles
+  status: confirmed
+  provenance: allchild.error-deleted
+  observations:
+  - file: observations/allchild_observations.json
+    case_id: err-deleted
+  - file: observations/allchild_observations.json
+    case_id: err-not-handle
+  - file: observations/allchild_observations.json
+    case_id: err-char
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/allchild_observations.json
+  description: 8 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: allchild.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: allchild.q-array-elements
+  question: For an array input, the element class (world.Group arrays) was recorded but their contents
+    were not.
+- id: allchild.q-order
+  question: The order of children was not recorded.

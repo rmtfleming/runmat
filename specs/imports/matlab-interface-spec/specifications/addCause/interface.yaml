@@ -1,0 +1,115 @@
+# Interface specification for addCause (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: addCause
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a copy of an MException with another MException appended to its list of causes.
+invocation_forms:
+- signature: ME2 = addCause(ME, cause)
+  description: Append `cause` (COBRA form err = addCause(err, ME)).
+  status: confirmed
+- signature: ME2 = ME.addCause(cause)
+  description: Dot-call syntax.
+  status: confirmed
+inputs:
+- name: ME
+  position: 1
+  required: true
+  description: MException.
+  status: confirmed
+- name: cause
+  position: 2
+  required: true
+  description: MException.
+  status: confirmed
+outputs:
+- name: ME2
+  description: MException with the same identifier and the cause appended.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: addCause.append-rule
+  statement: Causes are appended in call order and held in an n-by-1 cell (class cell; 1x1, then 2x1 with
+    c1 before c2); the identifier is unchanged.
+  status: confirmed
+  normative: true
+  provenance: addCause.append
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: one
+  - file: observations/addCause_observations.json
+    case_id: two
+- id: addCause.nested-rule
+  statement: A cause may itself have causes, which are kept.
+  status: confirmed
+  normative: true
+  provenance: addCause.nested
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: nested
+- id: addCause.value-semantics-rule
+  statement: Calling addCause without assigning the result left the original exception with 0 causes.
+  status: confirmed
+  normative: true
+  provenance: addCause.value-semantics
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: value-semantics
+- id: addCause.thrown-rule
+  statement: Causes are present on the exception caught after throw.
+  status: confirmed
+  normative: true
+  provenance: addCause.thrown
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: thrown
+- id: addCause.caught-cause-rule
+  statement: An exception raised by error() and caught can be added as a cause.
+  status: confirmed
+  normative: true
+  provenance: addCause.caught-cause
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: caught-builtin-cause
+- id: addCause.method-syntax-rule
+  statement: ME.addCause(c) gives the same result.
+  status: confirmed
+  normative: true
+  provenance: addCause.method-syntax
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: method-syntax
+numerical_edge_cases:
+- id: addCause.non-exception-rule
+  statement: 'Observed: a struct first argument errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  status: confirmed
+  normative: false
+  provenance: addCause.non-exception
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: err-not-exception
+warnings: []
+errors:
+- condition: The cause is not an MException (char or struct).
+  identifier: MATLAB:class:RequireClass
+  status: confirmed
+  provenance: addCause.error-char-cause
+  observations:
+  - file: observations/addCause_observations.json
+    case_id: err-char-cause
+  - file: observations/addCause_observations.json
+    case_id: err-struct-cause
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/addCause_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: addCause.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

@@ -64,7 +64,7 @@ still pass.
 | Claim / basis | FR | Test(s) | Result |
 |---|---|---|---|
 | MException.signature-primary, MException.output-class, MException.properties | FR-049-01 | `observed_mexception_construct_formats_message`, `observed_mexception_plain_percent_three_part`, `observed_mexception_member_reads` | PASS |
-| MException.properties (no causes) | FR-049-01 | `deviation_observed_add_cause_and_thrown_cause` (`ME.cause` empty part) | ignored (D-049-1); `ME.cause` route added |
+| MException.properties (no causes) | FR-049-01 | F60 `observed_add_cause_value_semantics` (`ME.cause` is 0×1 without causes) | PASS (F60) |
 | MException.identifier-form | FR-049-02 | `observed_mexception_construct_formats_message`, `observed_mexception_plain_percent_three_part` | PASS |
 | MException.error-bad-id | FR-049-03 | `rejects_mexception_bad_identifier` | PASS |
 | MException.error-no-message | FR-049-03 | `rejects_mexception_identifier_only` | PASS |
@@ -73,7 +73,7 @@ still pass.
 | throw.formatted | FR-049-04 | `observed_throw_formatted_and_percent` | PASS |
 | throw.no-id | FR-049-04 | `observed_throw_empty_identifier` | PASS |
 | MException.rethrow, throw.rethrow | FR-049-05 | `observed_mexception_rethrow_preserves`, `observed_throw_of_caught_error` | PASS |
-| MException.addcause, throw.cause | FR-049-06 | `deviation_add_cause_is_unsupported` (explicit error); observed behaviour: `deviation_observed_add_cause_and_thrown_cause` | PASS / ignored — **not met** (D-049-1) |
+| MException.addcause, throw.cause | FR-049-06 | superseded by F60: `observed_add_cause_appends_in_order`, `observed_add_cause_value_semantics`, `observed_add_cause_survives_throw_and_catch` (see `specs/060-exception-causes/validation.md`) | PASS — **met by F60** (D-049-1 closed) |
 | lastwarn.signature-primary, lastwarn.after-warning | FR-049-07 | `observed_lastwarn_after_warning` | PASS |
 | lastwarn.set | FR-049-08 | `observed_lastwarn_set_forms` | PASS |
 | lastwarn.set-return | FR-049-09 | `observed_lastwarn_set_returns_previous` | PASS |
@@ -82,7 +82,7 @@ still pass.
 | lastwarn.empty-class | FR-049-12 | `observed_lastwarn_cleared_outputs_are_0x0_char` | PASS |
 | U-049-1 | FR-049-13 | `unresolved_choice_mexception_inputs` | PASS |
 | throw.non-mexception (non-normative), U-049-2 | FR-049-13 | `unresolved_choice_throw_non_exception` | PASS |
-| U-049-3 | FR-049-13 | `deviation_add_cause_is_unsupported` | PASS |
+| U-049-3 | FR-049-13 | superseded by F60 (U-060-1, `unresolved_choice_add_cause_inputs`) | PASS (F60) |
 | U-049-4 | FR-049-13 | `unresolved_choice_lastwarn_inputs_and_outputs` | PASS |
 | U-049-5 | FR-049-13 | `observed_lastwarn_no_identifier` | PASS |
 | U-049-6 | FR-049-13 | upstream `warning` tests (`off_suppresses_warning`, …) still pass in the diagnostics suite | PASS |
@@ -96,14 +96,22 @@ Every FR maps to at least one test; FR-049-06 is reported as not met.
 `RunMat:MException:badIdentifier`, `RunMat:minrhs`,
 `RunMat:MException:InvalidInput`, `RunMat:MException:TooManyOutputs`,
 `RunMat:throw:UndefinedFunction`, `RunMat:throw:InvalidInput`,
-`RunMat:addCause:UnsupportedOption`, `RunMat:addCause:InvalidInput`,
+`RunMat:addCause:UnsupportedOption` (removed by F60, which uses
+`RunMat:class:RequireClass`, `RunMat:addCause:UndefinedFunction`,
+`RunMat:addCause:TooManyOutputs`), `RunMat:addCause:InvalidInput`,
 `RunMat:lastwarn:InvalidInput`, `RunMat:lastwarn:UnsupportedOption`,
 `RunMat:lastwarn:TooManyOutputs`. A thrown exception keeps its own
 identifier (including `''`).
 
 ## Deviations
 
-- **D-049-1** Causes (`addCause`, `throw.cause`, `numel(ME.cause)` after
+- **D-049-1 — CLOSED 2026-10-30 by F60** (`specs/060-exception-causes/`):
+  the maintainer approved cause support; `runmat_value::MException` now has
+  a cause list, the codec round-trips it, thrown errors carry it to
+  `catch`, and `addCause` is implemented. The D-049-1 tests
+  (`deviation_add_cause_is_unsupported`, ignored
+  `deviation_observed_add_cause_and_thrown_cause`) were replaced by the
+  F60 tests. Original text, for the record: Causes (`addCause`, `throw.cause`, `numel(ME.cause)` after
   addCause) are not supported: `runmat_value::MException` has no cause list
   and `RuntimeError` cannot carry one into `catch`. Needs an architecture
   decision (value type in `runmat-value`, value codec, error propagation).
@@ -112,6 +120,10 @@ identifier (including `''`).
 - **D-049-2** `ME.throw` / `ME.throw()` are handled at the runtime object
   layer; the VM's compilation of a bare `ME.throw;` statement into these
   routes is not exercised here (VM integration tests not run).
+  *Update (F60):* `e.throw()` in compiled code is now routed (dotted-invoke
+  short-cut) and exercised by the VM test
+  `crates/runmat-vm/tests/exception_causes.rs::method_throw_carries_causes`;
+  the bare `ME.throw;` statement form is still not exercised.
 
 ## Notes
 

@@ -1,0 +1,38 @@
+# Provenance for ismac (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: ismac
+claims:
+- claim_id: ismac.signature-primary
+  statement: The invocation form `tf = ismac` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/ismac_observations.json
+    case_id: value
+- claim_id: ismac.value
+  statement: On the GLNXA64 oracle ismac returned logical false.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ismac_observations.json
+    case_id: value
+- claim_id: ismac.error-arg
+  statement: An input argument is given. The call errors with identifier MATLAB:maxrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/ismac_observations.json
+    case_id: err-arg

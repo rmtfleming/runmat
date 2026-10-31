@@ -31,6 +31,21 @@ pub(super) async fn try_execute(
     } else {
         1
     };
+    // spec 060: `ME.addCause(c)` and `ME.throw()` on an MException value
+    // [addCause.method-syntax, throw.caught (case dot)].
+    if matches!(base, Value::MException(_)) && matches!(member.0.as_str(), "addCause" | "throw") {
+        return Box::pin(
+            crate::object::dispatch::call_method_or_member_index_named_with_outputs(
+                base,
+                member.0,
+                arguments,
+                requested_outputs,
+                caller_function_name,
+            ),
+        )
+        .await
+        .map(Some);
+    }
     let result = if let Some(method) = crate::object::protocol::resolve_declared_object_method(
         &base,
         &runmat_types::MethodName::from(member.0.as_str()),

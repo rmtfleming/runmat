@@ -1,0 +1,337 @@
+{
+  "schema_version": "1.0",
+  "function_name": "varfun",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/varfun/test_varfun_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "mean",
+      "description": "varfun(@mean, T) (COBRA form)",
+      "call": "varfun(@mean, table([1;2;3], [4;6;8], 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "mean_x",
+            "mean_y"
+          ],
+          "variables": [
+            {
+              "name": "mean_x",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            },
+            {
+              "name": "mean_y",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "6"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "std",
+      "description": "varfun(@std, T) (COBRA form)",
+      "call": "varfun(@std, table([1;2;3], [4;6;8], 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "std_x",
+            "std_y"
+          ],
+          "variables": [
+            {
+              "name": "std_x",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "1"
+            },
+            {
+              "name": "std_y",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "table2array",
+      "description": "table2array(varfun(@mean, T))' (COBRA form)",
+      "call": "table2array(varfun(@mean, table([1;2;3], [4;6;8], 'VariableNames', {'x','y'})))'",
+      "errored": false,
+      "result": {
+        "value": "[2;6]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "subset",
+      "description": "varfun on a row and column subset T(rows, 2:end) (COBRA form)",
+      "call": "T = table([1;2;3], [4;6;8], 'VariableNames', {'x','y'}); varfun(@mean, T([1 3], 2:end))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "mean_y"
+          ],
+          "variables": [
+            {
+              "name": "mean_y",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "6"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "anonymous",
+      "description": "anonymous function",
+      "call": "varfun(@(v) v * 2, table([1;2;3], [4;6;8], 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "Fun_x",
+            "Fun_y"
+          ],
+          "variables": [
+            {
+              "name": "Fun_x",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[2;4;6]"
+            },
+            {
+              "name": "Fun_y",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[8;12;16]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "elementwise",
+      "description": "function returning a column per variable",
+      "call": "varfun(@cumsum, table([1;2;3], [4;6;8], 'VariableNames', {'x','y'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "cumsum_x",
+            "cumsum_y"
+          ],
+          "variables": [
+            {
+              "name": "cumsum_x",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[1;3;6]"
+            },
+            {
+              "name": "cumsum_y",
+              "class": "double",
+              "size": [
+                3,
+                1
+              ],
+              "value": "[4;10;18]"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          3,
+          2
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rownames",
+      "description": "table with row names",
+      "call": "varfun(@mean, table([1;3], 'VariableNames', {'x'}, 'RowNames', {'r1','r2'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "mean_x"
+          ],
+          "variables": [
+            {
+              "name": "mean_x",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "2"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-rows",
+      "description": "table with zero rows",
+      "call": "varfun(@sum, table(zeros(0, 1), 'VariableNames', {'x'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "sum_x"
+          ],
+          "variables": [
+            {
+              "name": "sum_x",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "0"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-var",
+      "description": "single-variable table",
+      "call": "varfun(@max, table([5;2], 'VariableNames', {'v'}))",
+      "errored": false,
+      "result": {
+        "value": {
+          "variable_names": [
+            "max_v"
+          ],
+          "variables": [
+            {
+              "name": "max_v",
+              "class": "double",
+              "size": [
+                1,
+                1
+              ],
+              "value": "5"
+            }
+          ]
+        },
+        "class": "table",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-cellstr",
+      "description": "@mean on a cellstr variable",
+      "call": "varfun(@mean, table({'a';'b'}, 'VariableNames', {'s'}))",
+      "errored": true,
+      "error_identifier": "MATLAB:table:varfun:FunFailed"
+    },
+    {
+      "case_id": "err-not-table",
+      "description": "numeric matrix input",
+      "call": "varfun(@mean, [1 2; 3 4])",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    },
+    {
+      "case_id": "err-not-function",
+      "description": "first argument not a function handle",
+      "call": "varfun(5, table([1;2;3], [4;6;8], 'VariableNames', {'x','y'}))",
+      "errored": true,
+      "error_identifier": "MATLAB:table:varfun:InvalidFunction"
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0",
+  "function_name": "inedges",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/inedges/test_inedges_interface.m",
+  "date": "2026-10-30",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one-out",
+      "description": "eid = inedges(G, 3) for edges 1->3, 2->3, 3->4",
+      "call": "inedges(digraph([1 2 3], [3 3 4]), 3)",
+      "errored": false,
+      "result": {
+        "value": "[1;2]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-out",
+      "description": "[eid, nid] = inedges(G, 3) (COBRA form)",
+      "call": "[e, n] = inedges(digraph([1 2 3], [3 3 4]), 3); report e and n",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[1;2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "order",
+      "description": "in-edges added out of source order",
+      "call": "[e, n] = inedges(digraph([4 1 3], [2 2 2]), 2); report e and n",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2;3]",
+          "nid": "[1;3;4]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "none",
+      "description": "node with no in-edges",
+      "call": "[e, n] = inedges(digraph([1 2], [2 3]), 1); report e and n with class and size",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "zeros(0,1)",
+          "nid": "zeros(0,1)",
+          "eid_class": "'double'",
+          "eid_size": "[0 1]",
+          "nid_class": "'double'",
+          "nid_size": "[0 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names",
+      "description": "named nodes",
+      "call": "[e, n] = inedges(digraph({'a','b'}, {'c','c'}), 'c'); report e and n",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": [
+            "'a'",
+            "'b'"
+          ],
+          "eid_class": "'double'",
+          "eid_size": "[2 1]",
+          "nid_class": "'cell'",
+          "nid_size": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "selfloop",
+      "description": "self-loop counts as an in-edge",
+      "call": "[e, n] = inedges(digraph([1 2], [1 1]), 1); report e and n",
+      "errored": false,
+      "result": {
+        "value": {
+          "eid": "[1;2]",
+          "nid": "[1;2]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-undirected",
+      "description": "undirected graph",
+      "call": "[e, n] = inedges(graph([1 2], [2 3]), 2)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graph:NoInEdgesUndir"
+    },
+    {
+      "case_id": "err-node-range",
+      "description": "node index out of range",
+      "call": "inedges(digraph(1, 2), 5)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:digraph:InvalidNodeID"
+    },
+    {
+      "case_id": "err-two-nodes",
+      "description": "two nodes",
+      "call": "inedges(digraph([1 2], [3 3]), [1 3])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:graphbuiltin:InvalidNodeScalar"
+    }
+  ]
+}

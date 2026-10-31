@@ -398,18 +398,19 @@ fn decode_arrays<const N: usize>(
         .collect())
 }
 
-fn decode_exception(value: &ExceptionValue, path: &str) -> Result<Value, ValueCodecError> {
-    if !value.causes.is_empty() {
-        return Err(ValueCodecError::unsupported(
-            path,
-            "nested exception causes are not represented by the current runtime MException",
-        ));
-    }
-    Ok(Value::MException(MException {
+fn decode_exception(value: &ExceptionValue, _path: &str) -> Result<Value, ValueCodecError> {
+    Ok(Value::MException(exception_from_payload(value)))
+}
+
+/// Exception causes are nested exceptions and round-trip recursively
+/// (spec 060, `addCause`).
+fn exception_from_payload(value: &ExceptionValue) -> MException {
+    MException {
         identifier: value.identifier.clone(),
         message: value.message.clone(),
         stack: value.stack.clone(),
-    }))
+        causes: value.causes.iter().map(exception_from_payload).collect(),
+    }
 }
 
 fn decode_callable(value: &CallableValue, path: &str) -> Result<Value, ValueCodecError> {

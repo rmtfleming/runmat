@@ -1,0 +1,153 @@
+# Interface specification for pcolor (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: pcolor
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Draw a flat-shaded surface with zero height whose colours come from C, and return the Surface
+  object.
+invocation_forms:
+- signature: h = pcolor(C)
+  description: Grid coordinates 1..n and 1..m.
+  status: confirmed
+- signature: h = pcolor(X, Y, C)
+  description: Given coordinates (vectors, as in COBRA, or matrices).
+  status: confirmed
+- signature: h = pcolor(ax, C)
+  description: Draw into the given axes.
+  status: confirmed
+inputs:
+- name: ax
+  position: 1
+  required: false
+  description: Axes to draw into.
+  status: confirmed
+- name: X
+  position: 1
+  required: false
+  description: Vector of length size(C,2) or matrix the size of C.
+  status: confirmed
+- name: Y
+  position: 2
+  required: false
+  description: Vector of length size(C,1) or matrix the size of C.
+  status: confirmed
+- name: C
+  position: 3
+  required: true
+  description: Numeric matrix.
+  status: confirmed
+outputs:
+- name: h
+  description: matlab.graphics.primitive.Surface object.
+  status: confirmed
+output_type_rules:
+- id: pcolor.output-class-rule
+  statement: The output is a matlab.graphics.primitive.Surface.
+  status: confirmed
+  normative: true
+  provenance: pcolor.output-class
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: c-only
+  - file: observations/pcolor_observations.json
+    case_id: xyc-vectors
+  - file: observations/pcolor_observations.json
+    case_id: xyc-matrices
+  - file: observations/pcolor_observations.json
+    case_id: no-ax-arg
+  - file: observations/pcolor_observations.json
+    case_id: ax-arg
+output_shape_rules:
+- id: pcolor.ax-arg-rule
+  statement: pcolor(ax, C) drew into ax (h.Parent == ax) with CData equal to C.
+  status: confirmed
+  normative: true
+  provenance: pcolor.ax-arg
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: ax-arg
+- id: pcolor.c-only-rule
+  statement: pcolor(C) for a 2x3 C gave XData [1 2 3], YData [1;2], ZData zeros(2,3), CData equal to C.
+  status: confirmed
+  normative: true
+  provenance: pcolor.c-only
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: c-only
+- id: pcolor.xyc-rule
+  statement: With vectors x, y the XData/YData are the vectors as given (row vectors stayed rows); with
+    meshgrid matrices they are the matrices; ZData is zeros the size of C and CData is C.
+  status: confirmed
+  normative: true
+  provenance: pcolor.xyc
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: xyc-vectors
+  - file: observations/pcolor_observations.json
+    case_id: xyc-matrices
+- id: pcolor.current-axes-rule
+  statement: Without an axes argument the surface is drawn into the current axes (h.Parent == gca).
+  status: confirmed
+  normative: true
+  provenance: pcolor.current-axes
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: no-ax-arg
+- id: pcolor.view-rule
+  statement: After pcolor the axes view was [0 90] (seen from above).
+  status: confirmed
+  normative: true
+  provenance: pcolor.view
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: view
+- id: pcolor.face-rule
+  statement: FaceColor is 'flat'.
+  status: confirmed
+  normative: true
+  provenance: pcolor.face
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: edge-face
+numerical_edge_cases:
+- id: pcolor.edgecolor-rule
+  statement: 'Observed with default graphics settings: EdgeColor was [0.12941176470588237 0.12941176470588237
+    0.12941176470588237]; not required, as it may follow default settings that were not exercised.'
+  status: confirmed
+  normative: false
+  provenance: pcolor.edgecolor
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: edge-face
+warnings: []
+errors:
+- condition: x or y length does not match the columns or rows of C.
+  identifier: MATLAB:pcolor:InputSizeMismatch
+  status: confirmed
+  provenance: pcolor.error-size
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: err-size
+- condition: 'Two numeric arguments are given: a vector then a matrix (pcolor([1 2], [1 2; 3 4]) observed).'
+  identifier: MATLAB:badsubscript
+  status: confirmed
+  provenance: pcolor.error-two-args
+  observations:
+  - file: observations/pcolor_observations.json
+    case_id: err-two-args
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/pcolor_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: pcolor.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: pcolor.q-two-arg-id
+  question: The two-argument error has a generic indexing identifier (MATLAB:badsubscript); whether an
+    implementation must reproduce it is a human-review question (constitution 8.2).

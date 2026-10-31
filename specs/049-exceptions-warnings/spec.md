@@ -49,8 +49,8 @@ See `provenance.md`.
 ### User Story 3 - Causes (Priority: P2)
 
 `ME2 = addCause(ME, cause)` returns an exception with the added cause; the
-cause survives `throw`. [MException.addcause, throw.cause] — **not met**,
-see D-049-1.
+cause survives `throw`. [MException.addcause, throw.cause] — **met by F60**
+(`specs/060-exception-causes/`); D-049-1 closed.
 
 ### User Story 4 - Last warning (Priority: P1)
 
@@ -108,7 +108,7 @@ newId)`.
 
 - **FR-049-06** `addCause(ME, cause)` returning an exception with one more
   cause, and the cause surviving `throw` [MException.addcause, throw.cause],
-  are **not met** (D-049-1). `addCause` raises
+  were **not met** in F49 (D-049-1); now met by F60. `addCause` raises
   `RunMat:addCause:UnsupportedOption` instead of silently dropping the cause.
 
 #### lastwarn
@@ -191,7 +191,7 @@ newId)`.
 
 ## Known deviations
 
-- **D-049-1** Exception causes. `runmat_value::MException` has no cause
+- **D-049-1** *(closed 2026-10-30 by F60, `specs/060-exception-causes/`)* Exception causes. `runmat_value::MException` has no cause
   list, the value codec rejects causes ("nested exception causes are not
   represented by the current runtime MException"), and a thrown
   `RuntimeError` carries only identifier and message into `catch`.

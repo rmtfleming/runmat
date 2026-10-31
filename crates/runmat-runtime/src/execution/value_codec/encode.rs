@@ -149,12 +149,7 @@ fn encode(value: &Value, path: &str) -> Result<ValuePayload, ValueCodecError> {
                 "class metadata references are session-bound",
             ))
         }
-        Value::MException(value) => InlineValue::Exception(ExceptionValue {
-            identifier: value.identifier.clone(),
-            message: value.message.clone(),
-            stack: value.stack.clone(),
-            causes: Vec::new(),
-        }),
+        Value::MException(value) => InlineValue::Exception(exception_payload(value)),
         Value::Future(_) | Value::Task(_) | Value::Pool(_) | Value::Job(_) => {
             return Err(ValueCodecError::unsupported(
                 path,
@@ -383,4 +378,14 @@ fn index_path(parent: &str, index: usize) -> String {
 
 fn field_path(parent: &str, field: &str) -> String {
     format!("{parent}.{field}")
+}
+
+/// Exception causes are encoded recursively (spec 060, `addCause`).
+fn exception_payload(value: &runmat_value::MException) -> ExceptionValue {
+    ExceptionValue {
+        identifier: value.identifier.clone(),
+        message: value.message.clone(),
+        stack: value.stack.clone(),
+        causes: value.causes.iter().map(exception_payload).collect(),
+    }
 }

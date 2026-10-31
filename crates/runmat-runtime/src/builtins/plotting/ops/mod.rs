@@ -12,3 +12,15 @@ pub(crate) mod spy;
 pub(crate) mod alpha;
 #[path = "tiledlayout.rs"]
 pub(crate) mod tiledlayout;
+
+// Clean-room builtins (spec 058).
+#[path = "allchild.rs"]
+pub(crate) mod allchild;
+#[path = "findall.rs"]
+pub(crate) mod findall;
+#[path = "ishghandle.rs"]
+pub(crate) mod ishghandle;
+#[path = "pcolor.rs"]
+pub(crate) mod pcolor;
+#[path = "surfl.rs"]
+pub(crate) mod surfl;

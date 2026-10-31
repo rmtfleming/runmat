@@ -22,6 +22,38 @@ pub fn semantic_error(identifier: &str, message: impl Into<String>) -> RuntimeEr
 /// Executors own control transfer and frame/source decoration; Runtime owns
 /// the stable conversion from its semantic error contract to `MException`.
 pub fn exception_from_error(error: &RuntimeError) -> runmat_value::MException {
+    let mut exception = exception_without_causes(error);
+    exception.causes = error_causes(error);
+    exception
+}
+
+/// The cause list of a thrown exception travels with its `RuntimeError` as
+/// the error's `source` (spec 060, `addCause`/`throw.cause`): executors
+/// decorate errors in place, so the source survives to `catch`.
+pub use runmat_value::ExceptionCauses;
+
+/// The error raised when an exception value is thrown or rethrown: it keeps
+/// the exception's identifier (also `''`), message and causes, so `catch`
+/// receives an equal exception.
+pub fn error_from_exception(exception: &runmat_value::MException) -> RuntimeError {
+    let mut builder = build_runtime_error(exception.message.clone())
+        .with_identifier(exception.identifier.clone());
+    if !exception.causes.is_empty() {
+        builder = builder.with_source(ExceptionCauses(exception.causes.clone()));
+    }
+    builder.build()
+}
+
+fn error_causes(error: &RuntimeError) -> Vec<runmat_value::MException> {
+    error
+        .source
+        .as_deref()
+        .and_then(|source| source.downcast_ref::<ExceptionCauses>())
+        .map(|causes| causes.0.clone())
+        .unwrap_or_default()
+}
+
+fn exception_without_causes(error: &RuntimeError) -> runmat_value::MException {
     if let Some(identifier) = error.identifier() {
         return runmat_value::MException::new(identifier.to_string(), error.message().to_string());
     }

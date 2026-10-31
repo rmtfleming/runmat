@@ -9,4 +9,5 @@ pub mod orderfields;
 pub mod rmfield;
 pub mod setfield;
 pub mod r#struct;
+pub mod struct2cell;
 pub mod structfun;

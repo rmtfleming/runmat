@@ -1,0 +1,63 @@
+# Provenance for isnat (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isnat
+claims:
+- claim_id: isnat.signature-primary
+  statement: The invocation form `tf = isnat(D)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isnat_observations.json
+    case_id: nat
+- claim_id: isnat.elementwise
+  statement: NaT (including datetime('NaT')) gives true and a valid datetime false, elementwise with the
+    shape of the input (1x3 and 2x2 observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isnat_observations.json
+    case_id: nat
+  - file: observations/isnat_observations.json
+    case_id: from-text-nat
+  - file: observations/isnat_observations.json
+    case_id: valid
+  - file: observations/isnat_observations.json
+    case_id: array
+  - file: observations/isnat_observations.json
+    case_id: matrix
+- claim_id: isnat.empty
+  statement: An empty 0x1 datetime gives a 0x1 logical.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isnat_observations.json
+    case_id: empty
+- claim_id: isnat.non-datetime
+  statement: 'Observed: double, duration and char inputs errored with MATLAB:UndefinedFunction (dispatch
+    level; not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isnat_observations.json
+    case_id: err-double
+  - file: observations/isnat_observations.json
+    case_id: err-duration
+  - file: observations/isnat_observations.json
+    case_id: err-char

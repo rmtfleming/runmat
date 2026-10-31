@@ -1,0 +1,189 @@
+{
+  "schema_version": "1.0",
+  "function_name": "addCause",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/addCause/test_addCause_interface.m",
+  "date": "2026-10-30",
+  "notes": "Probes report class, identifier and cause identifiers; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "one",
+      "description": "err = addCause(err, ME) (COBRA form)",
+      "call": "e = addCause(MException('n4:outer', 'o'), MException('n4:c1', 'c')); report class, identifier, cause identifiers",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'n4:outer'",
+          "cause_ids": [
+            "'n4:c1'"
+          ],
+          "cause_class": "'cell'",
+          "cause_size": "[1 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two",
+      "description": "two causes added in turn",
+      "call": "e = addCause(addCause(outer, c1), c2); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'n4:outer'",
+          "cause_ids": [
+            "'n4:c1'",
+            "'n4:c2'"
+          ],
+          "cause_class": "'cell'",
+          "cause_size": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "nested",
+      "description": "a cause that itself has a cause",
+      "call": "inner = addCause(MException('n4:mid', 'm'), MException('n4:deep', 'd')); e = addCause(outer, inner); report cause identifiers and the inner cause's causes",
+      "errored": false,
+      "result": {
+        "value": {
+          "cause_id": "'n4:mid'",
+          "inner_cause_id": "'n4:deep'"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "value-semantics",
+      "description": "the original exception after addCause without assignment",
+      "call": "e = MException('n4:o', 'o'); addCause(e, MException('n4:c', 'c')); report numel(e.cause)",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "thrown",
+      "description": "causes survive throw and catch",
+      "call": "try throw(addCause(outer, c1)); catch x; report as for one; end",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'n4:outer'",
+          "cause_ids": [
+            "'n4:c1'"
+          ],
+          "cause_class": "'cell'",
+          "cause_size": "[1 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "caught-builtin-cause",
+      "description": "a caught error from error() as the cause",
+      "call": "try error('n4:raised', 'r'); catch ME; e = addCause(outer, ME); end; report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'n4:outer'",
+          "cause_ids": [
+            "'n4:raised'"
+          ],
+          "cause_class": "'cell'",
+          "cause_size": "[1 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "method-syntax",
+      "description": "dot syntax e.addCause(c)",
+      "call": "e = MException('n4:o', 'o'); e = e.addCause(MException('n4:c', 'c')); report as for one",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'MException'",
+          "identifier": "'n4:o'",
+          "cause_ids": [
+            "'n4:c'"
+          ],
+          "cause_class": "'cell'",
+          "cause_size": "[1 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-char-cause",
+      "description": "char as the cause",
+      "call": "addCause(MException('n4:o', 'o'), 'text')",
+      "errored": true,
+      "error_identifier": "MATLAB:class:RequireClass"
+    },
+    {
+      "case_id": "err-struct-cause",
+      "description": "struct as the cause",
+      "call": "addCause(MException('n4:o', 'o'), struct('identifier', 'a:b'))",
+      "errored": true,
+      "error_identifier": "MATLAB:class:RequireClass"
+    },
+    {
+      "case_id": "err-not-exception",
+      "description": "struct as the first argument",
+      "call": "addCause(struct('a', 1), MException('n4:c', 'c'))",
+      "errored": true,
+      "error_identifier": "MATLAB:UndefinedFunction"
+    }
+  ]
+}

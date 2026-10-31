@@ -1,0 +1,123 @@
+# Provenance for convertvars (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: convertvars
+claims:
+- claim_id: convertvars.signature-primary
+  statement: The invocation form `T2 = convertvars(T, vars, type)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: string
+- claim_id: convertvars.selection
+  statement: Variables can be selected by name, string array of names, numeric index and logical mask;
+    unselected variables are unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: string
+  - file: observations/convertvars_observations.json
+    case_id: string-array-names
+  - file: observations/convertvars_observations.json
+    case_id: index
+  - file: observations/convertvars_observations.json
+    case_id: mask
+- claim_id: convertvars.cobra-form
+  statement: convertvars(T, ["Reaction ID" "Taxon"], 'string') converted both cellstr variables (names
+    containing a space) to string columns.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: preserve-names
+- claim_id: convertvars.types
+  statement: cellstr to 'string' gives string; cellstr to 'categorical' gives categorical (categories
+    a, b); double to 'string' gives "1", "2"; double to 'int8' gives int8; double to 'double' left the
+    table unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: string
+  - file: observations/convertvars_observations.json
+    case_id: categorical
+  - file: observations/convertvars_observations.json
+    case_id: numeric-to-string
+  - file: observations/convertvars_observations.json
+    case_id: to-int8
+  - file: observations/convertvars_observations.json
+    case_id: same-type
+- claim_id: convertvars.function
+  statement: A function handle (@upper) is applied to the variable (cellstr {'a';'b'} became {'A';'B'},
+    still cell).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: function
+- claim_id: convertvars.non-table
+  statement: 'Observed: a struct input errored with MATLAB:UndefinedFunction (dispatch level; not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: err-not-table
+- claim_id: convertvars.error-unknown
+  statement: A selected variable is not in T. The call errors with identifier MATLAB:table:UnrecognizedVarName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: err-unknown
+- claim_id: convertvars.error-bad-type
+  statement: The type name is not recognised. The call errors with identifier MATLAB:table:convertvars:InvalidTextType.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: err-bad-type
+- claim_id: convertvars.error-cell-to-double
+  statement: The conversion fails (cellstr to 'double'). The call errors with identifier MATLAB:table:convertvars:VariableTypesConversionFailed.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/convertvars_observations.json
+    case_id: err-cell-to-double

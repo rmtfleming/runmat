@@ -1,0 +1,84 @@
+# Provenance for isMATLABReleaseOlderThan (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: isMATLABReleaseOlderThan
+claims:
+- claim_id: isMATLABReleaseOlderThan.signature-primary
+  statement: The invocation form `tf = isMATLABReleaseOlderThan(release)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: older
+- claim_id: isMATLABReleaseOlderThan.comparison
+  statement: 'On R2026a: ''R2022a'' and ''R2006a'' gave false; the running release ''R2026a'' gave false;
+    ''R2026b'', ''R2027a'' and ''R2030a'' gave true.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: older
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: much-older
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: same
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: later-b
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: string
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: later-year
+- claim_id: isMATLABReleaseOlderThan.text
+  statement: A string scalar is accepted, and a lower-case name 'r2022a' was accepted (false).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: string
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: lowercase
+- claim_id: isMATLABReleaseOlderThan.error-bad-name
+  statement: The text is not a release name ('2022a'). The call errors with identifier MATLAB:isMATLABReleaseOlderThan:invalidReleaseInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: err-bad-name
+- claim_id: isMATLABReleaseOlderThan.error-numeric
+  statement: The input is numeric. The call errors with identifier MATLAB:validators:mustBeTextScalar.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: err-numeric
+- claim_id: isMATLABReleaseOlderThan.error-none
+  statement: No input is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: err-none

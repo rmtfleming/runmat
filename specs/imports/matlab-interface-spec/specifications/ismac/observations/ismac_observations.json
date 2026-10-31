@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "function_name": "ismac",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/ismac/test_ismac_interface.m",
+  "date": "2026-10-30",
+  "notes": "The results depend on the platform; the oracle is GLNXA64 (Linux). Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "value",
+      "description": "ismac on the oracle platform",
+      "call": "ismac",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-arg",
+      "description": "one input argument",
+      "call": "ismac(1)",
+      "errored": true,
+      "error_identifier": "MATLAB:maxrhs"
+    }
+  ]
+}

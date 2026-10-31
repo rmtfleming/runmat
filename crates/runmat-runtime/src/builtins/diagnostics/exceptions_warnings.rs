@@ -1,12 +1,15 @@
 //! Clean-room `MException`, `throw`, `addCause` and `lastwarn`.
 //!
-//! Clean-room feature `specs/049-exceptions-warnings/`. Normative behaviour
-//! comes only from the approved exports `MException` 0.2.0 and `lastwarn`
-//! 0.2.0 (matlab-interface-spec `8f72edb`) and `throw` 0.2.0 (`1156c97`); see
-//! that feature's `provenance.md`. Exceptions are upstream
-//! `Value::MException` values; a thrown exception is a `RuntimeError` carrying
-//! the exception's identifier and message, which `try`/`catch` turns back
-//! into an `MException` through `runtime_error::exception_from_error`.
+//! Clean-room features `specs/049-exceptions-warnings/` and
+//! `specs/060-exception-causes/`. Normative behaviour comes only from the
+//! approved exports `MException` 0.2.0 and `lastwarn` 0.2.0
+//! (matlab-interface-spec `8f72edb`), `throw` 0.2.0 (`1156c97`) and
+//! `addCause` 0.2.0 (`fc9f804`); see those features' `provenance.md`.
+//! Exceptions are upstream `Value::MException` values with a cause list; a
+//! thrown exception is a `RuntimeError` carrying the exception's identifier,
+//! message and causes (`runtime_error::error_from_exception`), which
+//! `try`/`catch` turns back into an `MException` through
+//! `runtime_error::exception_from_error`.
 
 use runmat_builtins::{
     BuiltinCompletionPolicy, BuiltinDescriptor, BuiltinErrorDescriptor, BuiltinOutputMode,
@@ -162,20 +165,36 @@ const THROW_INVALID_INPUT: BuiltinErrorDescriptor = err!(
 );
 const THROW_ERRORS: [BuiltinErrorDescriptor; 2] = [THROW_UNDEFINED, THROW_INVALID_INPUT];
 
-const ADD_CAUSE_UNSUPPORTED: BuiltinErrorDescriptor = err!(
+const ADD_CAUSE_REQUIRE_CLASS: BuiltinErrorDescriptor = err!(
     "addCause",
-    "ADDCAUSE.UNSUPPORTED",
-    "RunMat:addCause:UnsupportedOption",
-    "exception causes are not supported: RunMat MException values carry no cause list (deviation D-049-1)"
+    "ADDCAUSE.REQUIRE_CLASS",
+    "RunMat:class:RequireClass",
+    "the cause must be an MException object"
+);
+const ADD_CAUSE_UNDEFINED: BuiltinErrorDescriptor = err!(
+    "addCause",
+    "ADDCAUSE.UNDEFINED_FUNCTION",
+    "RunMat:addCause:UndefinedFunction",
+    "the first input must be an MException object"
 );
 const ADD_CAUSE_INVALID_INPUT: BuiltinErrorDescriptor = err!(
     "addCause",
     "ADDCAUSE.INVALID_INPUT",
     "RunMat:addCause:InvalidInput",
-    "addCause expects two MException inputs"
+    "addCause expects exactly two inputs (an MException and its cause)"
 );
-const ADD_CAUSE_ERRORS: [BuiltinErrorDescriptor; 2] =
-    [ADD_CAUSE_UNSUPPORTED, ADD_CAUSE_INVALID_INPUT];
+const ADD_CAUSE_TOO_MANY_OUTPUTS: BuiltinErrorDescriptor = err!(
+    "addCause",
+    "ADDCAUSE.TOO_MANY_OUTPUTS",
+    "RunMat:addCause:TooManyOutputs",
+    "too many output arguments"
+);
+const ADD_CAUSE_ERRORS: [BuiltinErrorDescriptor; 4] = [
+    ADD_CAUSE_REQUIRE_CLASS,
+    ADD_CAUSE_UNDEFINED,
+    ADD_CAUSE_INVALID_INPUT,
+    ADD_CAUSE_TOO_MANY_OUTPUTS,
+];
 
 const LASTWARN_INVALID_INPUT: BuiltinErrorDescriptor = err!(
     "lastwarn",
@@ -284,12 +303,30 @@ fn identifier_is_valid(identifier: &str) -> bool {
 }
 
 /// The error raised by `throw(ME)` and `ME.throw`: it carries the
-/// exception's identifier (also `''`) and message, so the caught exception
-/// has the same identifier and message [throw.raises, throw.caught].
+/// exception's identifier (also `''`), message and causes, so the caught
+/// exception has the same identifier, message and causes [throw.raises,
+/// throw.caught, throw.cause, addCause.thrown].
 pub(crate) fn throw_error(exception: &MException) -> RuntimeError {
-    build_runtime_error(exception.message.clone())
-        .with_identifier(exception.identifier.clone())
-        .build()
+    crate::runtime_error::error_from_exception(exception)
+}
+
+/// `addCause(ME, cause)` and `ME.addCause(cause)`: a copy of `ME` with
+/// `cause` (and its own causes) appended; `ME` itself is unchanged
+/// [addCause.append, addCause.nested, addCause.value-semantics,
+/// addCause.method-syntax, MException.addcause].
+pub(crate) fn add_cause(exception: &Value, cause: &Value) -> BuiltinResult<Value> {
+    const NAME: &str = "addCause";
+    match (exception, cause) {
+        (Value::MException(exception), Value::MException(cause)) => Ok(Value::MException(
+            exception.clone().with_cause(cause.clone()),
+        )),
+        // Non-normative (dispatch level, addCause.non-exception): U-060-1.
+        (other, _) if !matches!(other, Value::MException(_)) => {
+            Err(fail(NAME, &ADD_CAUSE_UNDEFINED))
+        }
+        // [addCause.error-char-cause]
+        _ => Err(fail(NAME, &ADD_CAUSE_REQUIRE_CLASS)),
+    }
 }
 
 /// Identifier reported by `lastwarn`: RunMat stores identifier-less warnings
@@ -369,7 +406,7 @@ pub(crate) async fn throw_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
 #[runtime_builtin(
     name = "addCause",
     category = "diagnostics",
-    summary = "Add a cause to an MException (not supported: see deviation D-049-1).",
+    summary = "Return a copy of an MException with another MException appended to its causes.",
     keywords = "addCause,MException,cause,exception",
     accel = "metadata",
     type_resolver(unknown_type),
@@ -378,8 +415,9 @@ pub(crate) async fn throw_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
 )]
 pub(crate) async fn add_cause_builtin(args: Vec<Value>) -> BuiltinResult<Value> {
     const NAME: &str = "addCause";
+    ensure_single_output(NAME, &ADD_CAUSE_TOO_MANY_OUTPUTS)?;
     match args.as_slice() {
-        [Value::MException(_), Value::MException(_)] => Err(fail(NAME, &ADD_CAUSE_UNSUPPORTED)),
+        [exception, cause] => add_cause(exception, cause),
         _ => Err(fail(NAME, &ADD_CAUSE_INVALID_INPUT)),
     }
 }
@@ -709,32 +747,178 @@ mod exceptions_warnings_tests {
         assert_eq!(err.identifier(), Some("RunMat:throw:UndefinedFunction"));
     }
 
-    // ------------------------------------------------------------ addCause / causes
+    // ------------------------------------------------------------ addCause / causes (spec 060)
 
-    #[test]
-    fn deviation_add_cause_is_unsupported() {
-        // D-049-1: addCause raises an explicit UnsupportedOption today.
-        let me = Value::MException(mexception(&[ch("a:b"), ch("top")]));
-        let cause = Value::MException(mexception(&[ch("c:d"), ch("inner")]));
-        let err = call("addCause", &[me, cause]).expect_err("unsupported");
-        assert_eq!(err.identifier(), Some("RunMat:addCause:UnsupportedOption"));
+    fn me(id: &str, msg: &str) -> Value {
+        Value::MException(mexception(&[ch(id), ch(msg)]))
+    }
+
+    fn add_cause_call(me: Value, cause: Value) -> BuiltinResult<Value> {
+        call("addCause", &[me, cause])
+    }
+
+    /// `ME.cause` as (rows, cols, cause identifiers); asserts class cell.
+    fn causes_of(value: &Value) -> (usize, usize, Vec<String>) {
+        match member(value, "cause").expect("cause") {
+            Value::Cell(cell) => {
+                let ids = cell
+                    .data
+                    .iter()
+                    .map(|v| match v {
+                        Value::MException(c) => c.identifier.clone(),
+                        other => panic!("expected MException cause, got {other:?}"),
+                    })
+                    .collect();
+                (cell.rows, cell.cols, ids)
+            }
+            other => panic!("expected cause cell, got {other:?}"),
+        }
+    }
+
+    fn identifier_of(value: &Value) -> String {
+        text_of(&member(value, "identifier").expect("identifier"))
     }
 
     #[test]
-    #[ignore = "D-049-1: MException values carry no cause list"]
-    fn deviation_observed_add_cause_and_thrown_cause() {
-        // MException.addcause and throw.cause: observed behaviour, not met.
-        let me = Value::MException(mexception(&[ch("a:b"), ch("top")]));
-        let cause = Value::MException(mexception(&[ch("c:d"), ch("inner")]));
-        let me2 = call("addCause", &[me.clone(), cause]).expect("addCause");
-        match member(&me2, "cause").expect("cause") {
-            Value::Cell(cell) => assert_eq!(cell.data.len(), 1),
-            other => panic!("expected cause cell, got {other:?}"),
-        }
-        match member(&me, "cause").expect("cause") {
-            Value::Cell(cell) => assert_eq!(cell.data.len(), 0),
-            other => panic!("expected cause cell, got {other:?}"),
-        }
+    fn observed_add_cause_appends_in_order() {
+        // addCause.signature-primary, addCause.append (cases one, two);
+        // MException.addcause (returned object has 1 cause 'c:d')
+        let outer = me("n4:outer", "o");
+        let one = add_cause_call(outer.clone(), me("n4:c1", "c")).expect("one");
+        assert_eq!(class_of(&one), "MException");
+        assert_eq!(identifier_of(&one), "n4:outer");
+        assert_eq!(causes_of(&one), (1, 1, vec!["n4:c1".to_string()]));
+        let cause_cell = member(&one, "cause").expect("cause");
+        assert_eq!(class_of(&cause_cell), "cell");
+        let two = add_cause_call(one, me("n4:c2", "c")).expect("two");
+        assert_eq!(identifier_of(&two), "n4:outer");
+        assert_eq!(
+            causes_of(&two),
+            (2, 1, vec!["n4:c1".to_string(), "n4:c2".to_string()])
+        );
+        let top = add_cause_call(me("a:b", "top"), me("c:d", "inner")).expect("addcause");
+        assert_eq!(causes_of(&top).2, vec!["c:d".to_string()]);
+    }
+
+    #[test]
+    fn observed_add_cause_nested_causes_kept() {
+        // addCause.nested (case nested)
+        let inner = add_cause_call(me("n4:mid", "m"), me("n4:deep", "d")).expect("inner");
+        let e = add_cause_call(me("n4:outer", "o"), inner).expect("outer");
+        let cause = match member(&e, "cause").expect("cause") {
+            Value::Cell(cell) => cell.data[0].clone(),
+            other => panic!("expected cell, got {other:?}"),
+        };
+        assert_eq!(identifier_of(&cause), "n4:mid");
+        assert_eq!(causes_of(&cause).2, vec!["n4:deep".to_string()]);
+    }
+
+    #[test]
+    fn observed_add_cause_value_semantics() {
+        // addCause.value-semantics (case value-semantics); MException.addcause
+        // (the original object still has 0 causes)
+        let e = me("n4:o", "o");
+        let _discarded = add_cause_call(e.clone(), me("n4:c", "c")).expect("addCause");
+        assert_eq!(causes_of(&e), (0, 1, Vec::new()));
+    }
+
+    #[test]
+    fn observed_add_cause_survives_throw_and_catch() {
+        // addCause.thrown (case thrown); throw.cause (case cause)
+        let e = add_cause_call(me("n4:outer", "o"), me("n4:c1", "c")).expect("addCause");
+        let x = Value::MException(caught(call("throw", &[e]).expect_err("throws")));
+        assert_eq!(class_of(&x), "MException");
+        assert_eq!(identifier_of(&x), "n4:outer");
+        assert_eq!(causes_of(&x), (1, 1, vec!["n4:c1".to_string()]));
+        let e = add_cause_call(me("n3:outer", "outer"), me("n3:in", "in")).expect("addCause");
+        let x = Value::MException(caught(call("throw", &[e]).expect_err("throws")));
+        assert_eq!(causes_of(&x).2, vec!["n3:in".to_string()]);
+        // ME.throw and ME.throw() carry the causes too.
+        let e = add_cause_call(me("n4:dot", "d"), me("n4:c", "c")).expect("addCause");
+        let x = Value::MException(caught(member(&e, "throw").expect_err("ME.throw")));
+        assert_eq!(causes_of(&x).2, vec!["n4:c".to_string()]);
+    }
+
+    #[test]
+    fn observed_add_cause_caught_error_as_cause() {
+        // addCause.caught-cause (case caught-builtin-cause)
+        let raised = caught(call("error", &[ch("n4:raised"), ch("r")]).expect_err("error"));
+        let e = add_cause_call(me("n4:outer", "o"), Value::MException(raised)).expect("addCause");
+        assert_eq!(identifier_of(&e), "n4:outer");
+        assert_eq!(causes_of(&e), (1, 1, vec!["n4:raised".to_string()]));
+    }
+
+    #[test]
+    fn observed_add_cause_method_syntax() {
+        // addCause.method-syntax (case method-syntax): e = e.addCause(c)
+        let e = me("n4:o", "o");
+        let sequence = block_on(
+            crate::object::dispatch::call_method_or_member_index_named_with_outputs(
+                e,
+                "addCause".to_string(),
+                vec![me("n4:c", "c")],
+                1,
+                None,
+            ),
+        )
+        .expect("ME.addCause(c)");
+        let mut values = sequence.into_values();
+        assert_eq!(values.len(), 1);
+        let e = values.pop().expect("value");
+        assert_eq!(identifier_of(&e), "n4:o");
+        assert_eq!(causes_of(&e), (1, 1, vec!["n4:c".to_string()]));
+    }
+
+    #[test]
+    fn rejects_add_cause_non_exception_cause() {
+        // addCause.error-char-cause (cases err-char-cause, err-struct-cause)
+        let err = add_cause_call(me("n4:o", "o"), ch("text")).expect_err("char");
+        assert_eq!(err.identifier(), Some("RunMat:class:RequireClass"));
+        let mut st = runmat_value::StructValue::new();
+        st.fields.insert("identifier".into(), ch("a:b"));
+        let err = add_cause_call(me("n4:o", "o"), Value::Struct(st)).expect_err("struct");
+        assert_eq!(err.identifier(), Some("RunMat:class:RequireClass"));
+    }
+
+    #[test]
+    fn unresolved_choice_add_cause_inputs() {
+        // addCause.non-exception (non-normative, dispatch level) and argument
+        // count / output count: U-060-1.
+        let mut st = runmat_value::StructValue::new();
+        st.fields.insert("a".into(), Value::Num(1.0));
+        let err = add_cause_call(Value::Struct(st), me("n4:c", "c")).expect_err("struct ME");
+        assert_eq!(err.identifier(), Some("RunMat:addCause:UndefinedFunction"));
+        let err = call("addCause", &[me("n4:o", "o")]).expect_err("one input");
+        assert_eq!(err.identifier(), Some("RunMat:addCause:InvalidInput"));
+        let err = call(
+            "addCause",
+            &[me("n4:o", "o"), me("n4:c", "c"), me("n4:d", "d")],
+        )
+        .expect_err("three inputs");
+        assert_eq!(err.identifier(), Some("RunMat:addCause:InvalidInput"));
+        let _guard = crate::output_count::push_output_count(Some(2));
+        let err = block_on(add_cause_builtin(vec![me("n4:o", "o"), me("n4:c", "c")]))
+            .expect_err("2 outs");
+        assert_eq!(err.identifier(), Some("RunMat:addCause:TooManyOutputs"));
+    }
+
+    #[test]
+    fn unresolved_choice_rethrow_keeps_causes() {
+        // U-060-2: rethrow(ME) of an exception with causes keeps them.
+        let e = add_cause_call(me("n4:outer", "o"), me("n4:c1", "c")).expect("addCause");
+        let x = Value::MException(caught(call("rethrow", &[e]).expect_err("rethrow")));
+        assert_eq!(identifier_of(&x), "n4:outer");
+        assert_eq!(causes_of(&x).2, vec!["n4:c1".to_string()]);
+    }
+
+    #[test]
+    fn causes_round_trip_through_value_codec() {
+        // FR-060-07: the portable value codec keeps (nested) causes.
+        let inner = add_cause_call(me("n4:mid", "m"), me("n4:deep", "d")).expect("inner");
+        let e = add_cause_call(me("n4:outer", "o"), inner).expect("outer");
+        let payload = crate::execution::value_codec::encode_inline_value(&e).expect("encode");
+        let decoded = crate::execution::value_codec::decode_inline_value(&payload).expect("decode");
+        assert_eq!(decoded, e);
     }
 
     // ------------------------------------------------------------ lastwarn

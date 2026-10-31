@@ -1,0 +1,134 @@
+# Provenance for surfl (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: surfl
+claims:
+- claim_id: surfl.signature-primary
+  statement: The invocation form `h = surfl(Z)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: z-only
+- claim_id: surfl.output-class
+  statement: The output is a 1x1 matlab.graphics.chart.primitive.Surface.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: z-only
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-3x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-4x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-matrices-3x3
+- claim_id: surfl.data
+  statement: ZData is Z; XData and YData are full grids the size of Z (from 1..n, 1..m for surfl(Z), or
+    expanded from vectors x, y); CData has the size of Z.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: z-only
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-3x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-vectors-4x3
+  - file: observations/surfl_observations.json
+    case_id: xyz-matrices-3x3
+- claim_id: surfl.cdata
+  statement: 'CData is not Z: for peaks(10) its values ranged from 0.3548 to 0.7787 (0.35483870967741943
+    to 0.77867593670498969).'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: cdata-range
+- claim_id: surfl.view
+  statement: After surfl the axes view was [-37.5 30].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: view
+- claim_id: surfl.face
+  statement: FaceColor is 'flat'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: face
+- claim_id: surfl.edgecolor
+  statement: 'Observed with default graphics settings: EdgeColor was [0.12941176470588237 0.12941176470588237
+    0.12941176470588237]; not required.'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: face
+- claim_id: surfl.error-z-2x3
+  statement: Z has only 2 rows (with or without X and Y). The call errors with identifier MATLAB:surfl:InvalidInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: err-z-2x3
+  - file: observations/surfl_observations.json
+    case_id: err-xyz-vectors-2row
+  - file: observations/surfl_observations.json
+    case_id: err-xyz-matrices-2row
+- claim_id: surfl.error-size
+  statement: x length does not match the columns of a 3x3 Z. The call errors with identifier MATLAB:xyzchk:lengthXDoesNotMatchNumColumnsZ.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: err-size
+- claim_id: surfl.error-char
+  statement: A single char argument is given (surfl('abc')). The call errors with identifier MATLAB:narginchk:notEnoughInputs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/surfl_observations.json
+    case_id: err-char

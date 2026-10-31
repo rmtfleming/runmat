@@ -1,0 +1,91 @@
+# Interface specification for isMATLABReleaseOlderThan (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isMATLABReleaseOlderThan
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return true if the running release is older than the named release; observed on R2026a.
+invocation_forms:
+- signature: tf = isMATLABReleaseOlderThan(release)
+  description: Compare the running release with `release` (COBRA form).
+  status: confirmed
+inputs:
+- name: release
+  position: 1
+  required: true
+  description: Release name as char or string scalar, such as 'R2022a'; a lower-case 'r' was accepted.
+  status: confirmed
+outputs:
+- name: tf
+  description: Logical scalar.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: isMATLABReleaseOlderThan.comparison-rule
+  statement: 'On R2026a: ''R2022a'' and ''R2006a'' gave false; the running release ''R2026a'' gave false;
+    ''R2026b'', ''R2027a'' and ''R2030a'' gave true.'
+  status: confirmed
+  normative: true
+  provenance: isMATLABReleaseOlderThan.comparison
+  observations:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: older
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: much-older
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: same
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: later-b
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: string
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: later-year
+- id: isMATLABReleaseOlderThan.text-rule
+  statement: A string scalar is accepted, and a lower-case name 'r2022a' was accepted (false).
+  status: confirmed
+  normative: true
+  provenance: isMATLABReleaseOlderThan.text
+  observations:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: string
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: lowercase
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: The text is not a release name ('2022a').
+  identifier: MATLAB:isMATLABReleaseOlderThan:invalidReleaseInput
+  status: confirmed
+  provenance: isMATLABReleaseOlderThan.error-bad-name
+  observations:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: err-bad-name
+- condition: The input is numeric.
+  identifier: MATLAB:validators:mustBeTextScalar
+  status: confirmed
+  provenance: isMATLABReleaseOlderThan.error-numeric
+  observations:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: err-numeric
+- condition: No input is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: isMATLABReleaseOlderThan.error-none
+  observations:
+  - file: observations/isMATLABReleaseOlderThan_observations.json
+    case_id: err-none
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isMATLABReleaseOlderThan_observations.json
+  description: 10 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isMATLABReleaseOlderThan.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: isMATLABReleaseOlderThan.q-release
+  question: Results depend on the running release; only R2026a was exercised. Calls with more than one
+    argument were not exercised.

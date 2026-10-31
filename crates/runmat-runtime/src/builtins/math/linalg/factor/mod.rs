@@ -4,6 +4,7 @@ pub mod decomposition;
 pub mod eig;
 pub mod eigs;
 pub mod lu;
+pub mod orth;
 pub mod qr;
 pub mod svd;
 pub mod svds;

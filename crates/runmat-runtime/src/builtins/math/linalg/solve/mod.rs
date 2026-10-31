@@ -1,4 +1,5 @@
 pub mod cond;
+pub mod condest;
 pub mod det;
 pub mod inv;
 pub mod linsolve;

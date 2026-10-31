@@ -1,0 +1,129 @@
+# Interface specification for condest (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: condest
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Estimate the 1-norm condition number of a square matrix, and optionally a vector v (see two-out).
+invocation_forms:
+- signature: c = condest(A)
+  description: 1-norm condition estimate (COBRA form).
+  status: confirmed
+- signature: '[c, v] = condest(A)'
+  description: Also a vector v.
+  status: confirmed
+inputs:
+- name: A
+  position: 1
+  required: true
+  description: Square numeric matrix, sparse or full.
+  status: confirmed
+outputs:
+- name: c
+  description: Double scalar.
+  status: confirmed
+- name: v
+  description: Column vector of length size(A,1).
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: condest.values-rule
+  statement: speye(4) gave 1; sparse diag([1 10 100]) gave 100; full [2 0; 0 8] gave 4; sparse(5) gave
+    1.
+  status: confirmed
+  normative: true
+  provenance: condest.values
+  observations:
+  - file: observations/condest_observations.json
+    case_id: identity
+  - file: observations/condest_observations.json
+    case_id: diag
+  - file: observations/condest_observations.json
+    case_id: dense
+  - file: observations/condest_observations.json
+    case_id: scalar
+- id: condest.vs-cond-rule
+  statement: For a 4x4 tridiagonal matrix condest equalled cond(full(A), 1) (2.7272727272727271); for
+    a 3x3 unsymmetric matrix they agreed to within 1e-15 (3.4000000000000004 vs 3.3999999999999995).
+  status: confirmed
+  normative: true
+  provenance: condest.vs-cond
+  observations:
+  - file: observations/condest_observations.json
+    case_id: vs-cond
+  - file: observations/condest_observations.json
+    case_id: vs-cond-unsym
+- id: condest.singular-rule
+  statement: A singular or all-zero sparse matrix gives Inf.
+  status: confirmed
+  normative: true
+  provenance: condest.singular
+  observations:
+  - file: observations/condest_observations.json
+    case_id: singular
+  - file: observations/condest_observations.json
+    case_id: zero
+- id: condest.empty-rule
+  statement: A 0x0 input gives 0.
+  status: confirmed
+  normative: true
+  provenance: condest.empty
+  observations:
+  - file: observations/condest_observations.json
+    case_id: empty
+- id: condest.two-out-rule
+  statement: For sparse diag([1 10 100]), [c, v] gave c = 100 and a 3x1 v with norm(v,1) = 1 and norm(A*v,1)
+    = 1.
+  status: confirmed
+  normative: true
+  provenance: condest.two-out
+  observations:
+  - file: observations/condest_observations.json
+    case_id: two-out
+numerical_edge_cases:
+- id: condest.estimate-rule
+  statement: 'Inference (not observed): condest is an estimate, so only the order of magnitude, not exact
+    agreement with cond(A, 1), should be required beyond the observed cases.'
+  status: unresolved
+  normative: false
+  provenance: condest.estimate
+  observations:
+  - file: observations/condest_observations.json
+    case_id: vs-cond-unsym
+warnings: []
+errors:
+- condition: A is not square.
+  identifier: MATLAB:condest:NonSquareMatrix
+  status: confirmed
+  provenance: condest.error-nonsquare
+  observations:
+  - file: observations/condest_observations.json
+    case_id: err-nonsquare
+- condition: A is a square char matrix.
+  identifier: MATLAB:lu:inputType
+  status: confirmed
+  provenance: condest.error-char
+  observations:
+  - file: observations/condest_observations.json
+    case_id: err-char
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/condest_observations.json
+  description: 12 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: condest.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: condest.q-error-ids
+  question: The char-input identifier names another function (lu); whether an implementation must reproduce
+    it is a human-review question (constitution 8.2).
+- id: condest.q-larger
+  question: Only matrices up to 4x4 were exercised; agreement with cond(A, 1) on larger matrices was not
+    observed.
+- id: condest.q-exactness
+  question: Whether the exact observed values in vs-cond should be required, or only agreement with cond(A,
+    1) to a tolerance, is a human-review question (constitution 8.2).

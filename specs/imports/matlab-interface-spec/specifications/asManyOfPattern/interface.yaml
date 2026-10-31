@@ -1,0 +1,146 @@
+# Interface specification for asManyOfPattern (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: asManyOfPattern
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Build a text pattern that matches as many consecutive repetitions of a pattern as possible, with
+  optional minimum and maximum counts.
+invocation_forms:
+- signature: pat = asManyOfPattern(p)
+  description: Zero or more repetitions.
+  status: confirmed
+- signature: pat = asManyOfPattern(p, min)
+  description: At least `min` repetitions (COBRA form with min 1).
+  status: confirmed
+- signature: pat = asManyOfPattern(p, min, max)
+  description: Between `min` and `max` repetitions.
+  status: confirmed
+inputs:
+- name: p
+  position: 1
+  required: true
+  description: pattern, or text (string and char observed).
+  status: confirmed
+- name: min
+  position: 2
+  required: false
+  description: Non-negative integer.
+  status: confirmed
+- name: max
+  position: 3
+  required: false
+  description: Integer not less than min.
+  status: confirmed
+outputs:
+- name: pat
+  description: pattern object.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: asManyOfPattern.class-rule
+  statement: The result is of class pattern.
+  status: confirmed
+  normative: true
+  provenance: asManyOfPattern.class
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: class
+- id: asManyOfPattern.cobra-pattern-rule
+  statement: extract("ab_1 cd-e", asManyOfPattern(alphanumericsPattern | "_", 1)) gave ["ab_1"; "cd";
+    "e"]; on "--" it gave a 0x1 string; matches(["ab_1" "ab 1" ""], ...) gave [true false false]; contains(["--"
+    "-a-"], ...) gave [false true].
+  status: confirmed
+  normative: true
+  provenance: asManyOfPattern.cobra-pattern
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: cobra-extract
+  - file: observations/asManyOfPattern_observations.json
+    case_id: min1-no-empty
+  - file: observations/asManyOfPattern_observations.json
+    case_id: matches
+  - file: observations/asManyOfPattern_observations.json
+    case_id: contains
+- id: asManyOfPattern.greedy-rule
+  statement: 'Repetitions are taken as long as possible: extract("ab cd", asManyOfPattern(lettersPattern(1)))
+    gave ["ab"; "cd"].'
+  status: confirmed
+  normative: true
+  provenance: asManyOfPattern.greedy
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: default-min
+- id: asManyOfPattern.min-max-rule
+  statement: With min 2 and max 3 on digits, "1 22 333 4444" gave ["22"; "333"; "444"] (a single digit
+    not matched; 4444 matched as 444).
+  status: confirmed
+  normative: true
+  provenance: asManyOfPattern.min-max
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: min-max
+- id: asManyOfPattern.text-pattern-rule
+  statement: 'Text is accepted as the pattern: with min 2, "a aa aaa" gave ["aa"; "aaa"] for both string
+    "a" and char ''a''.'
+  status: confirmed
+  normative: true
+  provenance: asManyOfPattern.text-pattern
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: string-input-min
+  - file: observations/asManyOfPattern_observations.json
+    case_id: char-input
+numerical_edge_cases:
+- id: asManyOfPattern.empty-matches-rule
+  statement: 'Observed, not required until q-empty-match is resolved: with the default minimum, extract("aaab",
+    asManyOfPattern("a")) gave ["aaa"; ""] and extract("ab cd", asManyOfPattern("b")) gave [""; "b"; "";
+    ""; ""].'
+  status: confirmed
+  normative: false
+  provenance: asManyOfPattern.empty-matches
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: string-input
+  - file: observations/asManyOfPattern_observations.json
+    case_id: default-min-string-letters
+warnings: []
+errors:
+- condition: min is greater than max.
+  identifier: MATLAB:pattern:InvalidLimitRange
+  status: confirmed
+  provenance: asManyOfPattern.error-min-gt-max
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: err-min-gt-max
+- condition: min is negative.
+  identifier: MATLAB:pattern:MustBeNonnegativeInteger
+  status: confirmed
+  provenance: asManyOfPattern.error-negative
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: err-negative
+- condition: p is numeric.
+  identifier: MATLAB:pattern:MustBeTextOrPattern
+  status: confirmed
+  provenance: asManyOfPattern.error-numeric
+  observations:
+  - file: observations/asManyOfPattern_observations.json
+    case_id: err-numeric
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/asManyOfPattern_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: asManyOfPattern.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: asManyOfPattern.q-empty-match
+  question: 'Empty matches with the default minimum are not consistent across the observed cases and need
+    review (constitution 8.2): extract("aaab", asManyOfPattern("a")) gave ["aaa"; ""] and extract("ab
+    cd", asManyOfPattern("b")) gave [""; "b"; ""; ""; ""], but extract("ab cd", asManyOfPattern(lettersPattern(1)))
+    gave ["ab"; "cd"] with none. The rule deciding where empty matches appear was not established.'

@@ -1,0 +1,139 @@
+# Provenance for pcolor (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: pcolor
+claims:
+- claim_id: pcolor.signature-primary
+  statement: The invocation form `h = pcolor(C)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: c-only
+- claim_id: pcolor.output-class
+  statement: The output is a matlab.graphics.primitive.Surface.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: c-only
+  - file: observations/pcolor_observations.json
+    case_id: xyc-vectors
+  - file: observations/pcolor_observations.json
+    case_id: xyc-matrices
+  - file: observations/pcolor_observations.json
+    case_id: no-ax-arg
+  - file: observations/pcolor_observations.json
+    case_id: ax-arg
+- claim_id: pcolor.ax-arg
+  statement: pcolor(ax, C) drew into ax (h.Parent == ax) with CData equal to C.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: ax-arg
+- claim_id: pcolor.c-only
+  statement: pcolor(C) for a 2x3 C gave XData [1 2 3], YData [1;2], ZData zeros(2,3), CData equal to C.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: c-only
+- claim_id: pcolor.xyc
+  statement: With vectors x, y the XData/YData are the vectors as given (row vectors stayed rows); with
+    meshgrid matrices they are the matrices; ZData is zeros the size of C and CData is C.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: xyc-vectors
+  - file: observations/pcolor_observations.json
+    case_id: xyc-matrices
+- claim_id: pcolor.current-axes
+  statement: Without an axes argument the surface is drawn into the current axes (h.Parent == gca).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: no-ax-arg
+- claim_id: pcolor.view
+  statement: After pcolor the axes view was [0 90] (seen from above).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: view
+- claim_id: pcolor.face
+  statement: FaceColor is 'flat'.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: edge-face
+- claim_id: pcolor.edgecolor
+  statement: 'Observed with default graphics settings: EdgeColor was [0.12941176470588237 0.12941176470588237
+    0.12941176470588237]; not required, as it may follow default settings that were not exercised.'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: edge-face
+- claim_id: pcolor.error-size
+  statement: x or y length does not match the columns or rows of C. The call errors with identifier MATLAB:pcolor:InputSizeMismatch.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: err-size
+- claim_id: pcolor.error-two-args
+  statement: 'Two numeric arguments are given: a vector then a matrix (pcolor([1 2], [1 2; 3 4]) observed).
+    The call errors with identifier MATLAB:badsubscript.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/pcolor_observations.json
+    case_id: err-two-args

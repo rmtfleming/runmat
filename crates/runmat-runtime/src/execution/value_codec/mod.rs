@@ -85,6 +85,9 @@ mod tests {
                 identifier: "RunMat:test".into(),
                 message: "failure".into(),
                 stack: vec!["main:1".into()],
+                // spec 060: causes (themselves with causes) round-trip.
+                causes: vec![MException::new("n4:mid".into(), "m".into())
+                    .with_cause(MException::new("n4:deep".into(), "d".into()))],
             }),
         );
         let value = Value::Struct(structure);

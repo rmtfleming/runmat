@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isMATLABReleaseOlderThan",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isMATLABReleaseOlderThan/test_isMATLABReleaseOlderThan_interface.m",
+  "date": "2026-10-30",
+  "notes": "The results depend on the running release, R2026a. Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "older",
+      "description": "an earlier release (COBRA form)",
+      "call": "isMATLABReleaseOlderThan('R2022a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "same",
+      "description": "the running release",
+      "call": "isMATLABReleaseOlderThan('R2026a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "later-b",
+      "description": "the b release of the same year",
+      "call": "isMATLABReleaseOlderThan('R2026b')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "later-year",
+      "description": "a later year",
+      "call": "isMATLABReleaseOlderThan('R2030a')",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "much-older",
+      "description": "a much earlier release",
+      "call": "isMATLABReleaseOlderThan('R2006a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string",
+      "description": "string-scalar release name",
+      "call": "isMATLABReleaseOlderThan(\"R2027a\")",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "lowercase",
+      "description": "lower-case release name",
+      "call": "isMATLABReleaseOlderThan('r2022a')",
+      "errored": false,
+      "result": {
+        "value": "false",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-bad-name",
+      "description": "text that is not a release name",
+      "call": "isMATLABReleaseOlderThan('2022a')",
+      "errored": true,
+      "error_identifier": "MATLAB:isMATLABReleaseOlderThan:invalidReleaseInput"
+    },
+    {
+      "case_id": "err-numeric",
+      "description": "numeric input",
+      "call": "isMATLABReleaseOlderThan(2022)",
+      "errored": true,
+      "error_identifier": "MATLAB:validators:mustBeTextScalar"
+    },
+    {
+      "case_id": "err-none",
+      "description": "no input",
+      "call": "isMATLABReleaseOlderThan()",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

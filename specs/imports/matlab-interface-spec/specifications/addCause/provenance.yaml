@@ -1,0 +1,110 @@
+# Provenance for addCause (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: addCause
+claims:
+- claim_id: addCause.signature-primary
+  statement: The invocation form `ME2 = addCause(ME, cause)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: one
+- claim_id: addCause.append
+  statement: Causes are appended in call order and held in an n-by-1 cell (class cell; 1x1, then 2x1 with
+    c1 before c2); the identifier is unchanged.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: one
+  - file: observations/addCause_observations.json
+    case_id: two
+- claim_id: addCause.nested
+  statement: A cause may itself have causes, which are kept.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: nested
+- claim_id: addCause.value-semantics
+  statement: Calling addCause without assigning the result left the original exception with 0 causes.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: value-semantics
+- claim_id: addCause.thrown
+  statement: Causes are present on the exception caught after throw.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: thrown
+- claim_id: addCause.caught-cause
+  statement: An exception raised by error() and caught can be added as a cause.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: caught-builtin-cause
+- claim_id: addCause.method-syntax
+  statement: ME.addCause(c) gives the same result.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: method-syntax
+- claim_id: addCause.non-exception
+  statement: 'Observed: a struct first argument errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: err-not-exception
+- claim_id: addCause.error-char-cause
+  statement: The cause is not an MException (char or struct). The call errors with identifier MATLAB:class:RequireClass.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/addCause_observations.json
+    case_id: err-char-cause
+  - file: observations/addCause_observations.json
+    case_id: err-struct-cause

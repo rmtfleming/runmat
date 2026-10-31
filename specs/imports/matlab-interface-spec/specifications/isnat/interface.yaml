@@ -1,0 +1,76 @@
+# Interface specification for isnat (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: isnat
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return, elementwise, whether datetime values are NaT (not-a-time).
+invocation_forms:
+- signature: tf = isnat(D)
+  description: Logical array the size of D.
+  status: confirmed
+inputs:
+- name: D
+  position: 1
+  required: true
+  description: datetime array.
+  status: confirmed
+outputs:
+- name: tf
+  description: Logical array the size of D.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: isnat.elementwise-rule
+  statement: NaT (including datetime('NaT')) gives true and a valid datetime false, elementwise with the
+    shape of the input (1x3 and 2x2 observed).
+  status: confirmed
+  normative: true
+  provenance: isnat.elementwise
+  observations:
+  - file: observations/isnat_observations.json
+    case_id: nat
+  - file: observations/isnat_observations.json
+    case_id: from-text-nat
+  - file: observations/isnat_observations.json
+    case_id: valid
+  - file: observations/isnat_observations.json
+    case_id: array
+  - file: observations/isnat_observations.json
+    case_id: matrix
+- id: isnat.empty-rule
+  statement: An empty 0x1 datetime gives a 0x1 logical.
+  status: confirmed
+  normative: true
+  provenance: isnat.empty
+  observations:
+  - file: observations/isnat_observations.json
+    case_id: empty
+numerical_edge_cases:
+- id: isnat.non-datetime-rule
+  statement: 'Observed: double, duration and char inputs errored with MATLAB:UndefinedFunction (dispatch
+    level; not required).'
+  status: confirmed
+  normative: false
+  provenance: isnat.non-datetime
+  observations:
+  - file: observations/isnat_observations.json
+    case_id: err-double
+  - file: observations/isnat_observations.json
+    case_id: err-duration
+  - file: observations/isnat_observations.json
+    case_id: err-char
+warnings: []
+errors: []
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/isnat_observations.json
+  description: 9 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: isnat.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.

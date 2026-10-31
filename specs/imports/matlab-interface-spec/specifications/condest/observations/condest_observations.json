@@ -1,0 +1,203 @@
+{
+  "schema_version": "1.0",
+  "function_name": "condest",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/condest/test_condest_interface.m",
+  "date": "2026-10-30",
+  "notes": "Where the estimate may differ from the exact 1-norm condition number, probes report both; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "identity",
+      "description": "sparse identity",
+      "call": "condest(speye(4))",
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "diag",
+      "description": "sparse diagonal diag([1 10 100])",
+      "call": "condest(sparse(diag([1 10 100])))",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": "100",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vs-cond",
+      "description": "condest and cond(A, 1) for a 4x4 sparse tridiagonal matrix",
+      "call": "A = sparse tridiagonal; report condest(A), cond(full(A), 1)",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "condest": "2.7272727272727271",
+          "cond1": "2.7272727272727271"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "vs-cond-unsym",
+      "description": "condest and cond(A, 1) for a 3x3 unsymmetric sparse matrix",
+      "call": "A = sparse([1 2 0; 0 1 3; 4 0 1]); report as for vs-cond",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "condest": "3.4000000000000004",
+          "cond1": "3.3999999999999995"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense",
+      "description": "dense (full) input",
+      "call": "condest([2 0; 0 8])",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": "4",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "singular",
+      "description": "singular sparse matrix",
+      "call": "condest(sparse([1 2; 2 4]))",
+      "errored": false,
+      "result": {
+        "value": "Inf",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "all-zero sparse matrix",
+      "call": "condest(sparse(3, 3))",
+      "errored": false,
+      "result": {
+        "value": "Inf",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "two-out",
+      "description": "[c, v] = condest(A): c, and size and 1-norm of v and of A*v",
+      "call": "[c, v] = condest(sparse(diag([1 10 100]))); report c, size(v), norm(v, 1), norm(A*v, 1)",
+      "tolerance": 1E-10,
+      "errored": false,
+      "result": {
+        "value": {
+          "c": "100",
+          "size_v": "[3 1]",
+          "norm1_v": "1",
+          "norm1_Av": "1"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "scalar",
+      "description": "1x1 input",
+      "call": "condest(sparse(5))",
+      "tolerance": 1E-12,
+      "errored": false,
+      "result": {
+        "value": "1",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "0x0 input",
+      "call": "condest(sparse(0, 0))",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-nonsquare",
+      "description": "non-square input",
+      "call": "condest(sparse(ones(2, 3)))",
+      "errored": true,
+      "error_identifier": "MATLAB:condest:NonSquareMatrix"
+    },
+    {
+      "case_id": "err-char",
+      "description": "square char input",
+      "call": "condest(['ab'; 'cd'])",
+      "errored": true,
+      "error_identifier": "MATLAB:lu:inputType"
+    }
+  ]
+}

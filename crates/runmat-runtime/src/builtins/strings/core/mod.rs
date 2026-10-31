@@ -1,5 +1,6 @@
 //! Core string builtins.
 
+pub mod as_many_of_pattern;
 pub mod char;
 pub mod compat;
 pub mod compose;
@@ -18,5 +19,6 @@ pub mod string_empty;
 pub mod strings;
 pub mod strlength;
 pub mod strncmp;
+pub mod strvcat;
 pub mod unicode2native;
 pub mod validatestring;

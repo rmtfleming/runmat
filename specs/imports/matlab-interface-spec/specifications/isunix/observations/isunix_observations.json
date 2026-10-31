@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "function_name": "isunix",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/isunix/test_isunix_interface.m",
+  "date": "2026-10-30",
+  "notes": "The results depend on the platform; the oracle is GLNXA64 (Linux). Errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "value",
+      "description": "isunix on the oracle platform",
+      "call": "isunix",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "consistency",
+      "description": "isunix, ispc and ismac together",
+      "call": "report isunix, ispc, ismac",
+      "errored": false,
+      "result": {
+        "value": {
+          "isunix": "true",
+          "ispc": "false",
+          "ismac": "false"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-linux-test",
+      "description": "the COBRA test isunix && ~ismac",
+      "call": "isunix && ~ismac",
+      "errored": false,
+      "result": {
+        "value": "true",
+        "class": "logical",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-arg",
+      "description": "one input argument",
+      "call": "isunix(1)",
+      "errored": true,
+      "error_identifier": "MATLAB:maxrhs"
+    }
+  ]
+}

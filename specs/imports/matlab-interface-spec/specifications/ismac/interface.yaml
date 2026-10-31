@@ -1,0 +1,51 @@
+# Interface specification for ismac (created 2026-10-30, batch N4, new spec; approved 2026-10-30 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: ismac
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a logical scalar; it was false on the GLNXA64 (Linux) oracle, and other platforms were
+  not observed.
+invocation_forms:
+- signature: tf = ismac
+  description: Platform test.
+  status: confirmed
+inputs: []
+outputs:
+- name: tf
+  description: Logical scalar.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: ismac.value-rule
+  statement: On the GLNXA64 oracle ismac returned logical false.
+  status: confirmed
+  normative: true
+  provenance: ismac.value
+  observations:
+  - file: observations/ismac_observations.json
+    case_id: value
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: An input argument is given.
+  identifier: MATLAB:maxrhs
+  status: confirmed
+  provenance: ismac.error-arg
+  observations:
+  - file: observations/ismac_observations.json
+    case_id: err-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/ismac_observations.json
+  description: 2 independently constructed cases on R2026a (GLNXA64), 2026-10-30.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: ismac.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: ismac.q-platform
+  question: Only the GLNXA64 (Linux) oracle was exercised; results on other platforms were not observed.

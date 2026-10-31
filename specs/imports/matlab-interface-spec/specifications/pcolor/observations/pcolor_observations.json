@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "function_name": "pcolor",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/pcolor/test_pcolor_interface.m",
+  "date": "2026-10-30",
+  "notes": "Each probe draws into a fresh invisible figure and closes it on exit; errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "c-only",
+      "description": "pcolor(C) for a 2x3 C",
+      "call": "h = pcolor([1 2 3; 4 5 6]); report class, XData, YData, ZData, CData",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.primitive.Surface'",
+          "XData": "[1 2 3]",
+          "YData": "[1;2]",
+          "ZData": "[0 0 0;0 0 0]",
+          "CData": "[1 2 3;4 5 6]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "ax-arg",
+      "description": "pcolor(ax, C) draws into the given axes",
+      "call": "ax = axes; h = pcolor(ax, [1 2 3; 4 5 6]); report class, h.Parent == ax, CData",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.primitive.Surface'",
+          "parent_is_ax": "true",
+          "CData": "[1 2 3;4 5 6]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "xyc-vectors",
+      "description": "pcolor(x, y, C) with vectors (COBRA form)",
+      "call": "h = pcolor([10 20 30], [1 2], [1 2 3; 4 5 6]); report as for c-only",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.primitive.Surface'",
+          "XData": "[10 20 30]",
+          "YData": "[1 2]",
+          "ZData": "[0 0 0;0 0 0]",
+          "CData": "[1 2 3;4 5 6]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "xyc-matrices",
+      "description": "pcolor(X, Y, C) with meshgrid matrices",
+      "call": "[X, Y] = meshgrid([10 20 30], [1 2]); h = pcolor(X, Y, C); report as for c-only",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.primitive.Surface'",
+          "XData": "[10 20 30;10 20 30]",
+          "YData": "[1 1 1;2 2 2]",
+          "ZData": "[0 0 0;0 0 0]",
+          "CData": "[1 2 3;4 5 6]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-ax-arg",
+      "description": "pcolor(C) without an axes argument draws into the current axes",
+      "call": "f = figure; h = pcolor(magic(3)); report class(h) and whether h.Parent is gca",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'matlab.graphics.primitive.Surface'",
+          "parent_is_gca": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "view",
+      "description": "axes view after pcolor",
+      "call": "pcolor(magic(3)); report view of the axes",
+      "errored": false,
+      "result": {
+        "value": "[0 90]",
+        "class": "double",
+        "size": [
+          1,
+          2
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edge-face",
+      "description": "FaceColor and EdgeColor of the returned object",
+      "call": "h = pcolor(magic(3)); report FaceColor, EdgeColor",
+      "errored": false,
+      "result": {
+        "value": {
+          "FaceColor": "'flat'",
+          "EdgeColor": "[0.12941176470588237 0.12941176470588237 0.12941176470588237]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-size",
+      "description": "x length not matching the columns of C",
+      "call": "pcolor([1 2], [1 2], [1 2 3; 4 5 6])",
+      "errored": true,
+      "error_identifier": "MATLAB:pcolor:InputSizeMismatch"
+    },
+    {
+      "case_id": "err-two-args",
+      "description": "two numeric arguments",
+      "call": "pcolor([1 2], [1 2; 3 4])",
+      "errored": true,
+      "error_identifier": "MATLAB:badsubscript"
+    }
+  ]
+}

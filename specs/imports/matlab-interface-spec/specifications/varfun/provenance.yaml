@@ -1,0 +1,126 @@
+# Provenance for varfun (created 2026-10-30, batch N4, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: varfun
+claims:
+- claim_id: varfun.signature-primary
+  statement: The invocation form `R = varfun(func, T)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: mean
+- claim_id: varfun.names
+  statement: Output variables are named <function name>_<variable name> (mean_x, std_y, cumsum_x, max_v);
+    an anonymous function gives Fun_<variable>.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: mean
+  - file: observations/varfun_observations.json
+    case_id: std
+  - file: observations/varfun_observations.json
+    case_id: elementwise
+  - file: observations/varfun_observations.json
+    case_id: one-var
+  - file: observations/varfun_observations.json
+    case_id: anonymous
+- claim_id: varfun.rows
+  statement: A scalar-valued function gives a one-row table (mean of [1;2;3] and [4;6;8] gave 2 and 6;
+    std gave 1 and 2); a function returning a column gives that many rows (cumsum, v*2 gave 3 rows).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: mean
+  - file: observations/varfun_observations.json
+    case_id: std
+  - file: observations/varfun_observations.json
+    case_id: elementwise
+  - file: observations/varfun_observations.json
+    case_id: anonymous
+- claim_id: varfun.cobra-pattern
+  statement: table2array(varfun(@mean, T))' gave the column [2;6]; varfun on T([1 3], 2:end) gave mean_y
+    = 6.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: table2array
+  - file: observations/varfun_observations.json
+    case_id: subset
+- claim_id: varfun.rownames
+  statement: For a table with row names and a scalar-valued function the result had one row with variable
+    mean_x (row names of the result were not recorded).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: rownames
+- claim_id: varfun.empty-rows
+  statement: A zero-row table with @sum gave a one-row result sum_x = 0.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: empty-rows
+- claim_id: varfun.non-table
+  statement: 'Observed: a numeric matrix input errored with MATLAB:UndefinedFunction (dispatch level;
+    not required).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: err-not-table
+- claim_id: varfun.error-cellstr
+  statement: func fails on a variable (here @mean on a cellstr variable). The call errors with identifier
+    MATLAB:table:varfun:FunFailed.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: err-cellstr
+- claim_id: varfun.error-not-function
+  statement: The first argument is numeric (varfun(5, T) observed). The call errors with identifier MATLAB:table:varfun:InvalidFunction.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-10-30'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/varfun_observations.json
+    case_id: err-not-function

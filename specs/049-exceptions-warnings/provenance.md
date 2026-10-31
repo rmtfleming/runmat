@@ -26,14 +26,14 @@ unless marked.
 | MException.error-no-message | FR-049-03 |
 | MException.throw-catch | FR-049-04 |
 | MException.rethrow | FR-049-05 |
-| MException.addcause | FR-049-06 (**not met**, D-049-1) |
+| MException.addcause | FR-049-06 (met by F60; D-049-1 closed) |
 | throw.signature-primary | FR-049-04 |
 | throw.identifier | FR-049-04 |
 | throw.caught | FR-049-04 |
 | throw.formatted | FR-049-04 |
 | throw.no-id | FR-049-04, U-049-1 |
 | throw.rethrow | FR-049-05 |
-| throw.cause | FR-049-06 (**not met**, D-049-1) |
+| throw.cause | FR-049-06 (met by F60; D-049-1 closed) |
 | throw.non-mexception (**non-normative**) | U-049-2 |
 | lastwarn.signature-primary | FR-049-07 |
 | lastwarn.after-warning | FR-049-07 |

@@ -604,6 +604,17 @@ pub async fn call_method_or_member_index_named_with_outputs(
         Value::MException(exception) if name == "throw" && args.is_empty() => {
             Err(crate::builtins::diagnostics::exceptions_warnings::throw_error(&exception))
         }
+        // spec 060: `ME.addCause(cause)` [addCause.method-syntax].
+        Value::MException(exception) if name == "addCause" && args.len() == 1 => {
+            crate::builtins::diagnostics::exceptions_warnings::add_cause(
+                &Value::MException(exception),
+                &args[0],
+            )
+            .and_then(|value| {
+                runmat_value::ValueSequence::single(value)
+                    .map_err(crate::sequence::sequence_error_to_runtime)
+            })
+        }
         other => call_getfield_with_indices(other, name, args, requested_outputs)
             .await
             .and_then(|value| {

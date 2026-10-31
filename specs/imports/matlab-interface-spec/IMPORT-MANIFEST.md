@@ -1,5 +1,24 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 13 — N4: 14 new COBRA-backlog specs — 2026-10-30
+
+- Fourteen newly approved specifications (spec 0.2.0, `status: approved`):
+  `isunix`, `ismac`, `isMATLABReleaseOlderThan`, `isnat`, `pcolor`,
+  `surfl`, `varfun`, `convertvars`, `addCause`, `allchild`, `allpaths`,
+  `inedges`, `asManyOfPattern`, `condest`. Imported for implementation
+  (maintainer: "implement N3 and N4").
+- Approval record: source `docs/review/2026-10-30-n4-new-specs-human-loop.md`.
+  Non-normative: pcolor/surfl default EdgeColor, asManyOfPattern
+  empty-match outputs (open question), allpaths path order, the condest
+  "estimate" inference. isunix/ismac/isMATLABReleaseOlderThan observed only
+  on GLNXA64/R2026a. Dispatch-level `MATLAB:UndefinedFunction` is
+  non-normative throughout. No earlier import was revised.
+- Revision: committed source **`fc9f80485f8b5df44a2a6b1ba6aec0e8274aa6c7`**
+  (on `origin/main`), read with `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (56 new lines, none changed).
+
+---
+
 ## Batch 12 — cast 0.2.1 correction — 2026-10-30
 
 - Re-import of `cast` at spec version **0.2.1** (`status: approved`),
