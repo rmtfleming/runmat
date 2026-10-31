@@ -29,6 +29,7 @@ use crate::builtins::common::tensor as tensor_utils;
 use crate::{build_runtime_error, BuiltinResult, RuntimeError};
 
 mod descriptors;
+pub(crate) mod sprandn;
 pub use descriptors::{
     NONZEROS_DESCRIPTOR, SPDIAGS_DESCRIPTOR, SPEYE_DESCRIPTOR, SPONES_DESCRIPTOR, SPRAND_DESCRIPTOR,
 };

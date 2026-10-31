@@ -105,7 +105,13 @@ and `dec2base`/`validatestring` (`strings/core/mod.rs`); batch N2: `nthroot`
 (`math/linalg/solve/mod.rs`), `strread` (`io/filetext/mod.rs`),
 `renamevars`/`rows2vars`/`varfun`/`convertvars` (`table/builtins.rs`),
 `findall`/`ishghandle`/`allchild`/`pcolor`/`surfl` (`plotting/ops/mod.rs`, via
-`#[path]`) and `isomorphism`/`allpaths`/`inedges` (`graph/domain/mod.rs`).
+`#[path]`) and `isomorphism`/`allpaths`/`inedges` (`graph/domain/mod.rs`);
+batch N5: `lsqminnorm` (`math/linalg/solve/mod.rs`), `sprank`
+(`math/sparse/mod.rs`), `sprandn` (`array/creation/sparse/mod.rs`),
+`outedges`/`reordernodes` (`graph/domain/mod.rs`), `rat`
+(`math/rounding/mod.rs`), `fscanf` (`io/filetext/mod.rs`), `urlwrite`
+(`io/http/mod.rs`) and `fplot`/`rectangle`/`validatecolor`
+(`plotting/ops/mod.rs`, via `#[path]`).
 
 Re-add these lines whenever upstream regenerates those files. CI does not currently verify
 generated products, so the hand-added lines don't fail the build.

@@ -145,7 +145,7 @@ pub const INEDGES_DESCRIPTOR: BuiltinDescriptor = BuiltinDescriptor {
 // ---------------------------------------------------------------------------
 
 /// Raise `RunMat:<builtin>:<id>` from the builtin's descriptor table.
-fn query_error(
+pub(super) fn query_error(
     builtin: &'static str,
     errors: &'static [BuiltinErrorDescriptor],
     id: &str,
@@ -163,7 +163,7 @@ fn query_error(
 
 /// Read the graph argument. Anything that is not a `graph`/`digraph` object
 /// is `UndefinedFunction` (U-059-1); a malformed object is `InvalidInput`.
-fn graph_input(
+pub(super) fn graph_input(
     builtin: &'static str,
     errors: &'static [BuiltinErrorDescriptor],
     value: &Value,
@@ -192,7 +192,7 @@ fn graph_input(
 }
 
 /// U-059-3: at most two outputs.
-fn check_output_count(
+pub(super) fn check_output_count(
     builtin: &'static str,
     errors: &'static [BuiltinErrorDescriptor],
 ) -> BuiltinResult<Option<usize>> {
@@ -208,7 +208,7 @@ fn check_output_count(
 }
 
 /// Package one or two outputs for the requested output count.
-fn outputs(
+pub(super) fn outputs(
     count: Option<usize>,
     first: Value,
     second: impl FnOnce() -> BuiltinResult<Value>,
@@ -222,7 +222,7 @@ fn outputs(
 }
 
 /// Outcome of resolving one node argument.
-enum NodeArg {
+pub(super) enum NodeArg {
     Node(usize),
     NotScalar,
     InvalidId,
@@ -231,7 +231,7 @@ enum NodeArg {
 }
 
 /// Text values are names, numeric values one-based indices.
-fn resolve_node(graph: &GraphData, value: &Value) -> NodeArg {
+pub(super) fn resolve_node(graph: &GraphData, value: &Value) -> NodeArg {
     match value {
         Value::String(_) | Value::StringArray(_) | Value::CharArray(_) | Value::Cell(_) => {
             let Ok(labels) = parse_string_vector(value) else {
@@ -268,7 +268,7 @@ fn resolve_node(graph: &GraphData, value: &Value) -> NodeArg {
     }
 }
 
-fn double(
+pub(super) fn double(
     builtin: &'static str,
     errors: &'static [BuiltinErrorDescriptor],
     data: Vec<f64>,
@@ -279,7 +279,7 @@ fn double(
         .map_err(|err| query_error(builtin, errors, "Internal", err.message()))
 }
 
-fn cell(
+pub(super) fn cell(
     builtin: &'static str,
     errors: &'static [BuiltinErrorDescriptor],
     values: Vec<Value>,
@@ -291,7 +291,7 @@ fn cell(
         .map_err(|err| query_error(builtin, errors, "Internal", err))
 }
 
-fn name_value(name: &str) -> Value {
+pub(super) fn name_value(name: &str) -> Value {
     Value::CharArray(CharArray::new_row(name))
 }
 

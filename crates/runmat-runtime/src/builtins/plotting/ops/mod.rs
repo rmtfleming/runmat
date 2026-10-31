@@ -24,3 +24,11 @@ pub(crate) mod ishghandle;
 pub(crate) mod pcolor;
 #[path = "surfl.rs"]
 pub(crate) mod surfl;
+
+// Clean-room builtins (spec 065).
+#[path = "fplot.rs"]
+pub(crate) mod fplot;
+#[path = "rectangle.rs"]
+pub(crate) mod rectangle;
+#[path = "validatecolor.rs"]
+pub(crate) mod validatecolor;

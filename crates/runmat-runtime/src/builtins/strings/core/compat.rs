@@ -2538,7 +2538,7 @@ struct SscanfResult {
 }
 
 #[derive(Clone, Copy)]
-enum ScanKind {
+pub(crate) enum ScanKind {
     Float,
     SignedInteger {
         radix: IntegerRadix,
@@ -2553,7 +2553,7 @@ enum ScanKind {
 }
 
 #[derive(Clone, Copy)]
-enum IntegerRadix {
+pub(crate) enum IntegerRadix {
     Decimal,
     Auto,
     Octal,
@@ -2561,7 +2561,7 @@ enum IntegerRadix {
 }
 
 #[derive(Clone, Copy)]
-enum ScanValue {
+pub(crate) enum ScanValue {
     F64(f64),
     I64(i64),
     U64(u64),
@@ -2575,7 +2575,7 @@ enum ScanOutputClass {
 }
 
 #[derive(Clone)]
-enum ScanToken {
+pub(crate) enum ScanToken {
     Whitespace,
     Literal(char),
     Spec {
@@ -2666,7 +2666,7 @@ fn sscanf_scan(text: &str, format: &str, size: Option<Vec<usize>>) -> BuiltinRes
     })
 }
 
-fn parse_scan_format(format: &str) -> BuiltinResult<Vec<ScanToken>> {
+pub(crate) fn parse_scan_format(format: &str) -> BuiltinResult<Vec<ScanToken>> {
     let mut chars = format.chars().peekable();
     let mut tokens = Vec::new();
     while let Some(ch) = chars.next() {
@@ -2757,7 +2757,7 @@ fn parse_scan_format(format: &str) -> BuiltinResult<Vec<ScanToken>> {
     Ok(tokens)
 }
 
-fn scan_one(
+pub(crate) fn scan_one(
     text: &str,
     pos: usize,
     kind: ScanKind,
@@ -2975,7 +2975,7 @@ fn numeric_prefix_len(text: &str, integer: bool) -> Option<usize> {
     (end > 0).then_some(end)
 }
 
-fn skip_whitespace(text: &str, mut pos: usize) -> usize {
+pub(crate) fn skip_whitespace(text: &str, mut pos: usize) -> usize {
     while pos < text.len() {
         let Some(ch) = text[pos..].chars().next() else {
             break;

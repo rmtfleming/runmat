@@ -223,8 +223,10 @@ mod construction;
 mod editing;
 mod entrypoints;
 mod isomorphism;
+mod outedges;
 mod parsing;
 mod paths;
+mod reordernodes;
 mod structure;
 
 #[cfg(test)]

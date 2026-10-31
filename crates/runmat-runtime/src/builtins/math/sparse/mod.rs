@@ -9,6 +9,7 @@ pub(crate) mod colamd;
 pub(crate) mod dissect;
 pub(crate) mod etree;
 pub(crate) mod spalloc;
+pub(crate) mod sprank;
 pub(crate) mod symbfact;
 pub(crate) mod symbolic;
 
