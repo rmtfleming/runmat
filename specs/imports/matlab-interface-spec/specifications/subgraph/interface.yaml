@@ -1,0 +1,196 @@
+# Interface specification for subgraph (created 2026-11-02, batch N6, new spec; approved 2026-11-02 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: subgraph
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: 'Return the graph induced by a set of nodes: the selected nodes with their node-table rows, and
+  every edge whose two end nodes are both selected, renumbered to the new node positions.'
+invocation_forms:
+- signature: H = subgraph(G, nodeIDs)
+  description: Induced subgraph for a logical mask (COBRA form subgraph(ATG, mask)), a vector of indices
+    (COBRA form subgraph(BG, idx)) or a cell of names.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: digraph or graph.
+  status: confirmed
+- name: nodeIDs
+  position: 2
+  required: true
+  description: Logical mask with one element per node (row or column), numeric node indices (row or column),
+    or a cell array of node names.
+  status: confirmed
+outputs:
+- name: H
+  description: Graph of the same class as G.
+  status: confirmed
+output_type_rules:
+- id: subgraph.output-class-rule
+  statement: 'H has the class of G: digraph for a digraph and graph for a graph.'
+  status: confirmed
+  normative: true
+  provenance: subgraph.output-class
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: class
+  - file: observations/subgraph_observations.json
+    case_id: undirected
+output_shape_rules:
+- id: subgraph.node-order-rule
+  statement: A logical mask keeps the selected nodes in their original order; indices or names keep them
+    in the order given ([3 1 2] gave node-table rows c, a, b; {'c','a'} gave c, a).
+  status: confirmed
+  normative: true
+  provenance: subgraph.node-order
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+  - file: observations/subgraph_observations.json
+    case_id: logical-column
+  - file: observations/subgraph_observations.json
+    case_id: index-column
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: names
+- id: subgraph.node-table-rule
+  statement: All node-table variables (Met, Atom; or Name) are carried over for the selected rows.
+  status: confirmed
+  normative: true
+  provenance: subgraph.node-table
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: source-graph
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: names
+- id: subgraph.induced-edges-rule
+  statement: H contains exactly the edges of G with both end nodes selected, with EndNodes renumbered
+    to positions in H and edge-table variables (rxns, Weight) carried over. For the 4-cycle with edges
+    r1..r4, the mask [1 1 1 0] kept r1, r2 as [1 2; 2 3]; [1 0 1 1] kept r3, r4 as [2 3; 3 1]; [3 1 2]
+    kept r1, r2 as [2 3; 3 1].
+  status: confirmed
+  normative: true
+  provenance: subgraph.induced-edges
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: source-graph
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+  - file: observations/subgraph_observations.json
+    case_id: logical-column
+  - file: observations/subgraph_observations.json
+    case_id: index-column
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: weighted
+- id: subgraph.edge-order-rule
+  statement: 'The edge table of H is sorted by its renumbered EndNodes rows, not kept in G''s edge order:
+    indices [4 1 2] gave nodes d, a, b and edges r4, r1 as [1 2; 2 3] (G''s order would give r1, r4 as
+    [2 3; 1 2]); this is the one case that separates the two orders.'
+  status: confirmed
+  normative: true
+  provenance: subgraph.edge-order
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: edge-order
+  - file: observations/subgraph_observations.json
+    case_id: logical-column
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: multigraph
+- id: subgraph.multigraph-rule
+  statement: Parallel edges and self-loops between selected nodes are kept (EndNodes [1 1; 1 2; 1 2]).
+  status: confirmed
+  normative: true
+  provenance: subgraph.multigraph
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: multigraph
+- id: subgraph.isolated-rule
+  statement: A selected node with no kept edge stays in H (2 nodes, 0x2 EndNodes).
+  status: confirmed
+  normative: true
+  provenance: subgraph.isolated
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: isolated-node
+- id: subgraph.empty-rule
+  statement: An all-false mask or an empty index vector gives a graph with 0 nodes and 0 edges that keeps
+    the node and edge variable names.
+  status: confirmed
+  normative: true
+  provenance: subgraph.empty
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: all-false
+  - file: observations/subgraph_observations.json
+    case_id: empty-index
+- id: subgraph.names-rule
+  statement: With named nodes, EndNodes of H is a cell array of names.
+  status: confirmed
+  normative: true
+  provenance: subgraph.names
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: names
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A node index is repeated, or a logical mask is shorter or longer than the number of nodes.
+  identifier: MATLAB:graphfun:subgraph:InvalidInd
+  status: confirmed
+  provenance: subgraph.error-repeat
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: err-repeat
+  - file: observations/subgraph_observations.json
+    case_id: err-mask-length
+  - file: observations/subgraph_observations.json
+    case_id: err-mask-longer
+- condition: A node index exceeds the number of nodes (digraph).
+  identifier: MATLAB:graphfun:digraph:InvalidNodeID
+  status: confirmed
+  provenance: subgraph.error-range
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: err-range
+- condition: A name is not a node name (digraph).
+  identifier: MATLAB:graphfun:digraph:UnknownNodeName
+  status: confirmed
+  provenance: subgraph.error-unknown-name
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: err-unknown-name
+- condition: Only G is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: subgraph.error-one-arg
+  observations:
+  - file: observations/subgraph_observations.json
+    case_id: err-one-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/subgraph_observations.json
+  description: 20 independently constructed cases on R2026a (GLNXA64), 2026-11-02.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: subgraph.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: subgraph.q-tie-order
+  question: The order of parallel edges, which tie after sorting, was not established; the sorted order
+    rests on one case where it differs from G's order.
+- id: subgraph.q-undirected-ids
+  question: Only digraph error identifiers were observed; identifiers for graph inputs were not exercised.

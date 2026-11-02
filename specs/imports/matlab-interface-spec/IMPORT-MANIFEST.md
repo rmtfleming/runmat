@@ -1,5 +1,26 @@
 # Import Manifest — matlab-interface-spec exports
 
+## Batch 15 — N6: 5 COBRA-backlog specs — 2026-11-02
+
+- Five newly approved specifications (spec 0.2.0, `status: approved`):
+  `subgraph`, `findnode` (graph methods), `normest`, `lsqnonneg`, and `web`
+  (completed from its 0.1.0 draft stub, which was never imported here).
+  Imported for implementation (maintainer: "Import and implement").
+- Approval record: source `docs/review/2026-11-02-n6-new-specs-human-loop.md`.
+  The spec repo retired the `export` stub (COBRA calls a toolbox `dataset`
+  method) and excluded `violinplot` and `lsqr` (COBRA ships its own
+  implementations, which shadow the built-ins); none was imported here.
+  Open for review, so non-normative: `web` network, display, handle and
+  headless behaviour (only `file://` observed); `normest` count and
+  default tol (accuracy only); `lsqnonneg` `output.algorithm`/`message`;
+  `subgraph` tie order; error identifiers that name other functions.
+  Observed on GLNXA64/R2026a only. No earlier import was revised.
+- Revision: committed source **`e3642060f88131d84cb6280bc986a5cdee52d28f`** (on `origin/main`), read with
+  `git show`; export-boundary files only.
+- Byte-verified; `SHA256SUMS` regenerated (20 new lines, none changed).
+
+---
+
 ## Batch 14 — N5: 11 new COBRA-backlog specs — 2026-10-31
 
 - Eleven newly approved specifications (spec 0.2.0, `status: approved`):

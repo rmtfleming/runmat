@@ -1,0 +1,344 @@
+{
+  "schema_version": "1.0",
+  "function_name": "findnode",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/findnode/test_findnode_interface.m",
+  "date": "2026-11-02",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "node-names",
+      "description": "reference: node names of the test digraph",
+      "call": "G = digraph({'a','b','c'}, {'b','c','d'}); G.Nodes.Name",
+      "errored": false,
+      "result": {
+        "value": [
+          "'a'",
+          "'b'",
+          "'c'",
+          "'d'"
+        ],
+        "class": "cell",
+        "size": [
+          4,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell-row",
+      "description": "1x2 cell taken from a row of G.Edges.EndNodes (COBRA form)",
+      "call": "e = G.Edges.EndNodes(2, :); findnode(G, e)",
+      "errored": false,
+      "result": {
+        "value": {
+          "query": [
+            "'b'",
+            "'c'"
+          ],
+          "idx": "[2;3]",
+          "class": "'double'",
+          "size": "[2 1]"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char",
+      "description": "one name as char",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), 'c')",
+      "errored": false,
+      "result": {
+        "value": "3",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-array",
+      "description": "string array [\"d\" \"a\"]",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), [\"d\" \"a\"])",
+      "errored": false,
+      "result": {
+        "value": "[4;1]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell-column",
+      "description": "cell column {'b'; 'a'}",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), {'b'; 'a'})",
+      "errored": false,
+      "result": {
+        "value": "[2;1]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cell-matrix",
+      "description": "2x2 cell",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), {'a' 'b'; 'c' 'd'})",
+      "errored": false,
+      "result": {
+        "value": "[1;3;2;4]",
+        "class": "double",
+        "size": [
+          4,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "unknown",
+      "description": "a name that is not a node",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), 'z')",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "mixed-unknown",
+      "description": "known and unknown names together",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), {'a', 'z', 'c'})",
+      "errored": false,
+      "result": {
+        "value": "[1;0;3]",
+        "class": "double",
+        "size": [
+          3,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "repeated",
+      "description": "the same name twice",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), {'b', 'b'})",
+      "errored": false,
+      "result": {
+        "value": "[2;2]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "case-sensitive",
+      "description": "a name differing only in case",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), 'A')",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-cell",
+      "description": "an empty cell",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), {})",
+      "errored": false,
+      "result": {
+        "value": "zeros(0,1)",
+        "class": "double",
+        "size": [
+          0,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-named",
+      "description": "numeric indices [3 1] on a named graph",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), [3 1])",
+      "errored": false,
+      "result": {
+        "value": "[3;1]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-unnamed",
+      "description": "numeric indices on an unnamed graph",
+      "call": "findnode(digraph([1 2], [2 3]), [2; 3])",
+      "errored": false,
+      "result": {
+        "value": "[2;3]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-range",
+      "description": "an index beyond the node count",
+      "call": "findnode(digraph([1 2], [2 3]), 7)",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "numeric-range-named",
+      "description": "an index beyond the node count on a named graph",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), 9)",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-numeric-zero",
+      "description": "index 0",
+      "call": "findnode(digraph([1 2], [2 3]), 0)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:PosInt"
+    },
+    {
+      "case_id": "err-numeric-negative",
+      "description": "index -1",
+      "call": "findnode(digraph([1 2], [2 3]), -1)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:PosInt"
+    },
+    {
+      "case_id": "err-numeric-fraction",
+      "description": "index 1.5",
+      "call": "findnode(digraph([1 2], [2 3]), 1.5)",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:PosInt"
+    },
+    {
+      "case_id": "err-char-matrix",
+      "description": "a 2-row char matrix ['ab'; 'cd'] on a graph with those names",
+      "call": "findnode(digraph({'ab'}, {'cd'}), ['ab'; 'cd'])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:ArgType"
+    },
+    {
+      "case_id": "err-unnamed-string",
+      "description": "a string query on an unnamed graph",
+      "call": "findnode(digraph([1 2], [2 3]), \"a\")",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:NoNames"
+    },
+    {
+      "case_id": "undirected",
+      "description": "an undirected named graph",
+      "call": "findnode(graph({'x','y'}, {'y','z'}), {'z', 'x'})",
+      "errored": false,
+      "result": {
+        "value": "[3;1]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-unnamed-char",
+      "description": "a char query on an unnamed graph",
+      "call": "findnode(digraph([1 2], [2 3]), 'a')",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:NoNames"
+    },
+    {
+      "case_id": "err-logical",
+      "description": "a logical query",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), [true false])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:ArgType"
+    },
+    {
+      "case_id": "err-one-arg",
+      "description": "graph only",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}))",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    },
+    {
+      "case_id": "err-cell-numeric",
+      "description": "a cell holding a number",
+      "call": "findnode(digraph({'a','b','c'}, {'b','c','d'}), {1})",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:findnode:ArgType"
+    }
+  ]
+}

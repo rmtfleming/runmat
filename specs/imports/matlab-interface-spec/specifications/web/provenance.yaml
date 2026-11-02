@@ -1,0 +1,124 @@
+# Provenance for web (created 2026-11-02, batch N6, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: web
+claims:
+- claim_id: web.signature-primary
+  statement: The invocation form `web(url, '-browser')` is accepted with no output (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: browser-cobra
+- claim_id: web.matlab-browser
+  statement: Opening in the MATLAB browser, with no option, '-new', '-notoolbar' or the COBRA combination
+    '-new', '-noaddressbox', '-notoolbar', returned stat = 0 (double) and a non-empty handle h that close(h)
+    accepted without error.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: plain
+  - file: observations/web_observations.json
+    case_id: cobra-new
+  - file: observations/web_observations.json
+    case_id: new
+  - file: observations/web_observations.json
+    case_id: notoolbar
+- claim_id: web.inputs
+  statement: A string scalar URL, a plain path without file://, and no input at all were each accepted,
+    with stat = 0 and a closable handle.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: string-url
+  - file: observations/web_observations.json
+    case_id: plain-path
+  - file: observations/web_observations.json
+    case_id: no-input
+- claim_id: web.system-browser
+  statement: With '-browser', the call completed with no output; stat was 0 with one or two outputs, and
+    with two outputs h was an empty double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: browser-cobra
+  - file: observations/web_observations.json
+    case_id: browser-stat
+  - file: observations/web_observations.json
+    case_id: browser-two-out
+- claim_id: web.one-out
+  statement: With one output, stat was 0 for the MATLAB browser.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: one-out
+- claim_id: web.missing-file
+  statement: A file:// URL to a file that does not exist did not error and gave stat = 0, the same as
+    an existing file.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: missing-file
+- claim_id: web.unknown-option
+  statement: An unrecognised option ('-nosuchoption') did not error and gave stat = 0 and a closable handle.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: unknown-option
+- claim_id: web.handle-class
+  statement: The MATLAB-browser handle's class was 'com.mathworks.mde.webbrowser.WebBrowser'; the class
+    name is recorded only and not required.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: plain
+- claim_id: web.error-numeric
+  statement: url is numeric. The call errors with identifier MATLAB:string:MustBeCharCellArrayOrString.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/web_observations.json
+    case_id: err-numeric

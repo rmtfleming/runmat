@@ -1,0 +1,248 @@
+# Provenance for lsqnonneg (created 2026-11-02, batch N6, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: lsqnonneg
+claims:
+- claim_id: lsqnonneg.signature-primary
+  statement: The invocation form `x = lsqnonneg(C, d)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: one-out
+- claim_id: lsqnonneg.output-class
+  statement: x is a full double column vector, also for sparse C.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: sparse
+- claim_id: lsqnonneg.cobra-form
+  statement: With d = zeros(3, 1) (COBRA form) x was the 4x1 zero vector with one or six outputs; resnorm
+    0, residual zeros, exitflag 1 and lambda zeros.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-zero-rhs
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-one-out
+- claim_id: lsqnonneg.solutions
+  statement: eye(2) with d = [1; 2] gave x = [1; 2]; with d = [1; -2] gave x = [1; 0]; eye(3) with d =
+    [-1; -2; -3] gave x = 0; [2 0; 0 4] with [2; 4] gave [1; 1]; [1 0; 0 1; 1 1] with [1; 2; -5] gave
+    x = 0.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: one-out
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+- claim_id: lsqnonneg.residual
+  statement: residual = d - C*x and resnorm = norm(residual)^2 (e.g. [0; -2] and 4 for the bound-active
+    case; [1; 2; -5] and 30 for the overdetermined case).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+- claim_id: lsqnonneg.lambda
+  statement: lambda equalled the recorded C'*(d - C*x) exactly in every case; it was 0 for components
+    with x > 0 and <= 0 for components held at 0 (bound-active [0; -2]; overdetermined [-4; -3]), except
+    for rounding-level values (1.3e-15) in the rank-deficient case.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+  - file: observations/lsqnonneg_observations.json
+    case_id: sparse
+  - file: observations/lsqnonneg_observations.json
+    case_id: empty-rows
+- claim_id: lsqnonneg.output-struct
+  statement: exitflag was 1 and output had a field iterations in every case that recorded them; no warning
+    was recorded.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-zero-rhs
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+  - file: observations/lsqnonneg_observations.json
+    case_id: sparse
+  - file: observations/lsqnonneg_observations.json
+    case_id: empty-rows
+- claim_id: lsqnonneg.options
+  statement: optimset('TolX', 1e-3) and optimset('Display', 'off') were accepted and gave the same results
+    as without options for the same problems.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: options-tolx
+  - file: observations/lsqnonneg_observations.json
+    case_id: options-display
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+- claim_id: lsqnonneg.empty
+  statement: A 0x2 C with a 0x1 d gave x = [0; 0], resnorm 0 and a 0x1 residual.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: empty-rows
+- claim_id: lsqnonneg.nonunique
+  statement: For [1 1; 1 1] with d = [2; 2] the solution is not unique; x = [2; 0] (to rounding) was returned.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+- claim_id: lsqnonneg.iterations
+  statement: output.iterations (0, 2, 1, 0, 0, 1), output.algorithm ('active-set') and the presence of
+    a message field are recorded but not required.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-zero-rhs
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+- claim_id: lsqnonneg.error-single
+  statement: C and d are both single, or C is char. The call errors with identifier MATLAB:lsqnonneg:NonDoubleInput.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-single
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-char
+- claim_id: lsqnonneg.error-complex
+  statement: C is complex. The call errors with identifier MATLAB:lsqnonneg:ComplexCorD.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-complex
+- claim_id: lsqnonneg.error-size
+  statement: d has a different number of rows from C. The call errors with identifier MATLAB:sizeDimensionsMustMatch.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-size
+- claim_id: lsqnonneg.error-row-d
+  statement: d is a row vector. The call errors with identifier MATLAB:dimagree.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-row-d
+- claim_id: lsqnonneg.error-one-arg
+  statement: Only C is given. The call errors with identifier MATLAB:lsqnonneg:InputArg.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-one-arg

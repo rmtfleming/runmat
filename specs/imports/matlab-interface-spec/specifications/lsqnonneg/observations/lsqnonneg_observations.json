@@ -1,0 +1,426 @@
+{
+  "schema_version": "1.0",
+  "function_name": "lsqnonneg",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/lsqnonneg/test_lsqnonneg_interface.m",
+  "date": "2026-11-02",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only. Path entries containing mosek were removed for the run and the path restored afterwards.",
+  "cases": [
+    {
+      "case_id": "cobra-zero-rhs",
+      "description": "3x4 A with a zero right-hand side (COBRA form)",
+      "call": "[x, resnorm, residual, exitflag, output, lambda] = lsqnonneg([1 -1 0 2; 0 1 -1 0; 1 0 1 -1], zeros(3, 1))",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[0;0;0;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "0",
+          "residual": "[0;0;0]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "0",
+          "output_algorithm": "'active-set'",
+          "lambda": "[0;0;0;0]",
+          "ct_residual": "[0;0;0;0]",
+          "check_resnorm": "0",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-one-out",
+      "description": "the COBRA call with one output",
+      "call": "x = lsqnonneg([1 -1 0 2; 0 1 -1 0; 1 0 1 -1], zeros(3, 1))",
+      "errored": false,
+      "result": {
+        "value": "[0;0;0;0]",
+        "class": "double",
+        "size": [
+          4,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "interior",
+      "description": "solution with every component positive",
+      "call": "[x, resnorm, residual, exitflag, output, lambda] = lsqnonneg(eye(2), [1; 2])",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[1;2]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "0",
+          "residual": "[0;0]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "2",
+          "output_algorithm": "'active-set'",
+          "lambda": "[0;0]",
+          "ct_residual": "[0;0]",
+          "check_resnorm": "0",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "bound-active",
+      "description": "one component held at zero",
+      "call": "[x, resnorm, residual, exitflag, output, lambda] = lsqnonneg(eye(2), [1; -2])",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[1;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "4",
+          "residual": "[0;-2]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "1",
+          "output_algorithm": "'active-set'",
+          "lambda": "[0;-2]",
+          "ct_residual": "[0;-2]",
+          "check_resnorm": "4",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "all-negative",
+      "description": "unconstrained solution entirely negative",
+      "call": "[x, ...] = lsqnonneg(eye(3), [-1; -2; -3])",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[0;0;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "14",
+          "residual": "[-1;-2;-3]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "0",
+          "output_algorithm": "'active-set'",
+          "lambda": "[-1;-2;-3]",
+          "ct_residual": "[-1;-2;-3]",
+          "check_resnorm": "14",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "overdetermined",
+      "description": "3x2, inconsistent",
+      "call": "[x, ...] = lsqnonneg([1 0; 0 1; 1 1], [1; 2; -5])",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[0;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "30",
+          "residual": "[1;2;-5]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "0",
+          "output_algorithm": "'active-set'",
+          "lambda": "[-4;-3]",
+          "ct_residual": "[-4;-3]",
+          "check_resnorm": "30",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "rank-deficient",
+      "description": "two equal columns",
+      "call": "[x, ...] = lsqnonneg([1 1; 1 1], [2; 2])",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[1.9999999999999993;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "8.8746851837363828e-31",
+          "residual": "[6.6613381477509392e-16;6.6613381477509392e-16]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "1",
+          "output_algorithm": "'active-set'",
+          "lambda": "[1.3322676295501878e-15;1.3322676295501878e-15]",
+          "ct_residual": "[1.3322676295501878e-15;1.3322676295501878e-15]",
+          "check_resnorm": "8.8746851837363811e-31",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-out",
+      "description": "one output",
+      "call": "x = lsqnonneg([2 0; 0 4], [2; 4])",
+      "errored": false,
+      "result": {
+        "value": "[1;1]",
+        "class": "double",
+        "size": [
+          2,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "options-tolx",
+      "description": "options = optimset('TolX', 1e-3)",
+      "call": "[x, ...] = lsqnonneg([1 0; 0 1; 1 1], [1; 2; -5], optimset('TolX', 1e-3))",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[0;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "30",
+          "residual": "[1;2;-5]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "0",
+          "output_algorithm": "'active-set'",
+          "lambda": "[-4;-3]",
+          "ct_residual": "[-4;-3]",
+          "check_resnorm": "30",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "options-display",
+      "description": "options = optimset('Display', 'off')",
+      "call": "[x, ...] = lsqnonneg(eye(2), [1; -2], optimset('Display', 'off'))",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[1;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "4",
+          "residual": "[0;-2]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "1",
+          "output_algorithm": "'active-set'",
+          "lambda": "[0;-2]",
+          "ct_residual": "[0;-2]",
+          "check_resnorm": "4",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "sparse",
+      "description": "sparse A",
+      "call": "[x, ...] = lsqnonneg(sparse([1 0; 0 1; 1 1]), [1; 2; -5])",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[0;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "30",
+          "residual": "[1;2;-5]",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "0",
+          "output_algorithm": "'active-set'",
+          "lambda": "[-4;-3]",
+          "ct_residual": "[-4;-3]",
+          "check_resnorm": "30",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-single",
+      "description": "single A and d",
+      "call": "[x, ...] = lsqnonneg(single(eye(2)), single([1; -2]))",
+      "errored": true,
+      "error_identifier": "MATLAB:lsqnonneg:NonDoubleInput"
+    },
+    {
+      "case_id": "empty-rows",
+      "description": "0x2 A with 0x1 d",
+      "call": "[x, ...] = lsqnonneg(zeros(0, 2), zeros(0, 1))",
+      "errored": false,
+      "result": {
+        "value": {
+          "x": "[0;0]",
+          "class_x": "'double'",
+          "issparse_x": "false",
+          "resnorm": "0",
+          "residual": "zeros(0,1)",
+          "exitflag": "1",
+          "output_fields": [
+            "'iterations'",
+            "'algorithm'",
+            "'message'"
+          ],
+          "output_iterations": "0",
+          "output_algorithm": "'active-set'",
+          "lambda": "[0;0]",
+          "ct_residual": "[0;0]",
+          "check_resnorm": "0",
+          "warning_id": "''"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-size",
+      "description": "d rows not matching A rows",
+      "call": "lsqnonneg(eye(2), [1; 2; 3])",
+      "errored": true,
+      "error_identifier": "MATLAB:sizeDimensionsMustMatch"
+    },
+    {
+      "case_id": "err-complex",
+      "description": "complex A",
+      "call": "lsqnonneg([1 1i; 0 1], [1; 1])",
+      "errored": true,
+      "error_identifier": "MATLAB:lsqnonneg:ComplexCorD"
+    },
+    {
+      "case_id": "err-char",
+      "description": "char A",
+      "call": "lsqnonneg('ab', [1; 2])",
+      "errored": true,
+      "error_identifier": "MATLAB:lsqnonneg:NonDoubleInput"
+    },
+    {
+      "case_id": "err-one-arg",
+      "description": "A only",
+      "call": "lsqnonneg(eye(2))",
+      "errored": true,
+      "error_identifier": "MATLAB:lsqnonneg:InputArg"
+    },
+    {
+      "case_id": "err-row-d",
+      "description": "d given as a row",
+      "call": "lsqnonneg(eye(2), [1 2])",
+      "errored": true,
+      "error_identifier": "MATLAB:dimagree"
+    }
+  ]
+}

@@ -1,0 +1,196 @@
+# Provenance for normest (created 2026-11-02, batch N6, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: normest
+claims:
+- claim_id: normest.signature-primary
+  statement: The invocation form `nrm = normest(S)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: one-out
+- claim_id: normest.output-class
+  statement: nrm is a full (non-sparse) scalar, double for double or sparse input and single for single
+    input; cnt is double.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+  - file: observations/normest_observations.json
+    case_id: identity
+  - file: observations/normest_observations.json
+    case_id: single
+- claim_id: normest.default-accuracy
+  statement: With the default tolerance, nrm agreed with norm(full(S)) to a relative difference of at
+    most 2.3e-7 for every observed matrix (sparse stoichiometric-style, dense square and wide, vectors,
+    identity, complex, single, [3 0; 0 4]).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+  - file: observations/normest_observations.json
+    case_id: dense-square
+  - file: observations/normest_observations.json
+    case_id: dense-wide
+  - file: observations/normest_observations.json
+    case_id: one-out
+  - file: observations/normest_observations.json
+    case_id: row-vector
+  - file: observations/normest_observations.json
+    case_id: column-vector
+  - file: observations/normest_observations.json
+    case_id: identity
+  - file: observations/normest_observations.json
+    case_id: complex
+  - file: observations/normest_observations.json
+    case_id: single
+- claim_id: normest.cobra-form
+  statement: For the sparse 4x5 stoichiometric-style matrix (COBRA form normest(S)), nrm = 2 to rounding,
+    equal to norm(full(S)).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+- claim_id: normest.tol
+  statement: For the same 3x3 matrix, tol = 1e-1 gave a larger relative difference from norm(full(S))
+    than the default, and tol = 1e-12 a smaller one.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: tol-coarse
+  - file: observations/normest_observations.json
+    case_id: tol-fine
+  - file: observations/normest_observations.json
+    case_id: dense-square
+- claim_id: normest.zero
+  statement: An all-zero matrix, full or sparse, gives nrm = 0; a 0x0 input gives 0.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: zero
+  - file: observations/normest_observations.json
+    case_id: sparse-zero
+  - file: observations/normest_observations.json
+    case_id: empty
+- claim_id: normest.scalar-nan
+  statement: A scalar gives its absolute value (-5 gave 5); a matrix containing NaN gives NaN.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: scalar
+  - file: observations/normest_observations.json
+    case_id: with-nan
+- claim_id: normest.char
+  statement: 'char input did not error: normest(''ab'') returned 137.8876, equal to the recorded norm(double(''ab'')).'
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: char-input
+- claim_id: normest.iteration-count
+  statement: The counts (2, 7, 3, 1, 2, 2, 5, 3; 2 for tol 1e-1 and 15 for tol 1e-12; 0 for all-zero input)
+    and the exact relative differences (1.0e-3, 5.3e-14 and 1.2e-7 for the tol cases) are recorded but
+    not required.
+  source_category: black-box-observation
+  normative: false
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+  - file: observations/normest_observations.json
+    case_id: dense-square
+  - file: observations/normest_observations.json
+    case_id: dense-wide
+  - file: observations/normest_observations.json
+    case_id: row-vector
+  - file: observations/normest_observations.json
+    case_id: column-vector
+  - file: observations/normest_observations.json
+    case_id: identity
+  - file: observations/normest_observations.json
+    case_id: complex
+  - file: observations/normest_observations.json
+    case_id: single
+  - file: observations/normest_observations.json
+    case_id: tol-coarse
+  - file: observations/normest_observations.json
+    case_id: tol-fine
+  - file: observations/normest_observations.json
+    case_id: zero
+  - file: observations/normest_observations.json
+    case_id: sparse-zero
+- claim_id: normest.error-int
+  statement: S is an integer class (int32). The call errors with identifier MATLAB:mtimes:integerNotSupported.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: err-int
+- claim_id: normest.error-3d
+  statement: S has more than two dimensions. The call errors with identifier MATLAB:transpose:NDArray.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: err-3d
+- claim_id: normest.error-no-arg
+  statement: No input is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/normest_observations.json
+    case_id: err-no-arg

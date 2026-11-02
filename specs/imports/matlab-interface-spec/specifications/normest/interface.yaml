@@ -1,0 +1,209 @@
+# Interface specification for normest (created 2026-11-02, batch N6, new spec; approved 2026-11-02 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: normest
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return an estimate of the 2-norm of a matrix that agreed with norm(full(S)) to a small relative
+  difference, and, as a second output, an integer-valued count that grew as the tolerance argument decreased.
+invocation_forms:
+- signature: nrm = normest(S)
+  description: 2-norm estimate (COBRA form, S sparse).
+  status: confirmed
+- signature: '[nrm, cnt] = normest(S)'
+  description: Estimate and count.
+  status: confirmed
+- signature: '[nrm, cnt] = normest(S, tol)'
+  description: With a tolerance argument.
+  status: confirmed
+inputs:
+- name: S
+  position: 1
+  required: true
+  description: 2-D floating-point matrix, full or sparse, real or complex (char was also accepted).
+  status: confirmed
+- name: tol
+  position: 2
+  required: false
+  description: Scalar; a smaller value gave closer agreement with norm(full(S)) and a larger count (1e-1
+    and 1e-12 exercised). Its exact meaning was not observed.
+  status: confirmed
+outputs:
+- name: nrm
+  description: Full scalar of the floating class of S.
+  status: confirmed
+- name: cnt
+  description: 'Integer-valued double; its meaning (inferred: an iteration count) was not observed directly.'
+  status: confirmed
+output_type_rules:
+- id: normest.output-class-rule
+  statement: nrm is a full (non-sparse) scalar, double for double or sparse input and single for single
+    input; cnt is double.
+  status: confirmed
+  normative: true
+  provenance: normest.output-class
+  observations:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+  - file: observations/normest_observations.json
+    case_id: identity
+  - file: observations/normest_observations.json
+    case_id: single
+output_shape_rules:
+- id: normest.default-accuracy-rule
+  statement: With the default tolerance, nrm agreed with norm(full(S)) to a relative difference of at
+    most 2.3e-7 for every observed matrix (sparse stoichiometric-style, dense square and wide, vectors,
+    identity, complex, single, [3 0; 0 4]).
+  status: confirmed
+  normative: true
+  provenance: normest.default-accuracy
+  observations:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+  - file: observations/normest_observations.json
+    case_id: dense-square
+  - file: observations/normest_observations.json
+    case_id: dense-wide
+  - file: observations/normest_observations.json
+    case_id: one-out
+  - file: observations/normest_observations.json
+    case_id: row-vector
+  - file: observations/normest_observations.json
+    case_id: column-vector
+  - file: observations/normest_observations.json
+    case_id: identity
+  - file: observations/normest_observations.json
+    case_id: complex
+  - file: observations/normest_observations.json
+    case_id: single
+- id: normest.cobra-form-rule
+  statement: For the sparse 4x5 stoichiometric-style matrix (COBRA form normest(S)), nrm = 2 to rounding,
+    equal to norm(full(S)).
+  status: confirmed
+  normative: true
+  provenance: normest.cobra-form
+  observations:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+- id: normest.tol-rule
+  statement: For the same 3x3 matrix, tol = 1e-1 gave a larger relative difference from norm(full(S))
+    than the default, and tol = 1e-12 a smaller one.
+  status: confirmed
+  normative: true
+  provenance: normest.tol
+  observations:
+  - file: observations/normest_observations.json
+    case_id: tol-coarse
+  - file: observations/normest_observations.json
+    case_id: tol-fine
+  - file: observations/normest_observations.json
+    case_id: dense-square
+- id: normest.zero-rule
+  statement: An all-zero matrix, full or sparse, gives nrm = 0; a 0x0 input gives 0.
+  status: confirmed
+  normative: true
+  provenance: normest.zero
+  observations:
+  - file: observations/normest_observations.json
+    case_id: zero
+  - file: observations/normest_observations.json
+    case_id: sparse-zero
+  - file: observations/normest_observations.json
+    case_id: empty
+- id: normest.scalar-nan-rule
+  statement: A scalar gives its absolute value (-5 gave 5); a matrix containing NaN gives NaN.
+  status: confirmed
+  normative: true
+  provenance: normest.scalar-nan
+  observations:
+  - file: observations/normest_observations.json
+    case_id: scalar
+  - file: observations/normest_observations.json
+    case_id: with-nan
+numerical_edge_cases:
+- id: normest.char-rule
+  statement: 'char input did not error: normest(''ab'') returned 137.8876, equal to the recorded norm(double(''ab'')).'
+  status: confirmed
+  normative: false
+  provenance: normest.char
+  observations:
+  - file: observations/normest_observations.json
+    case_id: char-input
+- id: normest.iteration-count-rule
+  statement: The counts (2, 7, 3, 1, 2, 2, 5, 3; 2 for tol 1e-1 and 15 for tol 1e-12; 0 for all-zero input)
+    and the exact relative differences (1.0e-3, 5.3e-14 and 1.2e-7 for the tol cases) are recorded but
+    not required.
+  status: confirmed
+  normative: false
+  provenance: normest.iteration-count
+  observations:
+  - file: observations/normest_observations.json
+    case_id: sparse-stoich
+  - file: observations/normest_observations.json
+    case_id: dense-square
+  - file: observations/normest_observations.json
+    case_id: dense-wide
+  - file: observations/normest_observations.json
+    case_id: row-vector
+  - file: observations/normest_observations.json
+    case_id: column-vector
+  - file: observations/normest_observations.json
+    case_id: identity
+  - file: observations/normest_observations.json
+    case_id: complex
+  - file: observations/normest_observations.json
+    case_id: single
+  - file: observations/normest_observations.json
+    case_id: tol-coarse
+  - file: observations/normest_observations.json
+    case_id: tol-fine
+  - file: observations/normest_observations.json
+    case_id: zero
+  - file: observations/normest_observations.json
+    case_id: sparse-zero
+warnings: []
+errors:
+- condition: S is an integer class (int32).
+  identifier: MATLAB:mtimes:integerNotSupported
+  status: confirmed
+  provenance: normest.error-int
+  observations:
+  - file: observations/normest_observations.json
+    case_id: err-int
+- condition: S has more than two dimensions.
+  identifier: MATLAB:transpose:NDArray
+  status: confirmed
+  provenance: normest.error-3d
+  observations:
+  - file: observations/normest_observations.json
+    case_id: err-3d
+- condition: No input is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: normest.error-no-arg
+  observations:
+  - file: observations/normest_observations.json
+    case_id: err-no-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/normest_observations.json
+  description: 20 independently constructed cases on R2026a (GLNXA64), 2026-11-02.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: normest.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: normest.q-exactness
+  question: nrm is an estimate; implementations should be compared to norm(full(S)) within a relative
+    tolerance, not digit for digit, and cnt should not be required to match.
+- id: normest.q-default-tol
+  question: The default tolerance value was not determined; only the resulting accuracy was observed.
+- id: normest.q-char
+  question: char input is accepted and computed on character codes; whether implementations must accept
+    it is a human-review question.
+- id: normest.q-error-ids
+  question: The integer and N-D identifiers name other functions (mtimes, transpose); whether an implementation
+    must reproduce them is a human-review question (constitution 8.2).

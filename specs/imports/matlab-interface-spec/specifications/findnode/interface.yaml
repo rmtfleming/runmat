@@ -1,0 +1,165 @@
+# Interface specification for findnode (created 2026-11-02, batch N6, new spec; approved 2026-11-02 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: findnode
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return the node indices for node names (0 for a name that is not a node), or for numeric node
+  IDs, as a double column vector.
+invocation_forms:
+- signature: idx = findnode(G, nodeID)
+  description: Indices for names (COBRA form, nodeID a 1x2 cell row of G.Edges.EndNodes) or numeric IDs.
+  status: confirmed
+inputs:
+- name: G
+  position: 1
+  required: true
+  description: digraph or graph.
+  status: confirmed
+- name: nodeID
+  position: 2
+  required: true
+  description: Names as a char row, a string array or a cell array of char (row, column and 2x2 observed),
+    or positive integer node indices.
+  status: confirmed
+outputs:
+- name: idx
+  description: double column vector with one element per queried node.
+  status: confirmed
+output_type_rules:
+- id: findnode.output-class-rule
+  statement: idx is a double column vector in every non-error case.
+  status: confirmed
+  normative: true
+  provenance: findnode.output-class
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: cell-row
+  - file: observations/findnode_observations.json
+    case_id: char
+  - file: observations/findnode_observations.json
+    case_id: string-array
+  - file: observations/findnode_observations.json
+    case_id: cell-column
+  - file: observations/findnode_observations.json
+    case_id: cell-matrix
+  - file: observations/findnode_observations.json
+    case_id: numeric-named
+output_shape_rules:
+- id: findnode.cobra-form-rule
+  statement: For G = digraph({'a','b','c'}, {'b','c','d'}), the 1x2 cell row {'b','c'} of G.Edges.EndNodes
+    gave [2; 3].
+  status: confirmed
+  normative: true
+  provenance: findnode.cobra-form
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: node-names
+  - file: observations/findnode_observations.json
+    case_id: cell-row
+- id: findnode.names-rule
+  statement: 'Names are matched to node positions: ''c'' gave 3, ["d" "a"] gave [4; 1], {''b''; ''a''}
+    gave [2; 1]; a 2x2 cell is read in column-major order ({''a'' ''b''; ''c'' ''d''} gave [1; 3; 2; 4]);
+    an undirected graph behaves the same.'
+  status: confirmed
+  normative: true
+  provenance: findnode.names
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: char
+  - file: observations/findnode_observations.json
+    case_id: string-array
+  - file: observations/findnode_observations.json
+    case_id: cell-column
+  - file: observations/findnode_observations.json
+    case_id: cell-matrix
+  - file: observations/findnode_observations.json
+    case_id: undirected
+- id: findnode.not-found-rule
+  statement: A name that is not a node gives 0 in its position (also for a name differing only in case);
+    repeated names give repeated indices; an empty cell gives a 0x1 result.
+  status: confirmed
+  normative: true
+  provenance: findnode.not-found
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: unknown
+  - file: observations/findnode_observations.json
+    case_id: mixed-unknown
+  - file: observations/findnode_observations.json
+    case_id: case-sensitive
+  - file: observations/findnode_observations.json
+    case_id: repeated
+  - file: observations/findnode_observations.json
+    case_id: empty-cell
+- id: findnode.numeric-rule
+  statement: Positive integer IDs are returned as a column of the same indices ([3 1] gave [3; 1]) on
+    named and unnamed graphs; an index beyond the node count gives 0 (observed on both).
+  status: confirmed
+  normative: true
+  provenance: findnode.numeric
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: numeric-named
+  - file: observations/findnode_observations.json
+    case_id: numeric-unnamed
+  - file: observations/findnode_observations.json
+    case_id: numeric-range
+  - file: observations/findnode_observations.json
+    case_id: numeric-range-named
+numerical_edge_cases: []
+warnings: []
+errors:
+- condition: A char or string name is given for a graph without node names.
+  identifier: MATLAB:graphfun:findnode:NoNames
+  status: confirmed
+  provenance: findnode.error-unnamed-char
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: err-unnamed-char
+  - file: observations/findnode_observations.json
+    case_id: err-unnamed-string
+- condition: nodeID is logical, a cell holding a number, or a 2-row char matrix.
+  identifier: MATLAB:graphfun:findnode:ArgType
+  status: confirmed
+  provenance: findnode.error-logical
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: err-logical
+  - file: observations/findnode_observations.json
+    case_id: err-cell-numeric
+  - file: observations/findnode_observations.json
+    case_id: err-char-matrix
+- condition: A numeric ID is 0, negative or non-integer (0, -1, 1.5).
+  identifier: MATLAB:graphfun:findnode:PosInt
+  status: confirmed
+  provenance: findnode.error-numeric-zero
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: err-numeric-zero
+  - file: observations/findnode_observations.json
+    case_id: err-numeric-negative
+  - file: observations/findnode_observations.json
+    case_id: err-numeric-fraction
+- condition: Only G is given.
+  identifier: MATLAB:minrhs
+  status: confirmed
+  provenance: findnode.error-one-arg
+  observations:
+  - file: observations/findnode_observations.json
+    case_id: err-one-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/findnode_observations.json
+  description: 25 independently constructed cases on R2026a (GLNXA64), 2026-11-02.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: findnode.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: findnode.q-query-types
+  question: Only the query types listed were exercised; for example, categorical or a cell mixing names
+    and empty char were not.

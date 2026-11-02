@@ -1,0 +1,166 @@
+# Interface specification for web (created 2026-11-02, batch N6, new spec; approved 2026-11-02 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: web
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Direct a page to the MATLAB web browser or, with '-browser', the system browser (display inferred,
+  not checked by the experiment), returning a status of 0 and, for the MATLAB browser, a handle accepted
+  by close. Observed with a local file:// page only.
+invocation_forms:
+- signature: web(url, '-browser')
+  description: System browser, no output (COBRA form).
+  status: confirmed
+- signature: '[stat, h] = web(url, ''-new'', ''-noaddressbox'', ''-notoolbar'')'
+  description: MATLAB browser with the COBRA options; COBRA calls it with no output, which was not observed
+    (only two outputs).
+  status: confirmed
+- signature: '[stat, h] = web(url)'
+  description: MATLAB browser.
+  status: confirmed
+- signature: stat = web(url, ...)
+  description: Status only.
+  status: confirmed
+- signature: '[stat, h] = web()'
+  description: No input.
+  status: confirmed
+inputs:
+- name: url
+  position: 1
+  required: false
+  description: 'char or string scalar: a file:// URL or a plain file path (network URLs not exercised).'
+  status: confirmed
+- name: options
+  position: 2
+  required: false
+  description: '''-browser'', ''-new'' or ''-notoolbar'' alone, or ''-new'', ''-noaddressbox'', ''-notoolbar''
+    together (''-noaddressbox'' was not tried alone).'
+  status: confirmed
+outputs:
+- name: stat
+  description: double status; 0 in every observed case.
+  status: confirmed
+- name: h
+  description: For the MATLAB browser, a non-empty handle accepted by close; with '-browser' and two outputs,
+    an empty double.
+  status: confirmed
+output_type_rules: []
+output_shape_rules:
+- id: web.matlab-browser-rule
+  statement: Opening in the MATLAB browser, with no option, '-new', '-notoolbar' or the COBRA combination
+    '-new', '-noaddressbox', '-notoolbar', returned stat = 0 (double) and a non-empty handle h that close(h)
+    accepted without error.
+  status: confirmed
+  normative: true
+  provenance: web.matlab-browser
+  observations:
+  - file: observations/web_observations.json
+    case_id: plain
+  - file: observations/web_observations.json
+    case_id: cobra-new
+  - file: observations/web_observations.json
+    case_id: new
+  - file: observations/web_observations.json
+    case_id: notoolbar
+- id: web.inputs-rule
+  statement: A string scalar URL, a plain path without file://, and no input at all were each accepted,
+    with stat = 0 and a closable handle.
+  status: confirmed
+  normative: true
+  provenance: web.inputs
+  observations:
+  - file: observations/web_observations.json
+    case_id: string-url
+  - file: observations/web_observations.json
+    case_id: plain-path
+  - file: observations/web_observations.json
+    case_id: no-input
+- id: web.system-browser-rule
+  statement: With '-browser', the call completed with no output; stat was 0 with one or two outputs, and
+    with two outputs h was an empty double.
+  status: confirmed
+  normative: true
+  provenance: web.system-browser
+  observations:
+  - file: observations/web_observations.json
+    case_id: browser-cobra
+  - file: observations/web_observations.json
+    case_id: browser-stat
+  - file: observations/web_observations.json
+    case_id: browser-two-out
+- id: web.one-out-rule
+  statement: With one output, stat was 0 for the MATLAB browser.
+  status: confirmed
+  normative: true
+  provenance: web.one-out
+  observations:
+  - file: observations/web_observations.json
+    case_id: one-out
+numerical_edge_cases:
+- id: web.missing-file-rule
+  statement: A file:// URL to a file that does not exist did not error and gave stat = 0, the same as
+    an existing file.
+  status: confirmed
+  normative: false
+  provenance: web.missing-file
+  observations:
+  - file: observations/web_observations.json
+    case_id: missing-file
+- id: web.unknown-option-rule
+  statement: An unrecognised option ('-nosuchoption') did not error and gave stat = 0 and a closable handle.
+  status: confirmed
+  normative: false
+  provenance: web.unknown-option
+  observations:
+  - file: observations/web_observations.json
+    case_id: unknown-option
+- id: web.handle-class-rule
+  statement: The MATLAB-browser handle's class was 'com.mathworks.mde.webbrowser.WebBrowser'; the class
+    name is recorded only and not required.
+  status: confirmed
+  normative: false
+  provenance: web.handle-class
+  observations:
+  - file: observations/web_observations.json
+    case_id: plain
+warnings: []
+errors:
+- condition: url is numeric.
+  identifier: MATLAB:string:MustBeCharCellArrayOrString
+  status: confirmed
+  provenance: web.error-numeric
+  observations:
+  - file: observations/web_observations.json
+    case_id: err-numeric
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/web_observations.json
+  description: 14 independently constructed cases on R2026a (GLNXA64), 2026-11-02.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: web.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: web.q-network
+  question: No network URL was contacted, so behaviour for COBRA's http URLs is unobserved.
+- id: web.q-display
+  question: Whether and how the page was displayed was not checked by the experiment; only the outputs
+    were recorded.
+- id: web.q-stat
+  question: stat was 0 in every case, including a missing file; whether any input gives a non-zero status
+    was not observed.
+- id: web.q-handle
+  question: Must implementations return a handle that close() accepts? The observed handle is a desktop
+    object.
+- id: web.q-cobra-nargout0
+  question: The MATLAB-browser COBRA form with no output, and '-noaddressbox' alone, were not observed.
+- id: web.q-harness-h
+  question: In the one-output cases the recorded h fields come from the harness (h = []), not from web.
+- id: web.q-headless
+  question: Behaviour without a desktop display (as for a headless implementation) was not observed.
+- id: web.q-error-ids
+  question: The numeric-input identifier is a generic string validator; whether an implementation must
+    reproduce it is a human-review question (constitution 8.2).

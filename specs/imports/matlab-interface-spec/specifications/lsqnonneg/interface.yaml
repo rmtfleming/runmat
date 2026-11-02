@@ -1,0 +1,271 @@
+# Interface specification for lsqnonneg (created 2026-11-02, batch N6, new spec; approved 2026-11-02 after human-loop review).
+# Schema: ../../schemas/function-interface.schema.json
+schema_version: '1.0'
+function_name: lsqnonneg
+spec_version: 0.2.0
+status: approved
+applicable_releases:
+- R2026a
+summary: Return a vector x >= 0 for a real double C and d (in the observed cases, the nonnegative least-squares
+  solution where it could be checked by hand), and optionally resnorm = ||d - C*x||^2, the residual d
+  - C*x, an exit flag, an output structure and lambda = C'*(d - C*x).
+invocation_forms:
+- signature: x = lsqnonneg(C, d)
+  description: x >= 0 (COBRA form, d = zeros(m, 1)).
+  status: confirmed
+- signature: '[x, resnorm, residual, exitflag, output, lambda] = lsqnonneg(C, d)'
+  description: All six outputs.
+  status: confirmed
+- signature: '[x, ...] = lsqnonneg(C, d, options)'
+  description: With an optimset options structure.
+  status: confirmed
+inputs:
+- name: C
+  position: 1
+  required: true
+  description: Real double matrix, full or sparse.
+  status: confirmed
+- name: d
+  position: 2
+  required: true
+  description: Real double column vector with as many rows as C.
+  status: confirmed
+- name: options
+  position: 3
+  required: false
+  description: optimset structure (TolX and Display exercised).
+  status: confirmed
+outputs:
+- name: x
+  description: Full double column, one element per column of C, all >= 0.
+  status: confirmed
+- name: resnorm
+  description: Squared 2-norm of the residual.
+  status: confirmed
+- name: residual
+  description: d - C*x.
+  status: confirmed
+- name: exitflag
+  description: 1 in every observed case.
+  status: confirmed
+- name: output
+  description: Structure with a field iterations (fields algorithm and message were also present; their
+    contents are not required).
+  status: confirmed
+- name: lambda
+  description: Column vector, one element per column of C; equal to C'*(d - C*x) in every observed case.
+  status: confirmed
+output_type_rules:
+- id: lsqnonneg.output-class-rule
+  statement: x is a full double column vector, also for sparse C.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.output-class
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: sparse
+output_shape_rules:
+- id: lsqnonneg.cobra-form-rule
+  statement: With d = zeros(3, 1) (COBRA form) x was the 4x1 zero vector with one or six outputs; resnorm
+    0, residual zeros, exitflag 1 and lambda zeros.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.cobra-form
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-zero-rhs
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-one-out
+- id: lsqnonneg.solutions-rule
+  statement: eye(2) with d = [1; 2] gave x = [1; 2]; with d = [1; -2] gave x = [1; 0]; eye(3) with d =
+    [-1; -2; -3] gave x = 0; [2 0; 0 4] with [2; 4] gave [1; 1]; [1 0; 0 1; 1 1] with [1; 2; -5] gave
+    x = 0.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.solutions
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: one-out
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+- id: lsqnonneg.residual-rule
+  statement: residual = d - C*x and resnorm = norm(residual)^2 (e.g. [0; -2] and 4 for the bound-active
+    case; [1; 2; -5] and 30 for the overdetermined case).
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.residual
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+- id: lsqnonneg.lambda-rule
+  statement: lambda equalled the recorded C'*(d - C*x) exactly in every case; it was 0 for components
+    with x > 0 and <= 0 for components held at 0 (bound-active [0; -2]; overdetermined [-4; -3]), except
+    for rounding-level values (1.3e-15) in the rank-deficient case.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.lambda
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+  - file: observations/lsqnonneg_observations.json
+    case_id: sparse
+  - file: observations/lsqnonneg_observations.json
+    case_id: empty-rows
+- id: lsqnonneg.output-struct-rule
+  statement: exitflag was 1 and output had a field iterations in every case that recorded them; no warning
+    was recorded.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.output-struct
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-zero-rhs
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+  - file: observations/lsqnonneg_observations.json
+    case_id: sparse
+  - file: observations/lsqnonneg_observations.json
+    case_id: empty-rows
+- id: lsqnonneg.options-rule
+  statement: optimset('TolX', 1e-3) and optimset('Display', 'off') were accepted and gave the same results
+    as without options for the same problems.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.options
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: options-tolx
+  - file: observations/lsqnonneg_observations.json
+    case_id: options-display
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+- id: lsqnonneg.empty-rule
+  statement: A 0x2 C with a 0x1 d gave x = [0; 0], resnorm 0 and a 0x1 residual.
+  status: confirmed
+  normative: true
+  provenance: lsqnonneg.empty
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: empty-rows
+numerical_edge_cases:
+- id: lsqnonneg.nonunique-rule
+  statement: For [1 1; 1 1] with d = [2; 2] the solution is not unique; x = [2; 0] (to rounding) was returned.
+  status: confirmed
+  normative: false
+  provenance: lsqnonneg.nonunique
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+- id: lsqnonneg.iterations-rule
+  statement: output.iterations (0, 2, 1, 0, 0, 1), output.algorithm ('active-set') and the presence of
+    a message field are recorded but not required.
+  status: confirmed
+  normative: false
+  provenance: lsqnonneg.iterations
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: cobra-zero-rhs
+  - file: observations/lsqnonneg_observations.json
+    case_id: interior
+  - file: observations/lsqnonneg_observations.json
+    case_id: bound-active
+  - file: observations/lsqnonneg_observations.json
+    case_id: all-negative
+  - file: observations/lsqnonneg_observations.json
+    case_id: overdetermined
+  - file: observations/lsqnonneg_observations.json
+    case_id: rank-deficient
+warnings: []
+errors:
+- condition: C and d are both single, or C is char.
+  identifier: MATLAB:lsqnonneg:NonDoubleInput
+  status: confirmed
+  provenance: lsqnonneg.error-single
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-single
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-char
+- condition: C is complex.
+  identifier: MATLAB:lsqnonneg:ComplexCorD
+  status: confirmed
+  provenance: lsqnonneg.error-complex
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-complex
+- condition: d has a different number of rows from C.
+  identifier: MATLAB:sizeDimensionsMustMatch
+  status: confirmed
+  provenance: lsqnonneg.error-size
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-size
+- condition: d is a row vector.
+  identifier: MATLAB:dimagree
+  status: confirmed
+  provenance: lsqnonneg.error-row-d
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-row-d
+- condition: Only C is given.
+  identifier: MATLAB:lsqnonneg:InputArg
+  status: confirmed
+  provenance: lsqnonneg.error-one-arg
+  observations:
+  - file: observations/lsqnonneg_observations.json
+    case_id: err-one-arg
+nan_infinity_behaviour: []
+release_dependent_behaviour: []
+linked_observations:
+- file: observations/lsqnonneg_observations.json
+  description: 18 independently constructed cases on R2026a (GLNXA64), 2026-11-02.
+provenance_ref: provenance.yaml
+unresolved_questions:
+- id: lsqnonneg.q-warning-coverage
+  question: Warnings were not captured except where a case reports a lastwarn identifier; an empty warnings
+    list is not a complete statement.
+- id: lsqnonneg.q-exactness
+  question: Results are floating-point; implementations should be compared to a tolerance, not digit for
+    digit.
+- id: lsqnonneg.q-output-struct
+  question: Must implementations reproduce output.algorithm and output.message? Their contents are implementation-specific
+    and message text was not recorded.
+- id: lsqnonneg.q-optimality
+  question: Optimality was checked by hand only for small cases; a general optimality criterion was not
+    observed.
+- id: lsqnonneg.q-nonunique
+  question: Which solution is returned when it is not unique is not required by this spec.
+- id: lsqnonneg.q-options
+  question: Only TolX and Display were exercised; other options, a third x0 argument and exitflag values
+    other than 1 were not observed.
+- id: lsqnonneg.q-error-ids
+  question: The size-mismatch identifiers are generic (sizeDimensionsMustMatch, dimagree); whether an
+    implementation must reproduce them is a human-review question (constitution 8.2).

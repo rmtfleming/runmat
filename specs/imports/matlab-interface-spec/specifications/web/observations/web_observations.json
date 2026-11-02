@@ -1,0 +1,331 @@
+{
+  "schema_version": "1.0",
+  "function_name": "web",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/web/test_web_interface.m",
+  "date": "2026-11-02",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only. A temporary HTML file is written and deleted; each MATLAB-browser handle that is returned is closed after its case. Three system-browser tabs are opened.",
+  "cases": [
+    {
+      "case_id": "plain",
+      "description": "MATLAB browser, URL only",
+      "call": "[stat, h] = web(url) with url = 'file://<temp>.html'; report stat, class(h), and whether close(h) succeeds",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "cobra-new",
+      "description": "MATLAB browser with '-new', '-noaddressbox', '-notoolbar' (COBRA form)",
+      "call": "[stat, h] = web(url, '-new', '-noaddressbox', '-notoolbar'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "new",
+      "description": "'-new' alone",
+      "call": "[stat, h] = web(url, '-new'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "notoolbar",
+      "description": "'-notoolbar' alone",
+      "call": "[stat, h] = web(url, '-notoolbar'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-out",
+      "description": "MATLAB browser, one output",
+      "call": "stat = web(url, '-new')",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "1",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'double'",
+          "h_isempty": "true",
+          "closed": "false",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "string-url",
+      "description": "URL as a string scalar",
+      "call": "[stat, h] = web(string(url), '-new'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "plain-path",
+      "description": "a file path without the file:// prefix",
+      "call": "[stat, h] = web('<temp>.html', '-new'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "missing-file",
+      "description": "a file:// URL to a file that does not exist",
+      "call": "[stat, h] = web('file://<missing>.html', '-new'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "no-input",
+      "description": "no input",
+      "call": "[stat, h] = web(); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "browser-cobra",
+      "description": "system browser, no output (COBRA form)",
+      "call": "web(url, '-browser')",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "0",
+          "stat": "[]",
+          "stat_class": "''",
+          "h_class": "''",
+          "h_isempty": "true",
+          "closed": "false",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "browser-stat",
+      "description": "system browser, one output",
+      "call": "stat = web(url, '-browser')",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "1",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'double'",
+          "h_isempty": "true",
+          "closed": "false",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "browser-two-out",
+      "description": "system browser, two outputs",
+      "call": "[stat, h] = web(url, '-browser'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'double'",
+          "h_isempty": "true",
+          "closed": "false",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-numeric",
+      "description": "a numeric URL",
+      "call": "web(42)",
+      "errored": true,
+      "error_identifier": "MATLAB:string:MustBeCharCellArrayOrString"
+    },
+    {
+      "case_id": "unknown-option",
+      "description": "an unrecognised option",
+      "call": "[stat, h] = web(url, '-nosuchoption'); report as plain",
+      "errored": false,
+      "result": {
+        "value": {
+          "nout": "2",
+          "stat": "0",
+          "stat_class": "'double'",
+          "h_class": "'com.mathworks.mde.webbrowser.WebBrowser'",
+          "h_isempty": "false",
+          "closed": "true",
+          "completed": "true"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    }
+  ]
+}

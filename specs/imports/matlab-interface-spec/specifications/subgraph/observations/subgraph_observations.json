@@ -1,0 +1,904 @@
+{
+  "schema_version": "1.0",
+  "function_name": "subgraph",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/subgraph/test_subgraph_interface.m",
+  "date": "2026-11-02",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only. Path entries containing octave-networks-toolbox were removed for the run and the path restored afterwards.",
+  "cases": [
+    {
+      "case_id": "source-graph",
+      "description": "reference: node and edge tables of the test digraph (node variables Met and Atom, edge variable rxns)",
+      "call": "G = digraph([1 2 3 4], [2 3 4 1], table({'r1';'r2';'r3';'r4'}, 'VariableNames', {'rxns'}), table({'a';'b';'c';'d'}, [1;2;3;4], 'VariableNames', {'Met','Atom'})); report G.Nodes, G.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "4",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  4,
+                  1
+                ],
+                "value": [
+                  "'a'",
+                  "'b'",
+                  "'c'",
+                  "'d'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  4,
+                  1
+                ],
+                "value": "[1;2;3;4]"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  4,
+                  2
+                ],
+                "value": "[1 2;2 3;3 4;4 1]"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  4,
+                  1
+                ],
+                "value": [
+                  "'r1'",
+                  "'r2'",
+                  "'r3'",
+                  "'r4'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "logical-mask",
+      "description": "logical mask selecting nodes 1, 2 and 3 (COBRA form)",
+      "call": "H = subgraph(G, [true true true false]) for G as in source-graph; report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "3",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'a'",
+                  "'b'",
+                  "'c'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": "[1;2;3]"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  2,
+                  2
+                ],
+                "value": "[1 2;2 3]"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": [
+                  "'r1'",
+                  "'r2'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "logical-column",
+      "description": "logical column mask",
+      "call": "H = subgraph(G, [true; false; true; true]); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "3",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'a'",
+                  "'c'",
+                  "'d'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": "[1;3;4]"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  2,
+                  2
+                ],
+                "value": "[2 3;3 1]"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": [
+                  "'r3'",
+                  "'r4'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "index-column",
+      "description": "column vector of indices [2; 3] (COBRA form)",
+      "call": "H = subgraph(G, [2; 3]); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "2",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": [
+                  "'b'",
+                  "'c'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": "[2;3]"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  1,
+                  2
+                ],
+                "value": "[1 2]"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  1,
+                  1
+                ],
+                "value": [
+                  "'r2'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "index-unsorted",
+      "description": "indices given in the order [3 1 2]",
+      "call": "H = subgraph(G, [3 1 2]); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "3",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'c'",
+                  "'a'",
+                  "'b'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": "[3;1;2]"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  2,
+                  2
+                ],
+                "value": "[2 3;3 1]"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": [
+                  "'r1'",
+                  "'r2'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "edge-order",
+      "description": "indices [4 1 2]: G's edge order (r1, r4) and sorted order (r4, r1) differ after renumbering",
+      "call": "H = subgraph(G, [4 1 2]); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "3",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": [
+                  "'d'",
+                  "'a'",
+                  "'b'"
+                ]
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  3,
+                  1
+                ],
+                "value": "[4;1;2]"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  2,
+                  2
+                ],
+                "value": "[1 2;2 3]"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": [
+                  "'r4'",
+                  "'r1'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-mask-longer",
+      "description": "a logical mask longer than the node count",
+      "call": "H = subgraph(digraph([1 2], [2 3]), [true true false false]); report as source-graph",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:subgraph:InvalidInd"
+    },
+    {
+      "case_id": "all-false",
+      "description": "a mask selecting no node",
+      "call": "H = subgraph(G, false(1, 4)); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "0",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  0,
+                  1
+                ],
+                "value": []
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  0,
+                  1
+                ],
+                "value": "zeros(0,1)"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  0,
+                  2
+                ],
+                "value": "zeros(0,2)"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  0,
+                  1
+                ],
+                "value": []
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty-index",
+      "description": "an empty index vector",
+      "call": "H = subgraph(G, []); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "0",
+          "nodes": {
+            "variable_names": [
+              "Met",
+              "Atom"
+            ],
+            "variables": [
+              {
+                "name": "Met",
+                "class": "cell",
+                "size": [
+                  0,
+                  1
+                ],
+                "value": []
+              },
+              {
+                "name": "Atom",
+                "class": "double",
+                "size": [
+                  0,
+                  1
+                ],
+                "value": "zeros(0,1)"
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "rxns"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  0,
+                  2
+                ],
+                "value": "zeros(0,2)"
+              },
+              {
+                "name": "rxns",
+                "class": "cell",
+                "size": [
+                  0,
+                  1
+                ],
+                "value": []
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "names",
+      "description": "named nodes selected by a cell of names in the order {'c','a'}",
+      "call": "H = subgraph(digraph({'a','b','c'}, {'b','c','a'}), {'c','a'}); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "2",
+          "nodes": {
+            "variable_names": [
+              "Name"
+            ],
+            "variables": [
+              {
+                "name": "Name",
+                "class": "cell",
+                "size": [
+                  2,
+                  1
+                ],
+                "value": [
+                  "'c'",
+                  "'a'"
+                ]
+              }
+            ]
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "cell",
+                "size": [
+                  1,
+                  2
+                ],
+                "value": [
+                  "'c'",
+                  "'a'"
+                ]
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "weighted",
+      "description": "weighted digraph, nodes [1 2]",
+      "call": "H = subgraph(digraph([1 2 1], [2 3 3], [5 6 7]), [1 2]); report H.Edges, H.Nodes, class and numnodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "2",
+          "nodes": {
+            "variable_names": [],
+            "variables": []
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes",
+              "Weight"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  1,
+                  2
+                ],
+                "value": "[1 2]"
+              },
+              {
+                "name": "Weight",
+                "class": "double",
+                "size": [
+                  1,
+                  1
+                ],
+                "value": "5"
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "multigraph",
+      "description": "parallel edges 1->2 and a self-loop on 1, nodes [1 2]",
+      "call": "H = subgraph(digraph([1 1 1 2], [2 2 1 3]), [1 2]); report H.Edges, H.Nodes, class and numnodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "2",
+          "nodes": {
+            "variable_names": [],
+            "variables": []
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  3,
+                  2
+                ],
+                "value": "[1 1;1 2;1 2]"
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "undirected",
+      "description": "undirected graph, nodes [2 3]",
+      "call": "H = subgraph(graph([1 2 3], [2 3 1]), [2 3]); report H.Edges, H.Nodes, class and numnodes",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'graph'",
+          "numnodes": "2",
+          "nodes": {
+            "variable_names": [],
+            "variables": []
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  1,
+                  2
+                ],
+                "value": "[1 2]"
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "class",
+      "description": "class of the output for a digraph",
+      "call": "class(subgraph(digraph([1 2], [2 3]), [1 2]))",
+      "errored": false,
+      "result": {
+        "value": "'digraph'",
+        "class": "char",
+        "size": [
+          1,
+          7
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "isolated-node",
+      "description": "a kept node with no kept edges",
+      "call": "H = subgraph(digraph([1 2], [2 3]), [1 3]); report H.Nodes, H.Edges",
+      "errored": false,
+      "result": {
+        "value": {
+          "class": "'digraph'",
+          "numnodes": "2",
+          "nodes": {
+            "variable_names": [],
+            "variables": []
+          },
+          "edges": {
+            "variable_names": [
+              "EndNodes"
+            ],
+            "variables": [
+              {
+                "name": "EndNodes",
+                "class": "double",
+                "size": [
+                  0,
+                  2
+                ],
+                "value": "zeros(0,2)"
+              }
+            ]
+          }
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-repeat",
+      "description": "a repeated node index",
+      "call": "subgraph(digraph([1 2], [2 3]), [1 1 2])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:subgraph:InvalidInd"
+    },
+    {
+      "case_id": "err-range",
+      "description": "an index beyond the node count",
+      "call": "subgraph(digraph([1 2], [2 3]), [1 4])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:digraph:InvalidNodeID"
+    },
+    {
+      "case_id": "err-mask-length",
+      "description": "a logical mask shorter than the node count",
+      "call": "subgraph(digraph([1 2], [2 3]), [true false])",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:subgraph:InvalidInd"
+    },
+    {
+      "case_id": "err-unknown-name",
+      "description": "a name that is not a node",
+      "call": "subgraph(digraph({'a'}, {'b'}), {'z'})",
+      "errored": true,
+      "error_identifier": "MATLAB:graphfun:digraph:UnknownNodeName"
+    },
+    {
+      "case_id": "err-one-arg",
+      "description": "graph only",
+      "call": "subgraph(digraph([1 2], [2 3]))",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}

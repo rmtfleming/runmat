@@ -1,0 +1,205 @@
+# Provenance for subgraph (created 2026-11-02, batch N6, new spec; claims backed by observations).
+schema_version: '1.0'
+function_name: subgraph
+claims:
+- claim_id: subgraph.signature-primary
+  statement: The invocation form `H = subgraph(G, nodeIDs)` is accepted (observed).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: &id001
+  - R2026a
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+- claim_id: subgraph.output-class
+  statement: 'H has the class of G: digraph for a digraph and graph for a graph.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: class
+  - file: observations/subgraph_observations.json
+    case_id: undirected
+- claim_id: subgraph.node-order
+  statement: A logical mask keeps the selected nodes in their original order; indices or names keep them
+    in the order given ([3 1 2] gave node-table rows c, a, b; {'c','a'} gave c, a).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+  - file: observations/subgraph_observations.json
+    case_id: logical-column
+  - file: observations/subgraph_observations.json
+    case_id: index-column
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: names
+- claim_id: subgraph.node-table
+  statement: All node-table variables (Met, Atom; or Name) are carried over for the selected rows.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: source-graph
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: names
+- claim_id: subgraph.induced-edges
+  statement: H contains exactly the edges of G with both end nodes selected, with EndNodes renumbered
+    to positions in H and edge-table variables (rxns, Weight) carried over. For the 4-cycle with edges
+    r1..r4, the mask [1 1 1 0] kept r1, r2 as [1 2; 2 3]; [1 0 1 1] kept r3, r4 as [2 3; 3 1]; [3 1 2]
+    kept r1, r2 as [2 3; 3 1].
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: source-graph
+  - file: observations/subgraph_observations.json
+    case_id: logical-mask
+  - file: observations/subgraph_observations.json
+    case_id: logical-column
+  - file: observations/subgraph_observations.json
+    case_id: index-column
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: weighted
+- claim_id: subgraph.edge-order
+  statement: 'The edge table of H is sorted by its renumbered EndNodes rows, not kept in G''s edge order:
+    indices [4 1 2] gave nodes d, a, b and edges r4, r1 as [1 2; 2 3] (G''s order would give r1, r4 as
+    [2 3; 1 2]); this is the one case that separates the two orders.'
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: edge-order
+  - file: observations/subgraph_observations.json
+    case_id: logical-column
+  - file: observations/subgraph_observations.json
+    case_id: index-unsorted
+  - file: observations/subgraph_observations.json
+    case_id: multigraph
+- claim_id: subgraph.multigraph
+  statement: Parallel edges and self-loops between selected nodes are kept (EndNodes [1 1; 1 2; 1 2]).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: multigraph
+- claim_id: subgraph.isolated
+  statement: A selected node with no kept edge stays in H (2 nodes, 0x2 EndNodes).
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: isolated-node
+- claim_id: subgraph.empty
+  statement: An all-false mask or an empty index vector gives a graph with 0 nodes and 0 edges that keeps
+    the node and edge variable names.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: all-false
+  - file: observations/subgraph_observations.json
+    case_id: empty-index
+- claim_id: subgraph.names
+  statement: With named nodes, EndNodes of H is a cell array of names.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: names
+- claim_id: subgraph.error-repeat
+  statement: A node index is repeated, or a logical mask is shorter or longer than the number of nodes.
+    The call errors with identifier MATLAB:graphfun:subgraph:InvalidInd.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: err-repeat
+  - file: observations/subgraph_observations.json
+    case_id: err-mask-length
+  - file: observations/subgraph_observations.json
+    case_id: err-mask-longer
+- claim_id: subgraph.error-range
+  statement: A node index exceeds the number of nodes (digraph). The call errors with identifier MATLAB:graphfun:digraph:InvalidNodeID.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: err-range
+- claim_id: subgraph.error-unknown-name
+  statement: A name is not a node name (digraph). The call errors with identifier MATLAB:graphfun:digraph:UnknownNodeName.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: err-unknown-name
+- claim_id: subgraph.error-one-arg
+  statement: Only G is given. The call errors with identifier MATLAB:minrhs.
+  source_category: black-box-observation
+  normative: true
+  date: '2026-11-02'
+  author: clean-room agent (Claude Opus 5.5)
+  applicable_releases: *id001
+  status: confirmed
+  observation_refs:
+  - file: observations/subgraph_observations.json
+    case_id: err-one-arg

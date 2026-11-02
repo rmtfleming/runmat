@@ -1,0 +1,420 @@
+{
+  "schema_version": "1.0",
+  "function_name": "normest",
+  "release": "R2026a",
+  "version_string": "26.1.0.3276743 (R2026a) Update 3",
+  "platform": "GLNXA64",
+  "generated_by": "experiments/normest/test_normest_interface.m",
+  "date": "2026-11-02",
+  "notes": "Values via describe_value (structs: one field per reported fact; tables: per-variable class, size and value; categoricals: values and categories; cell arrays listed in column-major order); errors record the identifier only.",
+  "cases": [
+    {
+      "case_id": "sparse-stoich",
+      "description": "sparse 4x5 stoichiometric-style matrix (COBRA form)",
+      "call": "S = sparse([-1 0 1 0 0; 1 -1 0 0 1; 0 1 -1 -1 0; 0 0 0 1 -1]); [nrm, cnt] = normest(S); report nrm, cnt, norm(full(S)) and the relative difference",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "2",
+          "cnt": "2",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "1.9999999999999998",
+          "rel_diff": "1.1102230246251568e-16"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense-square",
+      "description": "dense 3x3",
+      "call": "[nrm, cnt] = normest([4 1 0; 1 3 1; 0 1 2]); report as sparse-stoich",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "4.7320502633041261",
+          "cnt": "7",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "4.7320508075688776",
+          "rel_diff": "1.1501667535335275e-07"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "dense-wide",
+      "description": "dense 2x4",
+      "call": "[nrm, cnt] = normest([1 2 3 4; 0 1 0 1]); report as sparse-stoich",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "5.5885191427415482",
+          "cnt": "3",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "5.5885191430045058",
+          "rel_diff": "4.7053190464464668e-11"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "one-out",
+      "description": "one output",
+      "call": "nrm = normest([3 0; 0 4]); report nrm, norm(full(A)) and the relative difference",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "3.9999991190559907",
+          "class_nrm": "'double'",
+          "norm_full": "4",
+          "rel_diff": "2.2023600232401463e-07"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "tol-coarse",
+      "description": "tol = 1e-1 on the dense 3x3",
+      "call": "[nrm, cnt] = normest([4 1 0; 1 3 1; 0 1 2], 1e-1); report as sparse-stoich",
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "4.7271139464407828",
+          "cnt": "2",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "4.7320508075688776",
+          "rel_diff": "0.0010432815134187512"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "tol-fine",
+      "description": "tol = 1e-12 on the dense 3x3",
+      "call": "[nrm, cnt] = normest([4 1 0; 1 3 1; 0 1 2], 1e-12); report as sparse-stoich",
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "4.7320508075686245",
+          "cnt": "15",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "4.7320508075688776",
+          "rel_diff": "5.349284272469241e-14"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "row-vector",
+      "description": "a 1x3 row vector",
+      "call": "[nrm, cnt] = normest([3 4 12]); report as sparse-stoich",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "13",
+          "cnt": "1",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "13",
+          "rel_diff": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "column-vector",
+      "description": "a 3x1 column vector",
+      "call": "[nrm, cnt] = normest([3; 4; 12]); report as sparse-stoich",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "13",
+          "cnt": "2",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "13",
+          "rel_diff": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "identity",
+      "description": "speye(5)",
+      "call": "[nrm, cnt] = normest(speye(5)); report as sparse-stoich",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "1",
+          "cnt": "2",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "1",
+          "rel_diff": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "zero",
+      "description": "all-zero 3x2",
+      "call": "[nrm, cnt] = normest(zeros(3, 2)); report as sparse-stoich",
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "0",
+          "cnt": "0",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "0",
+          "rel_diff": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "sparse-zero",
+      "description": "all-zero sparse 3x3",
+      "call": "[nrm, cnt] = normest(sparse(3, 3)); report as sparse-stoich",
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "0",
+          "cnt": "0",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "0",
+          "rel_diff": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "complex",
+      "description": "complex 2x2",
+      "call": "[nrm, cnt] = normest([1 1i; 2 0]); report as sparse-stoich",
+      "tolerance": 1E-6,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "2.288245606417354",
+          "cnt": "5",
+          "class_nrm": "'double'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "2.2882456112707374",
+          "rel_diff": "2.121006350448628e-09"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "single",
+      "description": "single 2x2",
+      "call": "[nrm, cnt] = normest(single([1 2; 3 4])); report as sparse-stoich",
+      "tolerance": 0.0001,
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "5.4649858474731445",
+          "cnt": "3",
+          "class_nrm": "'single'",
+          "class_cnt": "'double'",
+          "issparse_nrm": "false",
+          "norm_full": "5.4649857042190426",
+          "rel_diff": "2.6213078984559241e-08"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "scalar",
+      "description": "scalar -5",
+      "call": "normest(-5)",
+      "errored": false,
+      "result": {
+        "value": "5",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "empty",
+      "description": "0x0",
+      "call": "normest([])",
+      "errored": false,
+      "result": {
+        "value": "0",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "with-nan",
+      "description": "a matrix with NaN",
+      "call": "normest([1 NaN; 0 1])",
+      "errored": false,
+      "result": {
+        "value": "NaN",
+        "class": "double",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": true,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "char-input",
+      "description": "char input",
+      "call": "nrm = normest('ab'); report nrm, norm(double('ab')) and the relative difference",
+      "errored": false,
+      "result": {
+        "value": {
+          "nrm": "137.88763541376724",
+          "class_nrm": "'double'",
+          "norm_full": "137.88763541376724",
+          "rel_diff": "0"
+        },
+        "class": "struct",
+        "size": [
+          1,
+          1
+        ],
+        "isreal": false,
+        "issparse": false
+      }
+    },
+    {
+      "case_id": "err-int",
+      "description": "int32 input",
+      "call": "normest(int32([1 2; 3 4]))",
+      "errored": true,
+      "error_identifier": "MATLAB:mtimes:integerNotSupported"
+    },
+    {
+      "case_id": "err-3d",
+      "description": "a 2x2x2 array",
+      "call": "normest(ones(2, 2, 2))",
+      "errored": true,
+      "error_identifier": "MATLAB:transpose:NDArray"
+    },
+    {
+      "case_id": "err-no-arg",
+      "description": "no input",
+      "call": "normest()",
+      "errored": true,
+      "error_identifier": "MATLAB:minrhs"
+    }
+  ]
+}
