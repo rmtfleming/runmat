@@ -111,7 +111,9 @@ batch N5: `lsqminnorm` (`math/linalg/solve/mod.rs`), `sprank`
 `outedges`/`reordernodes` (`graph/domain/mod.rs`), `rat`
 (`math/rounding/mod.rs`), `fscanf` (`io/filetext/mod.rs`), `urlwrite`
 (`io/http/mod.rs`) and `fplot`/`rectangle`/`validatecolor`
-(`plotting/ops/mod.rs`, via `#[path]`).
+(`plotting/ops/mod.rs`, via `#[path]`); batch N6: `subgraph`/`findnode`
+(`graph/domain/mod.rs`), `normest` (`math/linalg/solve/mod.rs`),
+`lsqnonneg` (`math/optim/mod.rs`) and `web` (`io/http/mod.rs`).
 
 Re-add these lines whenever upstream regenerates those files. CI does not currently verify
 generated products, so the hand-added lines don't fail the build.

@@ -4,6 +4,7 @@ pub mod det;
 pub mod inv;
 pub mod linsolve;
 pub mod lsqminnorm;
+pub mod normest;
 pub mod norm;
 pub mod null;
 pub mod pinv;

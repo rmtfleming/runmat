@@ -12,6 +12,7 @@ pub(crate) mod least_squares;
 pub mod linprog;
 pub mod lsqcurvefit;
 pub mod lsqnonlin;
+pub mod lsqnonneg;
 pub mod optimoptions;
 pub mod optimset;
 pub mod quad;

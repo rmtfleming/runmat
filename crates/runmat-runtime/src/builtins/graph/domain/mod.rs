@@ -222,12 +222,14 @@ mod class_registry;
 mod construction;
 mod editing;
 mod entrypoints;
+mod findnode;
 mod isomorphism;
 mod outedges;
 mod parsing;
 mod paths;
 mod reordernodes;
 mod structure;
+mod subgraph;
 
 #[cfg(test)]
 mod tests;
